@@ -117,6 +117,30 @@ it works because every route of a resource is mounted under that resource's pref
 `app.onError` and `app.notFound` are **not** subject to this: they are app-level handlers rather than
 route middleware, and may be registered in any order.
 
+## Streaming
+
+A generated operation returns a **value**, not a `Response`, so a handler cannot hand back a
+`ReadableStream`. Streaming happens in `deps.respond`, which may return any `Response`:
+
+```ts
+const deps: RouteDeps = {
+  // ...
+  respond: (c, arms, result) =>
+    streamSSE(c, async (stream) => {
+      for await (const item of pageThrough(result)) {
+        await stream.writeSSE({ data: JSON.stringify(item) });
+      }
+    }),
+};
+```
+
+The validators are middleware, so they still run **before** anything is streamed — a request the
+document forbids is refused with an ordinary response and never opens a stream. Both properties are
+asserted by real requests in `test/wire/streaming.test.ts`.
+
+Point `runtime-module` at your own module and re-declare `Result<T>` if you want the handler's return
+type to carry the stream shape; that is the same seam the README describes for result envelopes.
+
 ## Observability
 
 Nothing here is Sentry-specific, and this package deliberately ships no instrumentation — but two
