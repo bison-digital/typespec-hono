@@ -144,7 +144,7 @@ function ownerOfCrash(message: string): FailureOwner {
  * separately-resolved program, and any disagreement would be ambiguous between "the emitter is
  * wrong" and "the two compiles differed".
  *
- * openapi3 is configured exactly as `packages/api-spec/tspconfig.yaml` configures it. An oracle
+ * openapi3 is configured exactly as a consuming project's `tspconfig.yaml` configures it. An oracle
  * running with different options is not the oracle we ship against.
  */
 export async function compileScenario(scenario: Scenario): Promise<CompiledScenario> {
@@ -192,7 +192,7 @@ export async function compileScenario(scenario: Scenario): Promise<CompiledScena
 					"seal-object-schemas": true,
 					// JSON rather than the default YAML: the document is read back structurally, and a
 					// YAML parser is a dependency this suite would otherwise take on purely to undo a
-					// serialisation choice. `api-spec` emits JSON for the same reason.
+					// serialisation choice.
 					"file-type": "json",
 				},
 			},

@@ -5,7 +5,7 @@ Working record. Everything here is measured; where a number appears, it came fro
 ## START HERE
 
 **State, 2026-08-12.** Extracted from a single un-split emitter, and now a thin consumer of
-[`typespec-http-zod`](https://github.com/bison-digital/typespec-http-zod). **70 tests, 9 files,
+[`typespec-http-zod`](https://github.com/bison-digital/typespec-http-zod). **79 tests, 11 files,
 typecheck clean, lint clean.**
 
 **Three numbers to lead every report with: divergences · emitter warnings · named refusals. Today

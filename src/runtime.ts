@@ -19,7 +19,7 @@ export { armFor, type ResponseArm } from "typespec-http-zod/runtime";
 /**
  * The contract between the GENERATED server and the app that mounts it.
  *
- * ⚠️ **This exists because "here is a data table, write your own registrar" is not a deliverable.**
+ * ⚠️ **This exists because "here is a data table, write your own router" is not a deliverable.**
  * The emitter used to produce `GENERATED_ROUTES` — one array of plain objects — and every consumer
  * had to hand-write a loop that interpreted it at run time. In this repository that loop is 220
  * lines, it sits outside every oracle the emitter is judged by, and it carries a cast that exists
@@ -146,7 +146,7 @@ export interface RouteDeps<E extends Env = AppEnv, C = Ctx> {
 	 * unaffected.
 	 *
 	 * Its absence was a real defect for one commit: the generated server carried **zero** references
-	 * to scopes while `/public/v1` published eleven, so it mounted the surface with the gate silently
+	 * to scopes while the document published eleven, so a surface mounted with its gate silently
 	 * dropped.
 	 */
 	readonly authorize: (scopes: readonly string[]) => MiddlewareHandler<E>;

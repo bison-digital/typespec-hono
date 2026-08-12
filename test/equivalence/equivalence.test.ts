@@ -14,9 +14,9 @@ import { createReferenceApp, THE_WIDGET } from "./reference-app.js";
  * emitter generates** from `api.tsp`. The same requests go to both, and the answers have to match.
  *
  * ⚠️ **This used to compare the wrong thing.** The emitter produced a data table and a forty-line
- * hand-written registrar interpreted it at run time, so the comparison was "gold standard versus my
+ * hand-written loop interpreted it at run time, so the comparison was "gold standard versus my
  * test scaffolding, fed by our data" — the emitter's output was never the artefact under test. The
- * registrar is gone; `registerRoutes` from `app.gen.ts` mounts the app directly.
+ * loop is gone; `registerRoutes` from `app.gen.ts` mounts the app directly.
  *
  * ⚠️ **Behaviour AND shape.** Requests measure what a caller can observe, which no structural check
  * can; the routing table comparison below measures that both apps mount the same verbs and paths,
@@ -158,7 +158,7 @@ beforeAll(async () => {
 		registerRoutes: (app: unknown, handlersFor: unknown, deps: unknown) => void;
 	};
 	const app = new HonoApp();
-	// A factory, because in Workers the backend hangs off `c.env` and exists only per request. This
+	// A factory, because in Workers a service binding hangs off `c.env` and exists only per request. This
 	// fixture has nothing to resolve, which is exactly the case that must stay a one-line arrow.
 	registerRoutes(app, () => OPERATIONS, DEPS);
 	generated = app;
@@ -182,7 +182,7 @@ const routingTableOf = (app: Hono): string[] =>
 describe("the emitted app is shaped like the hand-written one", () => {
 	/**
 	 * ⚠️ **The comparison the old design could not make.** While the emitter produced a table and a
-	 * hand-written registrar mounted it, there was no artefact to compare — only behaviour, through
+	 * hand-written loop mounted it, there was no artefact to compare — only behaviour, through
 	 * scaffolding written for this test. Now both sides are Hono apps built the same way, so "they
 	 * should be the same" is an assertion.
 	 *
