@@ -70,6 +70,8 @@ interface Measured {
 	readonly declared: number;
 	readonly mounted: number;
 	readonly registrations: number;
+	/** Operations this emitter named a refusal for, and therefore did not mount. */
+	readonly refused: number;
 }
 
 async function measure(compiled: CompiledScenario): Promise<Measured | undefined> {
@@ -104,6 +106,7 @@ async function measure(compiled: CompiledScenario): Promise<Measured | undefined
 		declared: operationsInDocument(document),
 		mounted: slots.size,
 		registrations,
+		refused: compiled.refusals?.length ?? 0,
 	};
 }
 
@@ -126,6 +129,7 @@ describe("the generated server mounts what the document declares", () => {
 			declared: measured.reduce((sum, entry) => sum + entry.declared, 0),
 			mounted: measured.reduce((sum, entry) => sum + entry.mounted, 0),
 			registrations: measured.reduce((sum, entry) => sum + entry.registrations, 0),
+			refused: measured.reduce((sum, entry) => sum + entry.refused, 0),
 		};
 		const recorded = JSON.parse(
 			readFileSync(join(here, "baseline.json"), "utf8"),
@@ -134,10 +138,18 @@ describe("the generated server mounts what the document declares", () => {
 			writeFileSync(join(here, "baseline.json"), `${JSON.stringify(totals, null, "\t")}\n`);
 			return;
 		}
-		// Only downward movement fails: a corpus bump legitimately adds scenarios and operations.
+		/**
+		 * ⚠️ **The polarities differ on purpose.** Scenarios, declared operations and mounted routes may
+		 * only GROW — a corpus bump adds material and a regression removes it. Refusals may only SHRINK:
+		 * a new one is an operation this emitter has stopped serving, which is a claim that has to be
+		 * justified in a commit rather than absorbed by a number.
+		 */
 		expect(totals.scenarios, JSON.stringify(totals)).toBeGreaterThanOrEqual(recorded.scenarios);
 		expect(totals.declared, JSON.stringify(totals)).toBeGreaterThanOrEqual(recorded.declared);
 		expect(totals.mounted, JSON.stringify(totals)).toBeGreaterThanOrEqual(recorded.mounted);
+		expect(totals.refused, JSON.stringify(totals)).toBeLessThanOrEqual(recorded.refused);
+		// The arithmetic that makes an exclusion visible rather than cancelling out.
+		expect(totals.mounted + totals.refused, JSON.stringify(totals)).toBe(totals.declared);
 	});
 
 	it("read a real share of the corpus", () => {
@@ -158,10 +170,19 @@ describe("the generated server mounts what the document declares", () => {
 		 * negotiated scenario legitimately has more slots than the document has entries — except this
 		 * emitter collapses those onto one registration, so in practice they agree. A shortfall is an
 		 * operation a caller cannot reach at all.
+		 *
+		 * ⚠️ **Refusals are added back, and that is what makes this honest rather than lenient.** An
+		 * operation this emitter names a refusal for is one it declines to serve, out loud; an operation
+		 * that simply vanishes is the defect. `mounted + refused === declared` distinguishes them, where
+		 * `mounted === declared` could be satisfied by emitting an unreachable route — which is exactly
+		 * what happened for fifteen HEAD operations.
 		 */
 		const short = measured
-			.filter((entry) => entry.mounted < entry.declared)
-			.map((entry) => `${entry.name}: document=${entry.declared} mounted=${entry.mounted}`);
+			.filter((entry) => entry.mounted + entry.refused < entry.declared)
+			.map(
+				(entry) =>
+					`${entry.name}: document=${entry.declared} mounted=${entry.mounted} refused=${entry.refused}`,
+			);
 		expect(short.toSorted()).toEqual([]);
 	});
 
@@ -221,6 +242,15 @@ describe("the generated server mounts what the document declares", () => {
 		const ours = sources
 			.filter((compiled) => compiled.failure?.owner === "ours")
 			.map((compiled) => `${compiled.scenario.name} :: ${compiled.failure?.code}`);
+		/**
+		 * ⚠️ **Refusals are asserted as a CLASS, not a list of scenario names.** Which corpus scenarios
+		 * happen to declare a `@head` operation is not a fact about this emitter, and pinning the list
+		 * would turn a corpus bump into a spurious failure. What IS a fact: every refusal this emitter
+		 * raises is one of the two it declares, and no scenario is refused for an unnamed reason.
+		 */
+		const refusalCodes = [...new Set(sources.flatMap((compiled) => compiled.refusals ?? []))];
+		expect(refusalCodes.toSorted()).toEqual(["typespec-hono/unroutable-verb"]);
+		expect(sources.filter((compiled) => (compiled.refusals?.length ?? 0) > 0).length).toBeGreaterThanOrEqual(7);
 		/**
 		 * Every one of these is a REFUSAL raised by `typespec-http-zod`, reached through this emitter
 		 * because it runs the library. This package adds exactly one refusal of its own —

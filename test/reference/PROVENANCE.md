@@ -5,7 +5,7 @@
 Vendored from **`typespec-http-zod`**, `test/reference/service.tsp`.
 
 ```
-sha256  72a394bd3fcf64bcbac0c45c8456b7ef1ca5b828b37ce1fa2101c72504f7f2e7
+sha256  3031608d3f10f901a316588ff9732fe45e7d7aa6c7129317887b03c562e941e0
 ```
 
 **Why a copy rather than an import.** `typespec-http-zod` does not ship test material: its `files`

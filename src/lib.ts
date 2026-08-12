@@ -51,6 +51,41 @@ const EmitterOptionsSchema: JSONSchemaType<EmitterOptions> = {
  */
 const diagnostics = {
 	/**
+	 * An operation on a verb Hono cannot dispatch to — in practice, `HEAD`.
+	 *
+	 * ⚠️ **Hono rewrites every HEAD request to GET BEFORE routing, unconditionally.** Read from its own
+	 * source, `hono-base.js`:
+	 *
+	 * ```js
+	 * if (method === "HEAD") {
+	 *   return (async () => new Response(null, await this.#dispatch(request, executionCtx, env, "GET")))();
+	 * }
+	 * ```
+	 *
+	 * So a route registered under `HEAD` is categorically unreachable. Measured on Hono 4.13.1: with a
+	 * HEAD route and no GET, a HEAD request answers **404**; with both, the GET handler answers and the
+	 * HEAD handler is dead code. `on("PURGE", …)` and `on("OPTIONS", …)` both work, so this is HEAD
+	 * specifically and not a limitation of `on`.
+	 *
+	 * ⚠️ **This emitter shipped exactly that dead code, and every route-counting arm called it mounted**
+	 * — including a differential written specifically to catch unreachable routes, because `app.routes`
+	 * lists a registration Hono will never dispatch to. Fifteen of the seventeen HEAD operations in
+	 * `@typespec/http-specs` have no sibling GET, so they were 404s that counted as present.
+	 *
+	 * **Refused rather than compensated for.** The workarounds are worse: registering the handler under
+	 * GET invents an operation the document does not declare, and guarding it on `c.req.method` is not
+	 * something a Hono author would write. The remedy is in the spec, and the message says it.
+	 *
+	 * ⚠️ **A refusal about the TARGET FRAMEWORK, which is why it lives here.** `typespec-http-zod` emits
+	 * correct validators for these operations; only a Hono server cannot route them.
+	 */
+	"unroutable-verb": {
+		severity: "error",
+		messages: {
+			default: paramMessage`'${"operationId"}' is declared on '${"verb"}', which Hono cannot dispatch to: it rewrites every HEAD request to GET before matching, so a route registered under HEAD is never reached — 404 where the path has no GET, and dead code where it has one. Declare the operation as '@get' instead; Hono answers HEAD from it automatically with the body stripped, which is what RFC 9110 requires.`,
+		},
+	},
+	/**
 	 * A path template this emitter will not translate into a route.
 	 *
 	 * ⚠️ **Refused rather than approximated, because the failure mode is a route that WORKS and is
@@ -93,6 +128,7 @@ const diagnostics = {
  * exists only in the arrangement that BUILDS the package, and would ship silently.
  */
 type Diagnostics = {
+	"unroutable-verb": { readonly default: CallableMessage<["operationId", "verb"]> };
 	"unsupported-path-template": { readonly default: CallableMessage<["template", "name"]> };
 };
 

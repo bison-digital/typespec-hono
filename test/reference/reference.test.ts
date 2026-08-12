@@ -38,8 +38,18 @@ async function mount(): Promise<Hono> {
 }
 
 describe("the emitted server mounts what the document declares", () => {
-	it("compiles with no diagnostic of any severity", () => {
-		expect(compiled.diagnostics.map((d) => `${d.severity}: ${d.code}`)).toEqual([]);
+	it("refuses exactly what it cannot route, and nothing else", () => {
+		/**
+		 * ⚠️ **One named refusal, and it is a fact about Hono rather than about the spec.** `widgetExists`
+		 * is `@head`, and Hono rewrites every HEAD request to GET before matching — so a route registered
+		 * under HEAD is unreachable. The library emits correct validators for the operation; only a Hono
+		 * server cannot serve it.
+		 *
+		 * Named rather than counted: a refusal is a claim about the reference spec and has to be read.
+		 */
+		expect(compiled.diagnostics.map((d) => `${d.severity}: ${d.code}`)).toEqual([
+			"error: typespec-hono/unroutable-verb",
+		]);
 	});
 
 	it("mounts one route per verb and path, with nothing unreachable behind it", async () => {
@@ -59,8 +69,11 @@ describe("the emitted server mounts what the document declares", () => {
 			...readFileSync(join(compiled.outDir, "app.gen.ts"), "utf8").matchAll(/^\tapp\.\w+\(/gm),
 		].length;
 		expect(registrations).toBe(slots.length);
-		// The service declares 11 operations; the two on `/report` share a slot and negotiate.
-		expect(slots.length).toBe(10);
+		/**
+		 * The service declares 11 operations. Two on `/report` share a slot and negotiate; one is
+		 * `@head` and is refused, because Hono cannot dispatch to it. Nine remain.
+		 */
+		expect(slots.length).toBe(9);
 	});
 
 	it("converts a hyphenated path parameter rather than mounting it literally", async () => {
@@ -70,11 +83,22 @@ describe("the emitted server mounts what the document declares", () => {
 		expect(paths.filter((path) => path.includes("{"))).toEqual([]);
 	});
 
-	it("routes a verb with no dedicated Hono method through `app.on(method, …)`", async () => {
+	it("mounts no route for a verb Hono cannot dispatch to", async () => {
 		const app = await mount();
-		// ⚠️ `app.on` takes the METHOD first. Called without one, the route is emitted, counted, and
-		// mounted nowhere — which only surfaced when counts started coming from `app.routes`.
-		expect(app.routes.some((route) => route.method === "HEAD")).toBe(true);
+		/**
+		 * ⚠️ **This arm asserted the OPPOSITE, and it was wrong for the whole life of the un-split
+		 * emitter.** `app.on("HEAD", …)` looks like a mounted route and `app.routes` lists it, but
+		 * `hono-base.js` rewrites every HEAD request to GET at the top of `#dispatch`, so it is never
+		 * reached: 404 where the path has no GET, dead code where it has one. Measured on Hono 4.13.1,
+		 * and measured against `on("PURGE", …)` and `on("OPTIONS", …)`, which both work — so this is
+		 * HEAD specifically.
+		 *
+		 * Fifteen of the seventeen HEAD operations in `@typespec/http-specs` have no sibling GET. Every
+		 * one was a 404 that a route differential counted as present.
+		 */
+		expect(app.routes.filter((route) => route.method === "HEAD")).toEqual([]);
+		const source = readFileSync(join(compiled.outDir, "app.gen.ts"), "utf8");
+		expect(source).not.toMatch(/"HEAD"/);
 	});
 
 	it("registers a negotiated route once, and answers 406 rather than validating `accept`", () => {

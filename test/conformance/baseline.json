@@ -1,6 +1,7 @@
 {
 	"scenarios": 61,
 	"declared": 577,
-	"mounted": 577,
-	"registrations": 577
+	"mounted": 564,
+	"registrations": 564,
+	"refused": 13
 }

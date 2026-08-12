@@ -265,7 +265,17 @@ namespace Report {
 @get
 op health(): { status: string };
 
-/** ⚠️ `HEAD` has no dedicated Hono method, so it must go through `app.on(method, path, …)`. */
+/**
+ * ⚠️ **A `HEAD` operation, which some routers cannot serve at all.**
+ *
+ * Validators for it are ordinary — a path parameter and no body — and this package emits them like
+ * any other. Whether it can be MOUNTED is a different question, answered by whichever server emitter
+ * a consumer uses, and at least one answers "no": Hono rewrites every HEAD request to GET before
+ * matching, so a route registered under HEAD is never reached.
+ *
+ * It stays here precisely because the two halves must answer differently. A construct that both
+ * packages treat identically cannot show that the split is real.
+ */
 @route("/widgets/{widget-id}")
 @head
 op widgetExists(@path("widget-id") widgetId: string): void;

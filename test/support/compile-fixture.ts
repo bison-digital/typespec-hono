@@ -31,8 +31,27 @@ function runtimeFixtureModule(outDir: string): string {
 	return specifier.startsWith(".") ? specifier : `./${specifier}`;
 }
 
-export async function compileFixture(dir: string, name: string): Promise<CompiledFixture> {
-	const outDir = join(dir, ".out", name);
+export interface FixtureOptions {
+	/** Where the emitted files import their runtime contract from. See {@link runtimeFixtureModule}. */
+	readonly runtimeModule?: string;
+	/**
+	 * The output directory's name, when it must differ from the spec's.
+	 *
+	 * ⚠️ **Two suites compiling one fixture to one directory with DIFFERENT options overwrite each
+	 * other, and vitest runs test files in parallel.** Measured: the same `HEAD` request answered 400,
+	 * 200 and 204 across three runs of an unchanged emitter, because whichever suite compiled last
+	 * decided what the other was asserting against. A suite that races itself is not evidence, and the
+	 * failure looks exactly like a flaky emitter.
+	 */
+	readonly outName?: string;
+}
+
+export async function compileFixture(
+	dir: string,
+	name: string,
+	options: FixtureOptions = {},
+): Promise<CompiledFixture> {
+	const outDir = join(dir, ".out", options.outName ?? name);
 	const program = await compile(NodeHost, join(dir, `${name}.tsp`), {
 		outputDir: outDir,
 		emit: ["typespec-hono"],
@@ -42,7 +61,7 @@ export async function compileFixture(dir: string, name: string): Promise<Compile
 				"contracts-output-dir": outDir,
 				"contracts-package": `./${CONTRACTS_BARREL}.js`,
 				"seal-object-schemas": true,
-				"runtime-module": runtimeFixtureModule(outDir),
+				"runtime-module": options.runtimeModule ?? runtimeFixtureModule(outDir),
 			},
 		},
 	});

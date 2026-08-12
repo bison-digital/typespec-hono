@@ -103,6 +103,13 @@ export interface CompiledScenario {
 	/** Warnings THIS emitter raised. Each one is a compromise it is shipping; there should be none. */
 	readonly emitterWarnings?: readonly string[];
 	/**
+	 * Refusals THIS emitter raised — one per operation it will not serve, by diagnostic code.
+	 *
+	 * A refusal is a statement, not a failure: the scenario still emitted everything else, and the
+	 * route arithmetic accounts for the exclusion rather than letting it look like a dropped operation.
+	 */
+	readonly refusals?: readonly string[];
+	/**
 	 * The LAST version the service declares, when it is versioned.
 	 *
 	 * ⚠️ **Not the last document by filename, which is what this used to mean.** `versioning/removed`
@@ -230,17 +237,42 @@ export async function compileScenario(scenario: Scenario): Promise<CompiledScena
 		return undefined;
 	})();
 
+	/**
+	 * ⚠️ **A refusal is not a failed scenario, and treating it as one costs coverage for no reason.**
+	 * `reportDiagnostic` does not unwind, so a service containing one operation this emitter refuses
+	 * still emits every other operation correctly. Classifying the whole scenario as failed would blind
+	 * the differential to twenty unrelated operations because one of them is `@head` — measured:
+	 * `type/model/visibility` has a single HEAD operation and nineteen others.
+	 *
+	 * So a refusal is recorded by NAME and the scenario stays gradable, with the arithmetic adjusted:
+	 * `mounted + refused === declared` is a stronger property than `mounted === declared` ever was,
+	 * because it makes the exclusions explicit instead of letting them cancel out.
+	 */
+	const refusals = program.diagnostics
+		.filter(
+			(diagnostic) =>
+				diagnostic.severity === "error" && diagnostic.code.startsWith("typespec-hono/"),
+		)
+		.map((diagnostic) => diagnostic.code);
+
 	const emitterWarnings = program.diagnostics
 		.filter(
 			(diagnostic) =>
 				diagnostic.code.startsWith("typespec-hono/") && diagnostic.severity === "warning",
 		)
 		.map((diagnostic) => `${scenario.name} :: ${diagnostic.code}`);
-	const error = program.diagnostics.find((diagnostic) => diagnostic.severity === "error");
+	/**
+	 * Our own refusals are excluded from the failure test: they name an operation this emitter will not
+	 * serve, and the file for everything else was still written.
+	 */
+	const error = program.diagnostics.find(
+		(diagnostic) =>
+			diagnostic.severity === "error" && !diagnostic.code.startsWith("typespec-hono/"),
+	);
 	if (error === undefined) {
 		return latestVersion === undefined
-			? { scenario, ...dirs, emitterWarnings }
-			: { scenario, ...dirs, emitterWarnings, latestVersion };
+			? { scenario, ...dirs, emitterWarnings, refusals }
+			: { scenario, ...dirs, emitterWarnings, latestVersion, refusals };
 	}
 	return {
 		scenario,

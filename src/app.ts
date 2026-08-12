@@ -41,6 +41,15 @@ export function toHonoPath(
 	});
 }
 
+/**
+ * Verbs Hono cannot dispatch to, whatever they are registered with.
+ *
+ * ⚠️ **`HEAD` is rewritten to `GET` before matching** — `hono-base.js` does it unconditionally at the
+ * top of `#dispatch` — so a route registered under it is never reached. See the `unroutable-verb`
+ * diagnostic for the measurements.
+ */
+const UNROUTABLE_VERBS = new Set(["HEAD"]);
+
 /** `GET` → `get`. Hono's per-verb helpers are the idiom; `app.on` is the escape hatch. */
 const HONO_METHOD: Readonly<Record<string, string>> = {
 	GET: "get",
@@ -99,6 +108,12 @@ function capitaliseId(operationId: string): string {
 	return `${operationId.charAt(0).toUpperCase()}${operationId.slice(1)}`;
 }
 
+/** The two things a Hono server cannot express, handed back rather than thrown. */
+export interface RenderRefusals {
+	readonly unsupportedPathTemplate: (route: EmittedRoute, template: string, name: string) => void;
+	readonly unroutableVerb: (route: EmittedRoute) => void;
+}
+
 /**
  * The generated Hono server.
  *
@@ -117,11 +132,17 @@ function capitaliseId(operationId: string): string {
  * packages one emitter rather than two that must agree by coincidence — and it is why a consumer who
  * wants the validators without a server can simply not install this one.
  */
-export function renderApp(
-	emitted: EmittedService,
-	refuse: (route: EmittedRoute, template: string, name: string) => void,
-): string {
+export function renderApp(emitted: EmittedService, refuse: RenderRefusals): string {
 	const entries: AppRoute[] = emitted.routes.flatMap((route) => {
+		/**
+		 * ⚠️ **Refused AND skipped, in that order.** Emitting the route anyway would put a registration
+		 * in the file that `app.routes` lists and Hono never dispatches to — which is precisely how
+		 * fifteen unreachable routes passed a differential written to catch unreachable routes.
+		 */
+		if (UNROUTABLE_VERBS.has(route.verb)) {
+			refuse.unroutableVerb(route);
+			return [];
+		}
 		const names = emitted.schemaNames.get(route.operationId);
 		// The library declares a `Responses` const for every operation, so a missing entry is a bug in
 		// this package's pairing rather than a spec the emitter chose not to serve.
@@ -181,7 +202,9 @@ export function renderApp(
 		const entry = group[0] as AppRoute;
 		const { route, validators } = entry;
 		const method = HONO_METHOD[route.verb] ?? "on";
-		const path = toHonoPath(route.path, (template, name) => refuse(route, template, name));
+		const path = toHonoPath(route.path, (template, name) =>
+			refuse.unsupportedPathTemplate(route, template, name),
+		);
 		/**
 		 * The scope gate goes FIRST, before any validator.
 		 *
