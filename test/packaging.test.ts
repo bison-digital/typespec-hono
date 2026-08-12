@@ -96,7 +96,7 @@ describe("the package declares what it needs to run outside this checkout", () =
 		 * `test/` for whatever other suites had emitted, which made it grade the previous run's build
 		 * on a populated tree and nothing at all on a fresh clone. See `support/emitted-set.ts`.
 		 */
-		expect(emitted.length).toBeGreaterThanOrEqual(20);
+		expect(emitted.length).toBeGreaterThanOrEqual(150);
 
 		const used = new Set<string>();
 		for (const file of emitted) {

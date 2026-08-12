@@ -86,8 +86,20 @@ describe("the generated validator says only what the document can say", () => {
 	}, 600_000);
 
 	it("has emitted output to inspect at all", () => {
+		/**
+		 * ⚠️ **These floors were an order of magnitude under what is actually swept, and had been since
+		 * before the sweep was made deterministic.** The arms were reading 315 files against a floor of
+		 * 20, 69 generated servers against 10, and 17 delimiter splits against 5 — numbers that would
+		 * have gone on passing through almost any regression. A floor that far under the measurement is
+		 * a floor in name only, and this file exists precisely to stop an arm reporting agreement about
+		 * nothing.
+		 *
+		 * Now at roughly half the measured value: loose enough to survive a corpus bump that removes
+		 * scenarios, tight enough to fail a real reduction in coverage. The same correction was made in
+		 * `typespec-http-zod`, for the same reason.
+		 */
 		// Without this the whole file passes the day the sweep stops producing anything.
-		expect(files.length).toBeGreaterThanOrEqual(20);
+		expect(files.length).toBeGreaterThanOrEqual(150);
 	});
 
 	it("has generated SERVERS to inspect, not only validators", () => {
@@ -97,7 +109,7 @@ describe("the generated validator says only what the document can say", () => {
 		 * coercion in a handler, a `.transform()` smuggled into a response. Checking only what the
 		 * library wrote would leave this package's output ungraded by its own rule.
 		 */
-		expect(files.filter((file) => file.endsWith("app.gen.ts")).length).toBeGreaterThanOrEqual(10);
+		expect(files.filter((file) => file.endsWith("app.gen.ts")).length).toBeGreaterThanOrEqual(30);
 	});
 
 	it("uses no Zod call that enforces something the document cannot state", () => {
@@ -134,7 +146,7 @@ describe("the generated validator says only what the document can say", () => {
 			(total, file) => total + (readFileSync(file, "utf8").match(DELIMITER_SPLIT) ?? []).length,
 			0,
 		);
-		expect(splits).toBeGreaterThanOrEqual(5);
+		expect(splits).toBeGreaterThanOrEqual(8);
 	});
 
 	it("declares no schema of its own in the server it generates", () => {
