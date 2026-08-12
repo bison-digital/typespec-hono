@@ -27,6 +27,9 @@ import { describe, expect, it } from "vitest";
 
 const packageRoot = fileURLToPath(new URL("..", import.meta.url));
 
+/** The single address this project is published under. */
+const PUBLISHED_IDENTITY = "zach@bison.digital";
+
 /**
  * ⚠️ **Word-boundary anchored, and `AI` deliberately requires punctuation around it.** A bare
  * case-insensitive `/ai/` matches `contains`, `available`, `fail`, `domain` and `explain`; a rule that
@@ -97,6 +100,26 @@ describe("the package credits no tool for the work", () => {
 		 */
 		const messages = git("log", "--all", "--format=%H%n%B%n%(trailers)");
 		expect(offendersIn("commit message", messages)).toEqual([]);
+	});
+
+	it("carries exactly one identity, the one this project publishes under", () => {
+		/**
+		 * ⚠️ **One email, in every author and committer field, over the whole history.** Two personal
+		 * addresses had accumulated — a work one and a personal one — which on a public repository reads
+		 * as two contributors and attributes half the work to an account that is not the project's.
+		 * Normalised with `git filter-repo --mailmap`; the HEAD tree hash was identical before and after,
+		 * so only metadata moved.
+		 *
+		 * ⚠️ **Pinned to the address rather than merely "all the same", because "consistently wrong" would
+		 * satisfy that.** A local `user.email` is per-clone configuration, so the next machine to commit
+		 * here reintroduces its own unless something says otherwise. This is that something.
+		 */
+		const identities = new Set(
+			git("log", "--all", "--format=%ae%n%ce")
+				.split("\n")
+				.filter((line) => line !== ""),
+		);
+		expect([...identities]).toEqual([PUBLISHED_IDENTITY]);
 	});
 
 	it("attributes every commit to a person, in both the author and committer fields", () => {
