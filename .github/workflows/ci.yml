@@ -1,0 +1,64 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  gate:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # Every Node major `engines` admits, which is `>=22`. Re-read Node's release schedule when
+        # that range moves.
+        node: [22, 24]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: typespec-hono
+
+      # ⚠️ **The library is a sibling checkout, not a registry install, and that is deliberate.**
+      # `pnpm-workspace.yaml` overrides `typespec-http-zod` to `link:../typespec-http-zod`, so CI has
+      # to reproduce the layout development uses. Installing a published version instead would test a
+      # different pairing from the one the commit was written against — and would make a change that
+      # spans both packages impossible to verify before either is released.
+      #
+      # The published manifest is unaffected: it carries a real semver range, and
+      # `test/packaging.test.ts` asserts that it never carries a path.
+      - uses: actions/checkout@v4
+        with:
+          repository: bison-digital/typespec-http-zod
+          path: typespec-http-zod
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: pnpm
+          cache-dependency-path: typespec-hono/pnpm-lock.yaml
+
+      # The library has to be installed and BUILT first: this package resolves it through the link,
+      # and its `exports` point at `dist/`, which does not exist in a fresh checkout.
+      - run: pnpm install --frozen-lockfile
+        working-directory: typespec-http-zod
+      - run: pnpm build
+        working-directory: typespec-http-zod
+
+      - run: pnpm install --frozen-lockfile
+        working-directory: typespec-hono
+      - run: pnpm build
+        working-directory: typespec-hono
+      - run: pnpm test
+        working-directory: typespec-hono
+      # LAST, always — see the library's workflow for why.
+      - run: pnpm typecheck
+        working-directory: typespec-hono
+      - run: pnpm lint
+        working-directory: typespec-hono

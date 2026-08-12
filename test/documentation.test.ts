@@ -1,0 +1,82 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import { fileURLToPath } from "node:url";
+import { describe, expect, it } from "vitest";
+import { $lib } from "../src/lib.js";
+import { EmitterOptionsSchema } from "../src/lib.js";
+
+/**
+ * **A user who hits a refusal should find it documented, not discover it.**
+ *
+ * ⚠️ **Documentation is asserted as a CLASS, the way every other rule here is.** A README listing the
+ * diagnostics that existed when somebody last wrote it is a list that stops covering what the package
+ * does, and the failure is silent — the reader concludes the emitter has no opinion about the thing
+ * that just refused their spec.
+ *
+ * So a diagnostic or an option added later fails this suite until it is written down. That is the
+ * whole mechanism: the cost of documenting is paid at the moment the capability is added, by the
+ * person who knows why it exists.
+ */
+
+const packageRoot = fileURLToPath(new URL("..", import.meta.url));
+const readme = readFileSync(join(packageRoot, "README.md"), "utf8");
+
+describe("the README documents everything this package can do to you", () => {
+	it("has a README with the sections the arms below read", () => {
+		// Non-vacuity: every arm below passes trivially against an empty file.
+		expect(readme.length).toBeGreaterThanOrEqual(2000);
+		expect(readme).toMatch(/^## What it refuses, and why$/m);
+		expect(readme).toMatch(/^## Options$/m);
+		expect(readme).toMatch(/^## Known limits$/m);
+	});
+
+	it("names every diagnostic it can raise", () => {
+		const codes = Object.keys($lib.diagnostics);
+		expect(codes.length).toBeGreaterThanOrEqual(2);
+		expect(codes.filter((code) => !readme.includes(`\`${code}\``)).toSorted()).toEqual([]);
+	});
+
+	it("names every option it accepts", () => {
+		const options = Object.keys(EmitterOptionsSchema.properties ?? {});
+		expect(options.length).toBeGreaterThanOrEqual(6);
+		expect(options.filter((option) => !readme.includes(`\`${option}\``)).toSorted()).toEqual([]);
+	});
+
+	it("documents every diagnostic that has a call site, and declares none that has not", () => {
+		/**
+		 * ⚠️ **A declared diagnostic with no call site is coverage that does not exist.** It reads as a
+		 * capability — the package refuses this thing — while nothing can ever raise it. Two of these
+		 * sat here mid-extraction, both legitimately, because the code that reported them had not been
+		 * carried across yet; asserting the class is what closed that window rather than leaving it to
+		 * be noticed.
+		 */
+		const sources = ["app.ts", "emitter.ts", "runtime.ts", "lib.ts"]
+			.map((name) => {
+				try {
+					return readFileSync(join(packageRoot, "src", name), "utf8");
+				} catch {
+					return "";
+				}
+			})
+			.join("\n");
+		const unreachable = Object.keys($lib.diagnostics).filter(
+			(code) => !sources.includes(`code: "${code}"`),
+		);
+		expect(unreachable.toSorted()).toEqual([]);
+	});
+
+	it("states the refusal count as a limit, with its number", () => {
+		/**
+		 * ⚠️ **A number in a baseline file is not a stated limitation.** Inside a private package these
+		 * are honest, visible counters; published, they are surfaces a reader has no way to learn about.
+		 * So each one is named in the README, and this arm checks the numbers there against the numbers
+		 * the suite actually measured — a limit documented with a stale figure is worse than none.
+		 */
+		const baseline = JSON.parse(
+			readFileSync(join(packageRoot, "test", "conformance", "baseline.json"), "utf8"),
+		) as { declared: number; mounted: number; refused: number };
+		expect(readme).toContain(`${baseline.declared} declared`);
+		expect(readme).toContain(`${baseline.mounted} mounted`);
+		expect(readme).toContain(`${baseline.refused} refused`);
+	});
+});
