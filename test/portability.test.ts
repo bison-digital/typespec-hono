@@ -51,7 +51,14 @@ describe("nothing this package ships names one machine's filesystem", () => {
 		.filter((name) => name !== "");
 
 	it("has files to inspect at all", () => {
-		expect(tracked.length).toBeGreaterThanOrEqual(20);
+		/**
+		 * ⚠️ **The generated floor was 20 against 315 files actually swept — sixteen times under.** This
+		 * arm could have read a twentieth of the emitted output and still reported a clean sweep, which
+		 * is the failure mode a floor exists to prevent rather than exhibit. Found by auditing every
+		 * counting assertion in this repository against its measured value after the same fault turned
+		 * up twice elsewhere; the corpus-scale arms came out at 1.0–1.1x, these two did not.
+		 */
+		expect(tracked.length).toBeGreaterThanOrEqual(30);
 	});
 
 	it("carries no machine path in any tracked file", () => {
@@ -73,7 +80,7 @@ describe("nothing this package ships names one machine's filesystem", () => {
 		 * reviewed when they change; generated files are written fresh on every compile from whatever
 		 * options the consumer set, and are then committed into the consumer's repository.
 		 */
-		expect(emitted.length).toBeGreaterThanOrEqual(20);
+		expect(emitted.length).toBeGreaterThanOrEqual(150);
 		const offenders = emitted.flatMap((file) =>
 			offendersIn(file.slice(packageRoot.length), readFileSync(file, "utf8")),
 		);

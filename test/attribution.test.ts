@@ -74,7 +74,7 @@ describe("the package credits no tool for the work", () => {
 
 	it("has files and history to inspect at all", () => {
 		// Without this the whole file passes the day `git ls-files` returns nothing.
-		expect(files.length).toBeGreaterThanOrEqual(20);
+		expect(files.length).toBeGreaterThanOrEqual(30);
 		expect(git("rev-list", "--count", "HEAD").trim()).not.toBe("0");
 	});
 
