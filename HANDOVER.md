@@ -118,10 +118,14 @@ which is a claim to justify in a commit rather than a number to absorb.
    declares six verbs, five have Hono helpers, and the sixth is `@head`, which is refused. The branch
    is correct and defensive; it is also untested, and that is recorded in the README rather than
    hidden.
-2. **Bump `@typespec/*` 1.14 → 1.15 and the corpus alpha.40 → alpha.41, as its own slice**, in step
-   with the library. They are pinned deliberately.
-3. **A Hono-equivalence oracle.** An independently hand-written app in Hono's published idiom, serving
+2. **A Hono-equivalence oracle.** An independently hand-written app in Hono's published idiom, serving
    the same API, answering identical requests — the un-split package had one, and it is the arm that
    catches "we agree with ourselves". Question 3 covers the wire; this would cover the idiom.
-4. **Publishing.** Needs explicit approval, and the GitHub repositories do not exist yet. Note that
-   CI checks out the library as a sibling, so both repositories must exist before CI passes.
+3. **Publishing.** Needs explicit approval, and the GitHub repositories do not exist yet. Note that
+   CI checks out the library as a sibling, so **both** repositories must exist before CI passes.
+
+### Done, and worth not redoing
+
+- **TypeSpec 1.14 → 1.15 and corpus alpha.40 → alpha.41** (`377effd`), in step with the library. 577
+  declared, 564 mounted, 13 refused — unchanged.
+- **TypeScript 6 → 7** (`fcd4106`). No change to the emitted declarations.
