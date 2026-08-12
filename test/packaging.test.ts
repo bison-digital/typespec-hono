@@ -29,6 +29,7 @@ const manifest = JSON.parse(readFileSync(join(packageRoot, "package.json"), "utf
 	license?: string;
 	repository?: unknown;
 	files?: readonly string[];
+	publishConfig?: { access?: string; provenance?: boolean };
 	exports?: Record<string, Record<string, string>>;
 	peerDependencies?: Record<string, string>;
 	peerDependenciesMeta?: Record<string, { optional?: boolean }>;
@@ -164,6 +165,38 @@ describe("the package declares what it needs to run outside this checkout", () =
 		const range = (manifest.dependencies ?? {})["typespec-http-zod"];
 		expect(range, "the library must be a declared dependency").toBeDefined();
 		expect(range).toMatch(/^[\^~]?\d+\.\d+\.\d+/);
+	});
+});
+
+describe("the package is configured to publish the way it claims", () => {
+	it("declares public access and provenance", () => {
+		/**
+		 * ⚠️ **Provenance is what lets a stranger verify the tarball came from this commit**, via a
+		 * signed attestation npm produces at publish time. It is off by default, its absence is
+		 * invisible on the published page, and nobody notices until somebody wants to check — which is
+		 * the shape of thing worth asserting rather than remembering.
+		 *
+		 * ⚠️ **`access: "public"` matters even for an unscoped name.** It is the default today; stating
+		 * it means a later rename to a scoped package cannot publish privately by accident.
+		 */
+		expect(manifest.publishConfig?.access).toBe("public");
+		expect(manifest.publishConfig?.provenance).toBe(true);
+	});
+
+	it("has a release workflow that can only publish deliberately", () => {
+		/**
+		 * ⚠️ **`id-token: write` is not optional.** Provenance is an OIDC exchange, so a workflow
+		 * without that permission fails the publish outright rather than quietly publishing unsigned —
+		 * which is the better failure, but only if the permission is there to begin with.
+		 *
+		 * The trigger is asserted too: publishing must follow a tag or a deliberate dispatch, never a
+		 * merge to the default branch.
+		 */
+		const workflow = readFileSync(join(packageRoot, ".github/workflows/release.yml"), "utf8");
+		expect(workflow).toMatch(/id-token:\s*write/);
+		expect(workflow).toMatch(/--provenance/);
+		expect(workflow).toMatch(/tags:\s*\["v\*"\]/);
+		expect(workflow).not.toMatch(/branches:\s*\[\s*["']?main/);
 	});
 });
 

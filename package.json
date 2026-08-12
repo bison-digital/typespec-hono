@@ -38,6 +38,10 @@
 			"default": "./dist/src/runtime.js"
 		}
 	},
+	"publishConfig": {
+		"access": "public",
+		"provenance": true
+	},
 	"scripts": {
 		"build": "tsc -p tsconfig.build.json",
 		"test": "tsc -p tsconfig.build.json && vitest run",

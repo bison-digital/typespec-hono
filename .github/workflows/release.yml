@@ -1,0 +1,42 @@
+name: Release
+
+# ⚠️ **Publishing is deliberate and cannot happen by accident.** This runs only when a `v*` tag is
+# pushed, or when somebody dispatches it by hand. A merge to `main` publishes nothing.
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      # Required for npm provenance: npm exchanges this for a signed attestation linking the
+      # published tarball to the commit and workflow that produced it. Without it, `provenance: true`
+      # in package.json fails the publish rather than silently skipping.
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          registry-url: https://registry.npmjs.org
+
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build
+
+      # ⚠️ The full gate runs again here, against the exact commit being published. CI passing on the
+      # branch is not the same claim: a tag can point anywhere.
+      - run: pnpm test
+      - run: pnpm typecheck
+      - run: pnpm lint
+      - run: pnpm format:check
+
+      # `--provenance` is redundant with publishConfig and stated anyway, because the flag is what a
+      # reader looks for and a silent default is how provenance quietly stops being generated.
+      - run: pnpm publish --access public --provenance --no-git-checks
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
