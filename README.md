@@ -91,6 +91,45 @@ worked: `hc<typeof app>` resolved to `unknown` — not an empty client, an unusa
 `c.env` and exists only for the duration of a request — there is no module scope in which
 `backendFor(env)` can be resolved.
 
+## Middleware — register it BEFORE `registerRoutes`
+
+⚠️ **This is the one ordering rule, and getting it wrong fails silently.** Hono middleware applies
+only to routes registered *after* it, and `registerRoutes` registers everything at once. Middleware
+added afterwards does not error — it simply never runs.
+
+```ts
+const app = new Hono<AppEnv>();
+
+app.use(cors());                       // ✅ global
+app.use("/widgets/*", rateLimit());     // ✅ per resource
+app.use("/widgets/:widget-id", cache()); // ✅ per route
+
+const routes = registerRoutes(app, handlersFor, deps);  // ← everything above applies
+
+app.use(cors());                        // ❌ silently applies to nothing
+```
+
+All three scopes are reachable and each is asserted by a real request in
+`test/wire/middleware.test.ts`. Per-resource works through a prefix wildcard rather than a handle on
+the sub-app: the sub-apps are `const`s inside `registerRoutes`, and `/widgets/*` is the equivalent —
+it works because every route of a resource is mounted under that resource's prefix.
+
+`app.onError` and `app.notFound` are **not** subject to this: they are app-level handlers rather than
+route middleware, and may be registered in any order.
+
+## Observability
+
+Nothing here is Sentry-specific, and this package deliberately ships no instrumentation — but two
+properties an APM needs are asserted rather than hoped for:
+
+- **`c.req.routePath` yields the route pattern**, `/widgets/:widget-id`, not the concrete URL. That is
+  the span name you want; the URL would be a cardinality bomb. It survives being mounted through a
+  sub-app, which is not obvious.
+- **A handler's `throw` reaches an app-level `onError`.** Nothing in the generated file swallows it —
+  `deps.respond` is only reached on success.
+
+Both are pinned by real requests, so a change to how routes are grouped cannot quietly remove them.
+
 ## Options
 
 Every option `typespec-http-zod` accepts, forwarded — the schema is **derived** from that package's,
