@@ -114,3 +114,17 @@ op upload(
 
   @multipartBody body: UploadParts,
 ): Item;
+
+/**
+ * A body whose media type makes it RAW BYTES rather than base64 inside JSON.
+ *
+ * ⚠️ **Read with `c.req.text()` this corrupts silently and answers 200.** `text()` UTF-8-decodes, so
+ * every byte outside ASCII becomes U+FFFD. Measured on an 18-byte upload: 23 code points arrived,
+ * five bytes destroyed. The reader has to be `arrayBuffer()`, and only the media type says so.
+ */
+@route("/items/blob")
+@post
+op uploadBlob(
+  @header contentType: "application/octet-stream",
+  @body body: bytes,
+): Item;

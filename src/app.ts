@@ -1,4 +1,5 @@
 import {
+	isRawBinaryMediaType,
 	objectKey,
 	type EmittedRoute,
 	type EmittedService,
@@ -74,11 +75,80 @@ const VALIDATOR_TARGET = {
 	body: "json",
 } as const;
 
+/**
+ * The `@hono/zod-validator` target for a request body, decided by what the wire actually carries.
+ *
+ * ⚠️ **This was `"json"` unconditionally, and that made every non-JSON body unservable.**
+ * `zValidator("json", …)` reads `c.req.json()`, so a `multipart/form-data` upload was parsed as JSON
+ * and refused. Measured: 17 such registrations in `payload/multipart` alone, and **11 of the 17
+ * request bodies in the Swagger Petstore are not JSON** — 5 urlencoded, 5 XML, 1 octet-stream.
+ *
+ * Hono's own target for both multipart and urlencoded is `"form"` — `c.req.parseBody()` handles the
+ * two together, which is why one branch covers both.
+ *
+ * ⚠️ **Anything else stays `"json"` deliberately.** A media type this function does not recognise is
+ * not a licence to guess: `application/xml` has no Hono target and no Zod representation the document
+ * justifies, so it keeps the existing behaviour rather than acquiring a new one on the way past. That
+ * gap is real and is stated in the README rather than papered over here.
+ */
+function bodyTargetFor(contentTypes: readonly string[]): string {
+	/**
+	 * ⚠️ **EVERY, not some, and the difference is a regression I shipped for one measurement.**
+	 * `addPet` in the Swagger Petstore accepts `application/json`, `application/xml` **and**
+	 * `application/x-www-form-urlencoded`. Choosing `"form"` because one member is form-ish made
+	 * `zValidator` call `c.req.parseBody()` on JSON bodies, and a request that answered **200** before
+	 * the change answered **400** after it. Measured both ways against the same server.
+	 *
+	 * ⚠️ **A route offering several media types cannot be validated by one target at all**, because
+	 * which parser applies is decided by the caller's `Content-Type` at REQUEST time and `zValidator`
+	 * is chosen at generation time. So a mixed body keeps `"json"`: unchanged behaviour, and a stated
+	 * limitation rather than a guess that breaks the common case to fix the rare one. Only a body that
+	 * is form-encoded in every form it may take is unambiguous enough to switch.
+	 */
+	const form =
+		contentTypes.length > 0 &&
+		contentTypes.every(
+			(type) => type.startsWith("multipart/") || type === "application/x-www-form-urlencoded",
+		);
+	return form ? "form" : VALIDATOR_TARGET.body;
+}
+
 interface AppRoute {
 	readonly route: EmittedRoute;
 	readonly names: RouteSchemaNames;
 	/** `[zValidator target, the identifier holding its schema]`, in the order they are applied. */
 	readonly validators: readonly (readonly [string, string])[];
+}
+
+/**
+ * How an unparsed body reaches the handler, and as what.
+ *
+ * ⚠️ **This was always `c.req.text()` typed as `string`, and for a binary body that silently
+ * corrupts.** `text()` UTF-8-decodes, so every byte outside ASCII becomes U+FFFD. Measured against a
+ * Petstore `application/octet-stream` upload under `wrangler dev`:
+ *
+ * ```
+ * sent     : 89 50 4e 47 0d 0a 1a 0a ff d8 ff e0 00 10 4a 46 49 46      (18 bytes)
+ * received : fffd 50 4e 47 0d 0a 1a 0a fffd fffd fffd fffd 00 10 4a 46 49 46
+ * ```
+ *
+ * Five bytes destroyed, unrecoverably, and the request answered **200**. Success status, corrupt
+ * payload, no signal — the worst shape a defect can take.
+ *
+ * ⚠️ **`rawBodyProperty` conflated two different requirements, which is why one reader looked
+ * sufficient.** Its docblock justifies `text()` by a webhook's MAC covering exactly what arrived — true,
+ * and true only when what arrived is text. An upload is the other case, and it needs the bytes.
+ * `isRawBinaryMediaType` is the library's own rule for telling them apart, already applied on the
+ * response side; importing it rather than re-deriving it is what keeps the two halves from disagreeing
+ * again.
+ */
+function rawBodyReaderFor(contentTypes: readonly string[]): {
+	readonly call: string;
+	readonly type: string;
+} {
+	return isRawBinaryMediaType(contentTypes)
+		? { call: "await c.req.arrayBuffer()", type: "ArrayBuffer" }
+		: { call: "await c.req.text()", type: "string" };
 }
 
 /**
@@ -92,7 +162,8 @@ interface AppRoute {
 function inputTypeOf(entry: AppRoute): string | undefined {
 	const parts = entry.validators.map(([, name]) => `z.infer<typeof ${name}>`);
 	if (entry.route.rawBodyProperty !== undefined) {
-		parts.push(`{ ${objectKey(entry.route.rawBodyProperty)}: string }`);
+		const reader = rawBodyReaderFor(entry.route.requestContentTypes);
+		parts.push(`{ ${objectKey(entry.route.rawBodyProperty)}: ${reader.type} }`);
 	}
 	return parts.length === 0 ? undefined : parts.join(" & ");
 }
@@ -178,7 +249,13 @@ export function renderApp(emitted: EmittedService, refuse: RenderRefusals): stri
 		const validators: (readonly [string, string])[] = [];
 		for (const location of ["path", "query", "header", "body"] as const) {
 			const identifier = names[location];
-			if (identifier !== undefined) validators.push([VALIDATOR_TARGET[location], identifier]);
+			if (identifier === undefined) continue;
+			// The body's target depends on what the document says the wire carries; the rest are fixed.
+			const target =
+				location === "body"
+					? bodyTargetFor(route.requestContentTypes)
+					: VALIDATOR_TARGET[location];
+			validators.push([target, identifier]);
 		}
 		return [{ route, names, validators }];
 	});
@@ -309,8 +386,10 @@ export function renderApp(emitted: EmittedService, refuse: RenderRefusals): stri
 		const pieces = validators.map(([target]) => `...c.req.valid(${JSON.stringify(target)})`);
 		if (route.rawBodyProperty !== undefined) {
 			// The bytes ARE the contract: a signature covers exactly what arrived, so parsing and
-			// re-serialising would verify a different string than the sender signed.
-			pieces.push(`${objectKey(route.rawBodyProperty)}: await c.req.text()`);
+			// re-serialising would verify a different string than the sender signed. WHICH reader
+			// preserves them depends on the media type — see `rawBodyReaderFor`.
+			const reader = rawBodyReaderFor(route.requestContentTypes);
+			pieces.push(`${objectKey(route.rawBodyProperty)}: ${reader.call}`);
 		}
 		const invoke = (member: AppRoute): string => {
 			// The member's own `accept` literal, which its input type requires and which the shared
