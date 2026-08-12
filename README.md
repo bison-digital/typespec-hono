@@ -22,8 +22,21 @@ required for that.
 ## Install
 
 ```bash
-npm install --save-dev typespec-hono
+npm install typespec-hono
 ```
+
+⚠️ **A dependency, not a devDependency, and this is not a style preference.** `typespec-hono/runtime`
+exports **runtime values** — `armFor`, and `selectContentType` where a route negotiates — and both the
+generated server and your own `deps` import them. Under `--save-dev` everything looks fine: install,
+typecheck and `wrangler dev` all pass. It fails at **deploy**, when the production install drops it:
+
+```
+✘ [ERROR] Could not resolve "typespec-hono/runtime"
+      import { armFor, type RouteDeps } from "typespec-hono/runtime";
+```
+
+Measured: `pnpm install --prod` then `wrangler deploy --dry-run` → exit 1. The emitter half is
+build-time, but the runtime half ships.
 
 Peers: `hono`, `@hono/zod-validator`, `zod`, `@typespec/compiler`.
 

@@ -283,3 +283,29 @@ describe("the package is publishable", () => {
 		}
 	});
 });
+
+describe("the install instruction matches what actually ships", () => {
+	it("tells adopters to install it as a dependency, because the runtime is a value", () => {
+		/**
+		 * ⚠️ **`--save-dev` was wrong and it fails only at DEPLOY.** `./runtime` exports runtime values —
+		 * `armFor`, and `selectContentType` where a route negotiates — which both the generated server and
+		 * the consumer's own `deps` import. Under a dev install everything passes: install, typecheck,
+		 * `wrangler dev`. The production install drops the package and the bundle fails:
+		 * `Could not resolve "typespec-hono/runtime"`. Measured with `pnpm install --prod` then
+		 * `wrangler deploy --dry-run`, exit 1.
+		 *
+		 * ⚠️ **Derived, not asserted as prose.** The rule is "IF `./runtime` exports at least one value,
+		 * the README must not say `--save-dev`" — so a future runtime that became types-only would relax
+		 * this automatically, and one that gains a value can never quietly contradict the instruction.
+		 */
+		const runtime = readFileSync(join(packageRoot, "src", "runtime.ts"), "utf8");
+		const valueExports = [...runtime.matchAll(/^export (?:async )?(?:function|const) (\w+)/gm)].map(
+			(match) => match[1] ?? "",
+		);
+		const readme = readFileSync(join(packageRoot, "README.md"), "utf8");
+		if (valueExports.length === 0) return;
+		expect(valueExports.length).toBeGreaterThanOrEqual(1);
+		expect(readme).not.toMatch(/npm install --save-dev typespec-hono/);
+		expect(readme).toMatch(/npm install typespec-hono/);
+	});
+});
