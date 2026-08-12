@@ -66,7 +66,7 @@ describe("the emitted server mounts what the document declares", () => {
 		 * the slot list has to do, makes a second registration invisible. A control caught exactly that.
 		 */
 		const registrations = [
-			...readFileSync(join(compiled.outDir, "app.gen.ts"), "utf8").matchAll(/^\t\w+\.(?!route\()\w+\(/gm),
+			...readFileSync(join(compiled.outDir, "app.gen.ts"), "utf8").matchAll(/^\t\t\.(?!route\()\w+\(/gm),
 		].length;
 		expect(registrations).toBe(slots.length);
 		/**
@@ -103,7 +103,7 @@ describe("the emitted server mounts what the document declares", () => {
 
 	it("registers a negotiated route once, and answers 406 rather than validating `accept`", () => {
 		const source = readFileSync(join(compiled.outDir, "app.gen.ts"), "utf8");
-		const reportRegistrations = [...source.matchAll(/^\t\t"\/report",$/gm)].length;
+		const reportRegistrations = [...source.matchAll(/^\t\t\t"\/report",$/gm)].length;
 		expect(reportRegistrations).toBe(1);
 		expect(source).toMatch(/selectContentType\(c\.req\.header\("accept"\)/);
 		expect(source).toMatch(/deps\.notAcceptable\(/);

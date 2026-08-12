@@ -61,11 +61,31 @@ its documentation.
 import { Hono } from "hono";
 import { registerRoutes } from "./generated/app.gen.js";
 
-const app = new Hono<AppEnv>();
 // ⚠️ Unannotated on purpose — annotating widens the value and disables the exhaustiveness check.
 const handlersFor = (c) => backendFor(c.env);
-registerRoutes(app, handlersFor, deps);
+const routes = registerRoutes(new Hono<AppEnv>(), handlersFor, deps);
+
+export default routes;
 ```
+
+### Hono RPC (`hc`) works, and the return value is why
+
+`registerRoutes` **chains** its registrations and hands back the result, so Hono's RPC client gets a
+fully typed surface derived from the same document:
+
+```ts
+import { hc } from "hono/client";
+
+const client = hc<typeof routes>("https://api.example.com");
+const response = await client.widgets[":widget-id"].$get({
+  param: { "widget-id": "w-1" },
+  header: { "x-request-id": "r-1" },
+});
+```
+
+⚠️ **Use the RETURNED value, not the instance you passed in.** `hc` reads the `Schema` type Hono
+accumulates through the chain; the bare `new Hono()` still carries nothing. Measured before this
+worked: `hc<typeof app>` resolved to `unknown` — not an empty client, an unusable one.
 
 `handlersFor` is a **factory** rather than an object because in Workers a service binding lives on
 `c.env` and exists only for the duration of a request — there is no module scope in which

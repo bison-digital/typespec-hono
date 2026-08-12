@@ -1,1 +1,1 @@
-{"compilerOptions":{"target":"es2023","module":"nodenext","moduleResolution":"nodenext","strict":true,"exactOptionalPropertyTypes":true,"noUncheckedIndexedAccess":true,"noEmit":true,"skipLibCheck":true,"types":[]},"include":["./consumer.fixture.ts","./runtime.fixture.ts"]}
+{"compilerOptions":{"target":"es2023","module":"nodenext","moduleResolution":"nodenext","strict":true,"exactOptionalPropertyTypes":true,"noUncheckedIndexedAccess":true,"noEmit":true,"skipLibCheck":true,"types":[]},"include":["./consumer.fixture.ts","./runtime.fixture.ts","./rpc.fixture.ts"]}

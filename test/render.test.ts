@@ -85,13 +85,13 @@ describe("a verb with no dedicated Hono helper goes through `app.on(method, …)
 		 * mounted nowhere. The argument ORDER is the assertion, not merely that `on` appears.
 		 */
 		const source = renderApp(serviceWith({ operationId: "purgeThing", verb: "PURGE" }), noRefusals);
-		expect(source).toMatch(/\tapp\.on\(\n\t\t"PURGE",\n\t\t"\/thing",/);
+		expect(source).toMatch(/\t\t\.on\(\n\t\t\t"PURGE",\n\t\t\t"\/thing",/);
 	});
 
 	it("still uses the dedicated helper where one exists", () => {
 		const source = renderApp(serviceWith({ operationId: "getThing", verb: "GET" }), noRefusals);
-		expect(source).toMatch(/\tapp\.get\(\n\t\t"\/thing",/);
-		expect(source).not.toMatch(/app\.on\(/);
+		expect(source).toMatch(/\t\t\.get\(\n\t\t\t"\/thing",/);
+		expect(source).not.toMatch(/\.on\(/);
 	});
 
 	it("refuses HEAD rather than emitting a route Hono cannot dispatch to", () => {

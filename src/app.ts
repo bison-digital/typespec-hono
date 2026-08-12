@@ -331,7 +331,7 @@ export function renderApp(emitted: EmittedService, refuse: RenderRefusals): stri
 		if (slots.length > 1) subApps.set(resource, subAppNameOf(resource));
 	}
 
-	const registrations = [...grouped.values()].map((group) => {
+	const registrations = [...grouped.values()].map((group): { target: string; text: string } => {
 		const entry = group[0] as AppRoute;
 		const { route, validators } = entry;
 		const method = HONO_METHOD[route.verb] ?? "on";
@@ -438,16 +438,26 @@ export function renderApp(emitted: EmittedService, refuse: RenderRefusals): stri
 		 * through to `app.on(path, handler)`, which Hono reads as `on(method, path)`. The route was
 		 * emitted, counted by every arm that counted rows, and mounted nowhere.
 		 */
-		return [
-			`\t${target}.${method}(`,
-			...(method === "on" ? [`\t\t${JSON.stringify(route.verb)},`] : []),
-			`\t\t${JSON.stringify(registeredPath)},`,
-			...middleware,
-			"\t\tasync (c) => {",
-			...body,
-			"\t\t},",
-			"\t);",
+		/**
+		 * ⚠️ **Emitted as a CHAINED call fragment rather than a statement, and that is what makes Hono's
+		 * RPC client work at all.** `hc<typeof app>` derives its entire surface from the `Schema` type
+		 * parameter Hono accumulates through chaining — not from what is registered at run time. As
+		 * separate statements each call's type was discarded, `registerRoutes` returned `void`, and
+		 * measured in a fresh project `hc<typeof app>` resolved to **`unknown`**: not an empty client, an
+		 * unusable one. A hand-chained app with the same sub-app-per-resource shape supports it
+		 * perfectly, so the shape was never the obstacle — only the statements were.
+		 */
+		const text = [
+			`\t\t.${method}(`,
+			...(method === "on" ? [`\t\t\t${JSON.stringify(route.verb)},`] : []),
+			`\t\t\t${JSON.stringify(registeredPath)},`,
+			...middleware.map((line) => `\t${line}`),
+			"\t\t\tasync (c) => {",
+			...body.map((line) => `\t${line}`),
+			"\t\t\t},",
+			"\t\t)",
 		].join("\n");
+		return { target, text };
 	});
 
 	/**
@@ -457,7 +467,7 @@ export function renderApp(emitted: EmittedService, refuse: RenderRefusals): stri
 	 * unused import fails the lint a generated file has to pass like any other, and a missing one is a
 	 * file that does not compile. Both have happened.
 	 */
-	const rendered = [...registrations, ...methods, ...aliases].join("\n");
+	const rendered = [...registrations.map((r) => r.text), ...methods, ...aliases].join("\n");
 	const referenced = [
 		...new Set(
 			entries.flatMap((entry) =>
@@ -487,14 +497,43 @@ export function renderApp(emitted: EmittedService, refuse: RenderRefusals): stri
 	 * shape of defect as Hono middleware, which only applies to routes registered after it. Declaring
 	 * at the top and mounting at the bottom is the arrangement that cannot be got wrong by reordering.
 	 */
+	/**
+	 * ⚠️ **One chained expression per app, because that is the only shape `hc` can read.**
+	 *
+	 * Hono accumulates its `Schema` type through the chain, so a sub-app declared and then registered
+	 * across separate statements throws every route's type away. Declaring it AS the chain keeps them,
+	 * and mounting with a chained `.route()` carries them up into the parent.
+	 *
+	 * ⚠️ **The ordering property that used to need a comment is now structural.** Mounting before the
+	 * routes were registered mounted nothing, and the fix was "declare at the top, mount at the
+	 * bottom" — a rule a reordering could break. A single expression cannot be reordered wrongly: the
+	 * sub-app is complete at the point it is mounted because it is its own initialiser.
+	 */
+	const byTarget = new Map<string, string[]>();
+	for (const registration of registrations) {
+		byTarget.set(registration.target, [
+			...(byTarget.get(registration.target) ?? []),
+			registration.text,
+		]);
+	}
 	const subAppDeclarations =
 		subApps.size === 0
 			? ""
-			: `${[...subApps.values()].map((name) => `\tconst ${name} = new Hono<AppEnv>();`).join("\n")}\n\n`;
-	const subAppMounts =
-		subApps.size === 0
-			? ""
-			: `\n\n${[...subApps].map(([resource, name]) => `\tapp.route(${JSON.stringify(`/${resource}`)}, ${name});`).join("\n")}`;
+			: `${[...subApps.values()]
+					.map((name) => `\tconst ${name} = new Hono<AppEnv>()\n${(byTarget.get(name) ?? []).join("\n")};`)
+					.join("\n\n")}\n\n`;
+	const subAppMounts = [...subApps].map(
+		([resource, name]) => `\t\t.route(${JSON.stringify(`/${resource}`)}, ${name})`,
+	);
+	/**
+	 * Everything that stays on the root, then every mount, as one returned chain.
+	 *
+	 * Returned rather than discarded: `registerRoutes` used to be `void`, and measured in a fresh
+	 * project that made `hc<typeof app>` resolve to **`unknown`** — Hono's RPC client, which is one of
+	 * the framework's headline features, was categorically unavailable to anything this emitter
+	 * produced. Handing back the chained value costs nothing and restores it.
+	 */
+	const rootChain = [...(byTarget.get("app") ?? []), ...subAppMounts];
 
 	// Imported only where a route actually negotiates: an unused import fails the repo's own lint.
 	const negotiates = [...grouped.values()].some((group) => group.length > 1);
@@ -557,8 +596,9 @@ export function registerRoutes<T extends Operations>(
 	app: Hono<AppEnv>,
 	handlersFor: <P extends string, I extends Input>(c: Context<AppEnv, P, I>) => Exhaustive<T>,
 	deps: RouteDeps,
-): void {
-${subAppDeclarations}${registrations.join("\n")}${subAppMounts}
+) {
+${subAppDeclarations}	return app
+${rootChain.join("\n")};
 }
 `;
 }

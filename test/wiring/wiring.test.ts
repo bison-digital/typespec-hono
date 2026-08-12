@@ -54,7 +54,7 @@ describe("an application compiles against the generated server", () => {
 					skipLibCheck: true,
 					types: [],
 				},
-				include: ["./consumer.fixture.ts", "./runtime.fixture.ts"],
+				include: ["./consumer.fixture.ts", "./runtime.fixture.ts", "./rpc.fixture.ts"],
 			}),
 		);
 		let output = "";
