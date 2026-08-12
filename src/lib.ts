@@ -79,6 +79,11 @@ const diagnostics = {
 	 * GET invents an operation the document does not declare, and guarding it on `c.req.method` is not
 	 * something a Hono author would write. The remedy is in the spec, and the message says it.
 	 *
+	 * ⚠️ **Hono's own best-practices guide says the same thing outright**, which this refusal predates:
+	 * *"Don't create dedicated `app.head()` handlers — they won't execute as HEAD requests are converted
+	 * before route matching."* The rule was derived here by reading `hono-base.js` and measuring; finding
+	 * it stated in the documentation afterwards is corroboration rather than the source.
+	 *
 	 * ⚠️ **A refusal about the TARGET FRAMEWORK, which is why it lives here.** `typespec-http-zod` emits
 	 * correct validators for these operations; only a Hono server cannot route them.
 	 */
