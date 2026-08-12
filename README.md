@@ -78,8 +78,8 @@ import { hc } from "hono/client";
 
 const client = hc<typeof routes>("https://api.example.com");
 const response = await client.widgets[":widget-id"].$get({
-  param: { "widget-id": "w-1" },
-  header: { "x-request-id": "r-1" },
+	param: { "widget-id": "w-1" },
+	header: { "x-request-id": "r-1" },
 });
 ```
 
@@ -94,19 +94,19 @@ worked: `hc<typeof app>` resolved to `unknown` — not an empty client, an unusa
 ## Middleware — register it BEFORE `registerRoutes`
 
 ⚠️ **This is the one ordering rule, and getting it wrong fails silently.** Hono middleware applies
-only to routes registered *after* it, and `registerRoutes` registers everything at once. Middleware
+only to routes registered _after_ it, and `registerRoutes` registers everything at once. Middleware
 added afterwards does not error — it simply never runs.
 
 ```ts
 const app = new Hono<AppEnv>();
 
-app.use(cors());                       // ✅ global
-app.use("/widgets/*", rateLimit());     // ✅ per resource
+app.use(cors()); // ✅ global
+app.use("/widgets/*", rateLimit()); // ✅ per resource
 app.use("/widgets/:widget-id", cache()); // ✅ per route
 
-const routes = registerRoutes(app, handlersFor, deps);  // ← everything above applies
+const routes = registerRoutes(app, handlersFor, deps); // ← everything above applies
 
-app.use(cors());                        // ❌ silently applies to nothing
+app.use(cors()); // ❌ silently applies to nothing
 ```
 
 All three scopes are reachable and each is asserted by a real request in
@@ -122,12 +122,12 @@ route middleware, and may be registered in any order.
 You construct the `Hono` instance, so the router is your choice. **Make it deliberately.** Measured on
 a generated **580-operation** service (58 resources × 10), three runs, on Hono 4.13.1:
 
-| router | register | first request | 1000 requests |
-| --- | --- | --- | --- |
-| SmartRouter *(Hono's default)* | 5.4–6.1 ms | **18.5–18.9 ms** | 24–26 ms |
-| **RegExpRouter** | 2.6–4.4 ms | 2.2–2.6 ms | **16–18 ms** |
-| LinearRouter | **1.1–1.2 ms** | **0.6 ms** | 66–70 ms |
-| PatternRouter | 2.7–2.9 ms | 2.5 ms | 36–39 ms |
+| router                         | register       | first request    | 1000 requests |
+| ------------------------------ | -------------- | ---------------- | ------------- |
+| SmartRouter _(Hono's default)_ | 5.4–6.1 ms     | **18.5–18.9 ms** | 24–26 ms      |
+| **RegExpRouter**               | 2.6–4.4 ms     | 2.2–2.6 ms       | **16–18 ms**  |
+| LinearRouter                   | **1.1–1.2 ms** | **0.6 ms**       | 66–70 ms      |
+| PatternRouter                  | 2.7–2.9 ms     | 2.5 ms           | 36–39 ms      |
 
 ⚠️ **The default is the worst choice here, and the reason is a cold-start cost you pay per isolate.**
 SmartRouter picks a router by trying one, and that build happens on the **first request** rather than
@@ -149,10 +149,10 @@ dominates: it is the cheapest to start and ~4× slower per request thereafter.
 
 ### Bundle size is not the constraint
 
-| | raw | gzip | share of the 3 MB free limit |
-| --- | --- | --- | --- |
-| 20 operations | 642 KiB | 100.8 KiB | 3.3% |
-| 580 operations | 1008 KiB | **112.6 KiB** | **3.7%** |
+|                | raw      | gzip          | share of the 3 MB free limit |
+| -------------- | -------- | ------------- | ---------------------------- |
+| 20 operations  | 642 KiB  | 100.8 KiB     | 3.3%                         |
+| 580 operations | 1008 KiB | **112.6 KiB** | **3.7%**                     |
 
 560 extra operations cost ~12 KiB gzipped — the baseline is Hono and Zod, not your API. Router choice
 moves it by under 1 KiB, so do not choose a router for size. Limits are 3 MB gzipped on the free plan
@@ -171,13 +171,13 @@ A generated operation returns a **value**, not a `Response`, so a handler cannot
 
 ```ts
 const deps: RouteDeps = {
-  // ...
-  respond: (c, arms, result) =>
-    streamSSE(c, async (stream) => {
-      for await (const item of pageThrough(result)) {
-        await stream.writeSSE({ data: JSON.stringify(item) });
-      }
-    }),
+	// ...
+	respond: (c, arms, result) =>
+		streamSSE(c, async (stream) => {
+			for await (const item of pageThrough(result)) {
+				await stream.writeSSE({ data: JSON.stringify(item) });
+			}
+		}),
 };
 ```
 
@@ -217,10 +217,10 @@ types instead of the identity defaults.
 Both refusals are about the target framework. `typespec-http-zod` emits correct validators for these
 operations; only a Hono server cannot serve them.
 
-| code | why |
-| --- | --- |
-| `unroutable-verb` | ⚠️ **A `@head` operation.** Hono rewrites every HEAD request to GET *before* matching — `hono-base.js` does it unconditionally at the top of `#dispatch` — so a route registered under HEAD is never reached: 404 where the path has no GET, dead code where it has one. Measured on Hono 4.13.1; `on("PURGE", …)` and `on("OPTIONS", …)` both work, so this is HEAD specifically. **The remedy is in your spec:** declare `@get`, and Hono answers HEAD from it with the body stripped, which is what RFC 9110 requires anyway. |
-| `unsupported-path-template` | a path parameter that is not a plain name. Hono reads a parameter up to the next `/`, so an RFC 6570 operator or modifier would become part of the name — and `*` would become Hono's wildcard, mounting a route that matches the wrong requests and answers them. Refused rather than approximated, because a route that works and is wrong is worse than one that fails. |
+| code                        | why                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| --------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `unroutable-verb`           | ⚠️ **A `@head` operation.** Hono rewrites every HEAD request to GET _before_ matching — `hono-base.js` does it unconditionally at the top of `#dispatch` — so a route registered under HEAD is never reached: 404 where the path has no GET, dead code where it has one. Measured on Hono 4.13.1; `on("PURGE", …)` and `on("OPTIONS", …)` both work, so this is HEAD specifically. **The remedy is in your spec:** declare `@get`, and Hono answers HEAD from it with the body stripped, which is what RFC 9110 requires anyway. |
+| `unsupported-path-template` | a path parameter that is not a plain name. Hono reads a parameter up to the next `/`, so an RFC 6570 operator or modifier would become part of the name — and `*` would become Hono's wildcard, mounting a route that matches the wrong requests and answers them. Refused rather than approximated, because a route that works and is wrong is worse than one that fails.                                                                                                                                                       |
 
 ## Known limits
 

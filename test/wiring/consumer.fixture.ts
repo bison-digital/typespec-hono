@@ -71,7 +71,9 @@ export const deps: RouteDeps = {
 		await next();
 	},
 	context: (_c, caller) =>
-		caller === "none" ? ({ accountId: "anonymous", scopes: [] } as Ctx) : { accountId: "acct-1", scopes: [] },
+		caller === "none"
+			? ({ accountId: "anonymous", scopes: [] } as Ctx)
+			: { accountId: "acct-1", scopes: [] },
 	noContext: (c) => c.json({ error: "no caller" }, 401),
 	notAcceptable: (c, offered) => c.json({ error: "not acceptable", offered }, 406),
 	invalid: (result, c) => (result.success ? undefined : c.json({ error: "invalid" }, 400)),
@@ -90,7 +92,8 @@ export const deps: RouteDeps = {
 		const status = (success?.status ?? 200) as 200;
 		if (result.value === undefined) return c.body(null, 204);
 		// The document's own schema for this status, applied to what the app produced.
-		const parsed = success?.schema === undefined ? result.value : success.schema.parse(result.value);
+		const parsed =
+			success?.schema === undefined ? result.value : success.schema.parse(result.value);
 		return typeof parsed === "string" ? c.text(parsed, status) : c.json(parsed, status);
 	},
 };

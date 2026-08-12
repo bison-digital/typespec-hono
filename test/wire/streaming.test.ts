@@ -38,10 +38,7 @@ beforeAll(async () => {
 describe("an application can stream a response through the generated server", () => {
 	it("serves Server-Sent Events, with the handler's value deciding the frames", async () => {
 		const app = new Hono();
-		const handlers = new Proxy(
-			{},
-			{ get: () => (): unknown => ({ id: "1", label: "streamed" }) },
-		);
+		const handlers = new Proxy({}, { get: () => (): unknown => ({ id: "1", label: "streamed" }) });
 		const routes = server.registerRoutes(app, () => handlers, {
 			authorize: () => async (_c: unknown, next: () => Promise<void>) => {
 				await next();

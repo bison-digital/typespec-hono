@@ -1,15 +1,15 @@
 minimumReleaseAgeExclude:
-  - '@typespec/compiler@1.15.0'
-  - '@typespec/events@0.85.0'
-  - '@typespec/http-specs@0.1.0-alpha.41'
-  - '@typespec/http@1.15.0'
-  - '@typespec/openapi3@1.15.0'
-  - '@typespec/openapi@1.15.0'
-  - '@typespec/rest@0.85.0'
-  - '@typespec/sse@0.85.0'
-  - '@typespec/streams@0.85.0'
-  - '@typespec/versioning@0.85.0'
-  - '@typespec/xml@0.85.0'
+  - "@typespec/compiler@1.15.0"
+  - "@typespec/events@0.85.0"
+  - "@typespec/http-specs@0.1.0-alpha.41"
+  - "@typespec/http@1.15.0"
+  - "@typespec/openapi3@1.15.0"
+  - "@typespec/openapi@1.15.0"
+  - "@typespec/rest@0.85.0"
+  - "@typespec/sse@0.85.0"
+  - "@typespec/streams@0.85.0"
+  - "@typespec/versioning@0.85.0"
+  - "@typespec/xml@0.85.0"
 # Single-package root. This file exists ONLY to carry the local override below, which pnpm 11 no
 # longer reads from `package.json`. It deliberately declares no `packages:` list — this is not a
 # multi-package workspace, and it must not become one: `test/packaging.test.ts` exists precisely

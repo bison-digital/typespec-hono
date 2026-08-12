@@ -99,7 +99,9 @@ async function measure(compiled: CompiledScenario): Promise<Measured | undefined
 		app.routes.filter((route) => route.method !== "ALL").map((r) => `${r.method} ${r.path}`),
 	);
 	const registrations = [
-		...readFileSync(join(compiled.serverDir, "app.gen.ts"), "utf8").matchAll(/^\t\t\.(?!route\()\w+\(/gm),
+		...readFileSync(join(compiled.serverDir, "app.gen.ts"), "utf8").matchAll(
+			/^\t\t\.(?!route\()\w+\(/gm,
+		),
 	].length;
 	return {
 		name: compiled.scenario.name,
@@ -158,9 +160,7 @@ describe("the generated server mounts what the document declares", () => {
 			registrations: measured.reduce((sum, entry) => sum + entry.registrations, 0),
 			refused: measured.reduce((sum, entry) => sum + entry.refused, 0),
 		};
-		const recorded = JSON.parse(
-			readFileSync(join(here, "baseline.json"), "utf8"),
-		) as typeof totals;
+		const recorded = JSON.parse(readFileSync(join(here, "baseline.json"), "utf8")) as typeof totals;
 		if (process.env["UPDATE_ROUTE_BASELINE"] === "1") {
 			writeFileSync(join(here, "baseline.json"), `${JSON.stringify(totals, null, "\t")}\n`);
 			return;
@@ -277,7 +277,9 @@ describe("the generated server mounts what the document declares", () => {
 		 */
 		const refusalCodes = [...new Set(sources.flatMap((compiled) => compiled.refusals ?? []))];
 		expect(refusalCodes.toSorted()).toEqual(["typespec-hono/unroutable-verb"]);
-		expect(sources.filter((compiled) => (compiled.refusals?.length ?? 0) > 0).length).toBeGreaterThanOrEqual(7);
+		expect(
+			sources.filter((compiled) => (compiled.refusals?.length ?? 0) > 0).length,
+		).toBeGreaterThanOrEqual(7);
 		/**
 		 * Every one of these is a REFUSAL raised by `typespec-http-zod`, reached through this emitter
 		 * because it runs the library. This package adds exactly one refusal of its own —

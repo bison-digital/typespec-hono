@@ -328,7 +328,8 @@ export async function compileScenario(
 		 * totals that could only have come from documents an earlier build left on disk. See
 		 * {@link documentOnly}.
 		 */
-		const documented = existsSync(dirs.openapiDir) || (await documentOnly(scenario, dirs.openapiDir));
+		const documented =
+			existsSync(dirs.openapiDir) || (await documentOnly(scenario, dirs.openapiDir));
 		if (!documented) {
 			return {
 				scenario,

@@ -56,7 +56,8 @@ counted `app.routes` and Hono lists a registration it will never dispatch to.
 
 ```js
 if (method === "HEAD") {
-  return (async () => new Response(null, await this.#dispatch(request, executionCtx, env, "GET")))();
+	return (async () =>
+		new Response(null, await this.#dispatch(request, executionCtx, env, "GET")))();
 }
 ```
 
@@ -91,17 +92,17 @@ emitter, so the refusal arm asserts the CODES and a floor on how many scenarios 
 
 ## What the oracles are
 
-| oracle | proves | catches |
-| --- | --- | --- |
-| **Route differential** (`test/conformance/routes.test.ts`) | every declared operation is mounted or refused | dropped operations, unreachable registrations, routes still carrying a path template |
-| **Reference service** (`test/reference/`) | question 2 — Hono alone | hyphenated path parameters, negotiation registered once, no schema declared locally, emitted output compiles |
-| **Wiring** (`test/wiring/`) | question 3 — both together | a signature no application can satisfy; and, by making REAL requests, every wire defect no document comparison can see |
-| **Equivalence** (`test/equivalence/`) | the emitted server behaves like one somebody would write | a wrong verb, a bodied 204, a validation failure arriving as a 500 |
-| **Vocabulary** (`test/vocabulary.test.ts`) | the generated server says only what the document can say, and declares no schema of its own | a non-derivable Zod call; a stray import; the split quietly stopping being real |
-| **Options** (`test/options.test.ts`) | the option schema is derived, not restated | an option the library adds and this package silently drops |
-| **Vendored fixture** (`test/vendored.test.ts`) | the shared spec has not drifted | an edit in either repository |
-| **Packaging** (`test/packaging.test.ts`) | what a stranger gets | an entry point outside `files`; a `link:` range published |
-| **Documentation** (`test/documentation.test.ts`) | a refusal is findable | a diagnostic or option nobody wrote down |
+| oracle                                                     | proves                                                                                      | catches                                                                                                                |
+| ---------------------------------------------------------- | ------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| **Route differential** (`test/conformance/routes.test.ts`) | every declared operation is mounted or refused                                              | dropped operations, unreachable registrations, routes still carrying a path template                                   |
+| **Reference service** (`test/reference/`)                  | question 2 — Hono alone                                                                     | hyphenated path parameters, negotiation registered once, no schema declared locally, emitted output compiles           |
+| **Wiring** (`test/wiring/`)                                | question 3 — both together                                                                  | a signature no application can satisfy; and, by making REAL requests, every wire defect no document comparison can see |
+| **Equivalence** (`test/equivalence/`)                      | the emitted server behaves like one somebody would write                                    | a wrong verb, a bodied 204, a validation failure arriving as a 500                                                     |
+| **Vocabulary** (`test/vocabulary.test.ts`)                 | the generated server says only what the document can say, and declares no schema of its own | a non-derivable Zod call; a stray import; the split quietly stopping being real                                        |
+| **Options** (`test/options.test.ts`)                       | the option schema is derived, not restated                                                  | an option the library adds and this package silently drops                                                             |
+| **Vendored fixture** (`test/vendored.test.ts`)             | the shared spec has not drifted                                                             | an edit in either repository                                                                                           |
+| **Packaging** (`test/packaging.test.ts`)                   | what a stranger gets                                                                        | an entry point outside `files`; a `link:` range published                                                              |
+| **Documentation** (`test/documentation.test.ts`)           | a refusal is findable                                                                       | a diagnostic or option nobody wrote down                                                                               |
 
 ```bash
 pnpm test        # everything
@@ -119,7 +120,7 @@ which is a claim to justify in a commit rather than a number to absorb.
 1. **Nothing.** `app.on(method, …)` was the last untested branch and is now exercised directly by
    `test/render.test.ts`, because no TypeSpec spec can reach it: six verbs, five with Hono helpers,
    and the sixth refused.
-3. **Publishing.** Needs explicit approval, and the GitHub repositories do not exist yet. Note that
+2. **Publishing.** Needs explicit approval, and the GitHub repositories do not exist yet. Note that
    CI checks out the library as a sibling, so **both** repositories must exist before CI passes.
 
 ### Done, and worth not redoing

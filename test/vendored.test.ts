@@ -30,6 +30,8 @@ describe("the vendored reference service matches its recorded digest", () => {
 		const actual = createHash("sha256")
 			.update(readFileSync(join(here, "reference", "service.tsp")))
 			.digest("hex");
-		expect(actual, "service.tsp has drifted from the copy recorded in PROVENANCE.md").toBe(recorded);
+		expect(actual, "service.tsp has drifted from the copy recorded in PROVENANCE.md").toBe(
+			recorded,
+		);
 	});
 });

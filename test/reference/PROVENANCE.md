@@ -22,7 +22,7 @@ shared, and sharing more would be false economy.
 
 ⚠️ **Vendoring DETECTS drift; it does not prevent a stale copy.** Both repositories assert their copy
 against the digest above, so an edit to either fails the other on its next run. A copy that has fallen
-behind the *emitter* rather than behind the file is a different failure, and what catches that is
+behind the _emitter_ rather than behind the file is a different failure, and what catches that is
 question 3 compiling this copy — not this digest.
 
 Regenerate with:

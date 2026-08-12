@@ -57,11 +57,17 @@ function offendersIn(label: string, text: string): string[] {
 }
 
 function git(...args: readonly string[]): string {
-	return execFileSync("git", args, { cwd: packageRoot, encoding: "utf8", maxBuffer: 32 * 1024 * 1024 });
+	return execFileSync("git", args, {
+		cwd: packageRoot,
+		encoding: "utf8",
+		maxBuffer: 32 * 1024 * 1024,
+	});
 }
 
 describe("the package credits no tool for the work", () => {
-	const files = git("ls-files").split("\n").filter((name) => name !== "");
+	const files = git("ls-files")
+		.split("\n")
+		.filter((name) => name !== "");
 
 	it("has files and history to inspect at all", () => {
 		// Without this the whole file passes the day `git ls-files` returns nothing.
@@ -100,13 +106,15 @@ describe("the package credits no tool for the work", () => {
 		 * only would miss exactly the case that arises in practice.
 		 */
 		const identities = new Set(
-			git("log", "--all", "--format=%an <%ae>%n%cn <%ce>").split("\n").filter((line) => line !== ""),
+			git("log", "--all", "--format=%an <%ae>%n%cn <%ce>")
+				.split("\n")
+				.filter((line) => line !== ""),
 		);
 		expect(identities.size).toBeGreaterThanOrEqual(1);
 		expect([...identities].flatMap((who) => offendersIn("identity", who))).toEqual([]);
 		// An empty or placeholder identity is the other way a commit ends up crediting nobody real.
-		expect([...identities].filter((who) => /^\s*<\s*>\s*$/.test(who) || who.includes("<>"))).toEqual(
-			[],
-		);
+		expect(
+			[...identities].filter((who) => /^\s*<\s*>\s*$/.test(who) || who.includes("<>")),
+		).toEqual([]);
 	});
 });

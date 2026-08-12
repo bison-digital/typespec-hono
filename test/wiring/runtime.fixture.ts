@@ -18,7 +18,9 @@ export { selectContentType } from "../../src/runtime.js";
  */
 
 /** A result envelope of the app's own, so `Result<T>` is no longer the identity. */
-export type Result<T> = { readonly ok: true; readonly value: T } | { readonly ok: false; readonly code: string };
+export type Result<T> =
+	| { readonly ok: true; readonly value: T }
+	| { readonly ok: false; readonly code: string };
 
 export type Awaitable<T> = T | Promise<T>;
 

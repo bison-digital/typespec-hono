@@ -50,8 +50,10 @@ describe("the vocabulary sweeps grade the whole corpus, not a chosen subset", ()
 		 * oracle's defects, named in `corpus.ts`, and `routes.test.ts` owns them. A CEILING rather than
 		 * an equality, so the known few are tolerated and a new one is not.
 		 */
-		expect(missing.length, `scenarios contributing no swept output: ${missing.join(", ")}`)
-			.toBeLessThanOrEqual(3);
+		expect(
+			missing.length,
+			`scenarios contributing no swept output: ${missing.join(", ")}`,
+		).toBeLessThanOrEqual(3);
 
 		// And the local fixtures, which carry the depth the corpus does not.
 		for (const [dir, name] of SWEPT_FIXTURES) {

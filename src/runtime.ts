@@ -15,7 +15,6 @@ import type { ResponseArm } from "typespec-http-zod/runtime";
  */
 export { armFor, type ResponseArm } from "typespec-http-zod/runtime";
 
-
 /**
  * The contract between the GENERATED server and the app that mounts it.
  *

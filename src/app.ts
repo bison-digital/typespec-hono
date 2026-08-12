@@ -252,9 +252,7 @@ export function renderApp(emitted: EmittedService, refuse: RenderRefusals): stri
 			if (identifier === undefined) continue;
 			// The body's target depends on what the document says the wire carries; the rest are fixed.
 			const target =
-				location === "body"
-					? bodyTargetFor(route.requestContentTypes)
-					: VALIDATOR_TARGET[location];
+				location === "body" ? bodyTargetFor(route.requestContentTypes) : VALIDATOR_TARGET[location];
 			validators.push([target, identifier]);
 		}
 		return [{ route, names, validators }];
@@ -349,7 +347,7 @@ export function renderApp(emitted: EmittedService, refuse: RenderRefusals): stri
 		const mountOn = resource === undefined ? undefined : subApps.get(resource);
 		const target = mountOn ?? "app";
 		const registeredPath =
-			mountOn === undefined ? path : (path.slice(`/${resource ?? ""}`.length) || "/");
+			mountOn === undefined ? path : path.slice(`/${resource ?? ""}`.length) || "/";
 		/**
 		 * The scope gate goes FIRST, before any validator.
 		 *
@@ -520,7 +518,10 @@ export function renderApp(emitted: EmittedService, refuse: RenderRefusals): stri
 		subApps.size === 0
 			? ""
 			: `${[...subApps.values()]
-					.map((name) => `\tconst ${name} = new Hono<AppEnv>()\n${(byTarget.get(name) ?? []).join("\n")};`)
+					.map(
+						(name) =>
+							`\tconst ${name} = new Hono<AppEnv>()\n${(byTarget.get(name) ?? []).join("\n")};`,
+					)
 					.join("\n\n")}\n\n`;
 	const subAppMounts = [...subApps].map(
 		([resource, name]) => `\t\t.route(${JSON.stringify(`/${resource}`)}, ${name})`,

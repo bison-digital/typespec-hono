@@ -80,7 +80,9 @@ describe("an application compiles against the generated server", () => {
 });
 
 describe("the application answers real requests", () => {
-	async function app(): Promise<{ request: (input: string, init?: RequestInit) => Promise<Response> }> {
+	async function app(): Promise<{
+		request: (input: string, init?: RequestInit) => Promise<Response>;
+	}> {
 		const { buildApp } = (await import("./consumer.fixture.js")) as {
 			buildApp: () => { request: (input: string, init?: RequestInit) => Promise<Response> };
 		};
@@ -88,7 +90,9 @@ describe("the application answers real requests", () => {
 	}
 
 	it("serves a route whose path parameter carries a hyphen", async () => {
-		const response = await (await app()).request("/widgets/w-1?%24select=name", {
+		const response = await (
+			await app()
+		).request("/widgets/w-1?%24select=name", {
 			headers: { "x-request-id": "r-1" },
 		});
 		// ⚠️ A literal `{widget-id}` route answers 404 here while every count reads it as mounted.
@@ -135,7 +139,9 @@ describe("the application answers real requests", () => {
 		 * The header is supplied because the GET route requires it: HEAD behaving *identically* to GET
 		 * is the point, and a HEAD request that skipped validation would be the anomaly.
 		 */
-		const response = await (await app()).request("/widgets/w-1", {
+		const response = await (
+			await app()
+		).request("/widgets/w-1", {
 			method: "HEAD",
 			headers: { "x-request-id": "r-1" },
 		});
@@ -151,7 +157,9 @@ describe("the application answers real requests", () => {
 	});
 
 	it("negotiates on Accept rather than validating it", async () => {
-		const json = await (await app()).request("/report", {
+		const json = await (
+			await app()
+		).request("/report", {
 			headers: { accept: "application/json" },
 		});
 		expect(json.status).toBe(200);
@@ -179,7 +187,9 @@ describe("the application answers real requests", () => {
 	});
 
 	it("validates a polymorphic body against the variant its discriminator names", async () => {
-		const good = await (await app()).request("/shapes", {
+		const good = await (
+			await app()
+		).request("/shapes", {
 			method: "POST",
 			headers: { "content-type": "application/json" },
 			body: JSON.stringify({ kind: "circle", label: "c", radius: 1 }),
@@ -187,7 +197,9 @@ describe("the application answers real requests", () => {
 		expect(good.status).toBe(200);
 
 		// A body carrying the base's properties but no valid variant must be refused.
-		const bad = await (await app()).request("/shapes", {
+		const bad = await (
+			await app()
+		).request("/shapes", {
 			method: "POST",
 			headers: { "content-type": "application/json" },
 			body: JSON.stringify({ kind: "hexagon", label: "h" }),
@@ -196,7 +208,9 @@ describe("the application answers real requests", () => {
 	});
 
 	it("refuses a body that breaks a constraint the document publishes", async () => {
-		const response = await (await app()).request("/widgets", {
+		const response = await (
+			await app()
+		).request("/widgets", {
 			method: "POST",
 			headers: { "content-type": "application/json" },
 			// `name` is `@minLength(1)`, and `weight` is `@minValue(0)`.
@@ -206,7 +220,9 @@ describe("the application answers real requests", () => {
 	});
 
 	it("refuses an undeclared property on a closed model", async () => {
-		const response = await (await app()).request("/widgets", {
+		const response = await (
+			await app()
+		).request("/widgets", {
 			method: "POST",
 			headers: { "content-type": "application/json" },
 			body: JSON.stringify({

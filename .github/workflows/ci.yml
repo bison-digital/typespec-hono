@@ -62,3 +62,9 @@ jobs:
         working-directory: typespec-hono
       - run: pnpm lint
         working-directory: typespec-hono
+
+      # A repository that calls itself idiomatic should not depend on whoever opens it next
+      # having the same editor settings. `.oxfmtrc.json` matches the style the code is already
+      # written in — tabs — rather than imposing the tool's defaults on it.
+      - run: pnpm format:check
+        working-directory: typespec-hono

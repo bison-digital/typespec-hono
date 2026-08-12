@@ -7,7 +7,10 @@ import {
 	type Program,
 	type TypeSpecLibrary,
 } from "@typespec/compiler";
-import { EmitterOptionsSchema as httpZodOptions, type EmitterOptions as HttpZodOptions } from "typespec-http-zod";
+import {
+	EmitterOptionsSchema as httpZodOptions,
+	type EmitterOptions as HttpZodOptions,
+} from "typespec-http-zod";
 
 /**
  * The library definition, kept in its own module so `tsp-index.ts` and the emitter can both reach it

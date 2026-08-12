@@ -20,7 +20,9 @@ import { renderApp, toHonoPath } from "../src/app.js";
  */
 
 /** The narrowest `EmittedService` the renderer will accept — everything else is defaulted away. */
-function serviceWith(route: Partial<EmittedRoute> & { operationId: string; verb: string }): EmittedService {
+function serviceWith(
+	route: Partial<EmittedRoute> & { operationId: string; verb: string },
+): EmittedService {
 	const full = {
 		statusCode: 200,
 		statusCodes: [200],

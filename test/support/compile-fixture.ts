@@ -78,15 +78,16 @@ export async function compileFixture(
 		outputDir: outDir,
 		emit: ["typespec-hono"],
 		options: {
-			"typespec-hono": options.bare === true
-				? { "emitter-output-dir": outDir }
-				: {
-						"emitter-output-dir": outDir,
-						"contracts-output-dir": outDir,
-						"contracts-package": `./${CONTRACTS_BARREL}.js`,
-						"seal-object-schemas": true,
-						"runtime-module": options.runtimeModule ?? runtimeFixtureModule(outDir),
-					},
+			"typespec-hono":
+				options.bare === true
+					? { "emitter-output-dir": outDir }
+					: {
+							"emitter-output-dir": outDir,
+							"contracts-output-dir": outDir,
+							"contracts-package": `./${CONTRACTS_BARREL}.js`,
+							"seal-object-schemas": true,
+							"runtime-module": options.runtimeModule ?? runtimeFixtureModule(outDir),
+						},
 		},
 	});
 	if (options.bare !== true) {

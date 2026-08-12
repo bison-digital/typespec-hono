@@ -144,7 +144,9 @@ describe("the package declares what it needs to run outside this checkout", () =
 		 * bundle for the sake of a few declarations.
 		 */
 		const runtime = readFileSync(join(packageRoot, "src", "runtime.ts"), "utf8");
-		const specifiers = specifiersIn(runtime).map(packageOf).filter((name) => name !== undefined);
+		const specifiers = specifiersIn(runtime)
+			.map(packageOf)
+			.filter((name) => name !== undefined);
 		expect(specifiers.length).toBeGreaterThanOrEqual(2);
 		expect(specifiers.filter((name) => name.startsWith("@typespec/"))).toEqual([]);
 	});
@@ -222,9 +224,9 @@ describe("the package is publishable", () => {
 		};
 		walk(extracted, "");
 		expect(shipped.length).toBeGreaterThanOrEqual(10);
-		expect(shipped.filter((path) => /(^|\/)test\//.test(path) || path.endsWith(".test.js"))).toEqual(
-			[],
-		);
+		expect(
+			shipped.filter((path) => /(^|\/)test\//.test(path) || path.endsWith(".test.js")),
+		).toEqual([]);
 		expect(shipped.filter((path) => path.endsWith(".tsp") && !path.startsWith("lib/"))).toEqual([]);
 	});
 

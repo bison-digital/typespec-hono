@@ -33,7 +33,11 @@ async function mount(): Promise<Hono> {
 	};
 	const app = new Hono();
 	const noop = (): undefined => undefined;
-	server.registerRoutes(app, () => new Proxy({}, { get: () => noop }), new Proxy({}, { get: () => noop }));
+	server.registerRoutes(
+		app,
+		() => new Proxy({}, { get: () => noop }),
+		new Proxy({}, { get: () => noop }),
+	);
 	return app;
 }
 
@@ -66,7 +70,9 @@ describe("the emitted server mounts what the document declares", () => {
 		 * the slot list has to do, makes a second registration invisible. A control caught exactly that.
 		 */
 		const registrations = [
-			...readFileSync(join(compiled.outDir, "app.gen.ts"), "utf8").matchAll(/^\t\t\.(?!route\()\w+\(/gm),
+			...readFileSync(join(compiled.outDir, "app.gen.ts"), "utf8").matchAll(
+				/^\t\t\.(?!route\()\w+\(/gm,
+			),
 		].length;
 		expect(registrations).toBe(slots.length);
 		/**
@@ -131,18 +137,29 @@ describe("the emitted server mounts what the document declares", () => {
 			config,
 			JSON.stringify({
 				compilerOptions: {
-					target: "es2023", module: "nodenext", moduleResolution: "nodenext",
-					strict: true, exactOptionalPropertyTypes: true, noUncheckedIndexedAccess: true,
-					noEmit: true, skipLibCheck: true, types: [],
+					target: "es2023",
+					module: "nodenext",
+					moduleResolution: "nodenext",
+					strict: true,
+					exactOptionalPropertyTypes: true,
+					noUncheckedIndexedAccess: true,
+					noEmit: true,
+					skipLibCheck: true,
+					types: [],
 				},
 				include: ["./*.ts"],
 			}),
 		);
 		let output = "";
 		try {
-			execFileSync(join(here, "..", "..", "node_modules", ".bin", "tsc"), ["-p", config, "--ignoreConfig"], {
-				encoding: "utf8", stdio: ["ignore", "pipe", "pipe"],
-			});
+			execFileSync(
+				join(here, "..", "..", "node_modules", ".bin", "tsc"),
+				["-p", config, "--ignoreConfig"],
+				{
+					encoding: "utf8",
+					stdio: ["ignore", "pipe", "pipe"],
+				},
+			);
 		} catch (error) {
 			const asExec = error as { stdout?: string; stderr?: string };
 			output = `${asExec.stdout ?? ""}${asExec.stderr ?? ""}`;

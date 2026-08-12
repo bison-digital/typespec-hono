@@ -38,8 +38,11 @@ describe("the option schema is derived from the library's, not restated", () => 
 		 */
 		const nested = (schema: unknown): string[] =>
 			Object.keys(
-				((schema as { properties?: { services?: { additionalProperties?: { properties?: object } } } })
-					.properties?.services?.additionalProperties?.properties) ?? {},
+				(
+					schema as {
+						properties?: { services?: { additionalProperties?: { properties?: object } } };
+					}
+				).properties?.services?.additionalProperties?.properties ?? {},
 			);
 		const theirNested = nested(httpZodOptions);
 		expect(theirNested.length).toBeGreaterThanOrEqual(5);

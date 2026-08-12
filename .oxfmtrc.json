@@ -1,8 +1,15 @@
 {
-  "$schema": "./node_modules/oxfmt/configuration_schema.json",
-  "ignorePatterns": [],
-  "useTabs": true,
-  "printWidth": 100,
-  "tabWidth": 2,
-  "proseWrap": "preserve"
+	"$schema": "./node_modules/oxfmt/configuration_schema.json",
+	"ignorePatterns": [
+		"**/.out/**",
+		"**/.out-*/**",
+		"dist/**",
+		"test/reference/documents/**",
+		"**/test/reference/documents/**",
+		"**/tsconfig.wiring.json"
+	],
+	"useTabs": true,
+	"printWidth": 100,
+	"tabWidth": 2,
+	"proseWrap": "preserve"
 }
