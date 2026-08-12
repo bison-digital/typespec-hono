@@ -4,38 +4,38 @@ Working record. Everything here is measured; where a number appears, it came fro
 
 ## START HERE
 
-**State, 2026-08-12.** Extracted from a single un-split emitter, and now a thin consumer of
-[`typespec-http-zod`](https://github.com/bison-digital/typespec-http-zod). **83 tests, 12 files,
-typecheck clean, lint clean.**
+**State, 2026-08-12.** A thin consumer of
+[`typespec-http-zod`](https://github.com/bison-digital/typespec-http-zod). **121 tests, 21 files,
+typecheck clean, lint clean, format clean — all four green on a CLEAN tree.**
 
 **Three numbers to lead every report with: divergences · emitter warnings · named refusals. Today
 they are `0 · 0 · 2`.** Say them unprompted and flag the moment one moves.
 
-Divergences are the library's business — the validators are graded there, against the document. What
-is graded HERE is whether a caller can reach any of it: **577 operations declared, 564 mounted, 13
-refused**, and `mounted + refused === declared` is asserted.
+Divergences are the library's business. What is graded HERE is whether a caller can reach any of it:
+**577 operations declared, 564 mounted, 13 refused**, `mounted + refused === declared`, and the
+baseline reproduces byte-identically from a clean checkout.
 
-The two refusals are `unroutable-verb` and `unsupported-path-template`. **Both are facts about Hono,
-not about the spec** — `typespec-http-zod` emits correct validators for these operations; only a Hono
-server cannot serve them. That division is the clearest evidence the split is real.
+⚠️ **Nothing is published.** The GitHub repository now exists and is public; nothing is pushed to it
+yet. Publishing to npm is public, permanent, and needs explicit approval.
 
-⚠️ **Nothing is published.** Publishing is public and permanent and needs explicit approval.
-
-### The five things most easily lost
+### The six things most easily lost
 
 1. **A consumer lists ONE emitter.** This package runs the whole library and adds `app.gen.ts`. The
-   server imports every validator BY NAME from `schemas.gen.js`, and it works because the library
-   minted those names, wrote them, and handed them back — not because two emitters agree.
-2. **`app.routes` lists routes Hono will never dispatch to.** That is how fifteen unreachable HEAD
-   routes passed a differential written specifically to catch unreachable routes. Mounting and
-   counting is necessary and not sufficient; the arithmetic has to account for refusals.
-3. **The library is a sibling repository and the two move together.** `pnpm-workspace.yaml` overrides
-   `typespec-http-zod` to a local link; the published manifest carries a real semver range and a test
-   asserts it never carries a path. `test/reference/service.tsp` is vendored with a digest both
-   repositories check.
-4. **`pnpm typecheck` is the last gate, always.**
-5. **`renderApp` declares no schema of its own**, asserted. If it ever does, the split has quietly
-   stopped being real.
+   server imports every validator BY NAME from `schemas.gen.js`, and that works because the library
+   minted those names, wrote them, and handed them back.
+2. **`registerRoutes` CHAINS and returns the chain.** Not style: `hc<T>` derives its entire surface
+   from the `Schema` type Hono accumulates through chaining. As separate statements,
+   `hc<typeof app>` resolved to **`unknown`** — Hono's RPC client was categorically unavailable.
+3. **Refusals are `warning`, not `error`.** An error sets `program.hasError()` and
+   `@typespec/openapi3` then writes **no document at all**. One `@head` operation cost a consumer
+   their entire OpenAPI file. A consumer who wants a refusal to fail the build uses `warn-as-error`.
+4. **Install as a `dependency`.** `./runtime` exports runtime values, and `--save-dev` fails only at
+   deploy — every earlier signal is green because every earlier check runs with dev deps present.
+5. **`app.routes` lists routes Hono will never dispatch to.** That is how fifteen unreachable HEAD
+   routes passed a differential written to catch unreachable routes.
+6. **`pnpm typecheck` is the last gate, always.** And ⚠️ **`pnpm vitest run` skips the build** —
+   `pnpm test` is `tsc -p tsconfig.build.json && vitest run`. Two three-state controls "passed" here
+   against a stale `dist` before that was noticed.
 
 ---
 
@@ -44,90 +44,100 @@ server cannot serve them. That division is the clearest evidence the split is re
 ⚠️ **This section is why the effort works. Numbers can be re-measured; this cannot be re-derived from
 the code.**
 
-**Find the work by asking what nothing is looking at.** The productive question is not "where is the
-emitter wrong" but _what does the gate never open_.
+**Find the work by asking what nothing is looking at.** Not "where is the emitter wrong" — the
+productive question is _what does the gate never open_. Every significant finding below came from
+that question rather than from a failing test.
 
-**Grade the gate before grading what the gate grades.** The largest finding in this package's history
-was caught this way and not by any test: a brand-new route differential reported 577 mounted of 577
-declared, and thirteen of those routes were unreachable. The gate agreed with itself, because it
-counted `app.routes` and Hono lists a registration it will never dispatch to.
+**Be the first adopter.** Install from a `pnpm pack` tarball into a fresh project outside the repo,
+write a spec, compile, wire it up, `wrangler dev` it. Several defects were invisible to 83 passing
+tests and obvious within an hour of doing that, because **the harness configures away the path a
+consumer takes** — it set `runtime-module` on every compile, it ran with dev dependencies present,
+and it never sent a request carrying a number.
 
-**Ask the first-party question.** `unroutable-verb` exists because of four lines in `hono-base.js`:
-
-```js
-if (method === "HEAD") {
-	return (async () =>
-		new Response(null, await this.#dispatch(request, executionCtx, env, "GET")))();
-}
-```
-
-Read the framework's source. Then measure it: `on("PURGE", …)` and `on("OPTIONS", …)` both work, so
-this is HEAD specifically and not a limitation of `on`. Fifteen of the seventeen HEAD operations in
-`@typespec/http-specs` have no sibling GET, so all fifteen were 404s that counted as present.
-
-**Refuse rather than approximate.** A route that works and is wrong is worse than one that fails.
-Registering a HEAD handler under GET would invent an operation the document does not declare;
-guarding it on `c.req.method` is not something a Hono author would write. Name the refusal, name the
-remedy, and let the spec author decide.
-
-**A refusal is a named exclusion of one operation, not a failed scenario.** `reportDiagnostic` does
-not unwind, so everything else still emits. Treating a scenario as failed because one of its twenty
-operations is refused blinds the differential to the other nineteen — measured on
-`type/model/visibility`.
+**Grade the gate before grading what the gate grades.** More defects here were in the ORACLES than in
+the emitters, and every one accused the emitter falsely.
 
 **Every guard gets a three-state control, on the day it is written.** Break it → red; revert **by
-re-editing, never `git checkout`** → green. And ⚠️ **`git diff --exit-code` proves nothing about an
-untracked file** — commit first, or compare bytes against a copy.
+re-editing, never `git checkout`** → green. ⚠️ `git diff --exit-code` proves nothing about an
+untracked file — `cmp` against a byte copy.
 
-**Two suites must not compile one fixture to one directory.** Vitest runs files in parallel; the same
-request answered 400, 200 and 204 across runs of an unchanged emitter until each configuration got
-its own output directory. A suite that races itself is not evidence, and it looks exactly like a
-flaky emitter.
+**Non-vacuity floors, and audit them against what they actually read.** A floor an order of magnitude
+under its measurement is a floor in name only. One arm here read **315 files against a floor of 20**.
 
-**Assert the CLASS, never a list of members.** Option forwarding, refusal codes, the server's import
-surface — all sets. Which corpus scenarios happen to declare `@head` is not a fact about this
-emitter, so the refusal arm asserts the CODES and a floor on how many scenarios raise one.
+**Assert the CLASS, never a list of members.** And when a class assertion refuses a change, answer it
+rather than widen it — the vocabulary guard refused the wire decodes and was right to; the carve-out
+was extended as SHAPES with their own floors, not loosened to a count.
+
+**Ask the first-party question.** Read `hono-base.js`. Read `@typespec/openapi3`'s source. Both
+refusals, and the severity decision, come from what those say rather than from what a test did.
+
+**Refuse rather than approximate.** A route that works and is wrong is worse than one that fails.
 
 ---
 
 ## What the oracles are
 
-| oracle                                                     | proves                                                                                      | catches                                                                                                                |
-| ---------------------------------------------------------- | ------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
-| **Route differential** (`test/conformance/routes.test.ts`) | every declared operation is mounted or refused                                              | dropped operations, unreachable registrations, routes still carrying a path template                                   |
-| **Reference service** (`test/reference/`)                  | question 2 — Hono alone                                                                     | hyphenated path parameters, negotiation registered once, no schema declared locally, emitted output compiles           |
-| **Wiring** (`test/wiring/`)                                | question 3 — both together                                                                  | a signature no application can satisfy; and, by making REAL requests, every wire defect no document comparison can see |
-| **Equivalence** (`test/equivalence/`)                      | the emitted server behaves like one somebody would write                                    | a wrong verb, a bodied 204, a validation failure arriving as a 500                                                     |
-| **Vocabulary** (`test/vocabulary.test.ts`)                 | the generated server says only what the document can say, and declares no schema of its own | a non-derivable Zod call; a stray import; the split quietly stopping being real                                        |
-| **Options** (`test/options.test.ts`)                       | the option schema is derived, not restated                                                  | an option the library adds and this package silently drops                                                             |
-| **Vendored fixture** (`test/vendored.test.ts`)             | the shared spec has not drifted                                                             | an edit in either repository                                                                                           |
-| **Packaging** (`test/packaging.test.ts`)                   | what a stranger gets                                                                        | an entry point outside `files`; a `link:` range published                                                              |
-| **Documentation** (`test/documentation.test.ts`)           | a refusal is findable                                                                       | a diagnostic or option nobody wrote down                                                                               |
+| oracle                                                     | proves                                                                                                             | catches                                                                                             |
+| ---------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------- |
+| **Route differential** (`test/conformance/routes.test.ts`) | every declared operation is mounted or refused                                                                     | dropped operations, unreachable registrations, a scenario silently ungraded                         |
+| **Wire** (`test/wire/wire.test.ts`)                        | what ARRIVES is accepted                                                                                           | a numeric path parameter, a multipart upload, a binary body — none visible to a document comparison |
+| **Middleware** (`test/wire/middleware.test.ts`)            | an app can wrap the routes                                                                                         | per-resource middleware becoming unreachable; `routePath` or `onError` breaking                     |
+| **Streaming** (`test/wire/streaming.test.ts`)              | a server can stream, and validators still run first                                                                | streaming becoming a way around the contract                                                        |
+| **Adopter** (`test/adopter.test.ts`)                       | output emitted with NO options compiles                                                                            | the default path, which every other compile configures away                                         |
+| **Idioms** (`test/idioms.test.ts`)                         | the output is what a Hono author would write                                                                       | drift from Hono's own best-practices guide                                                          |
+| **Wiring** (`test/wiring/`)                                | an app compiles against it, and `hc` works                                                                         | a signature no application can satisfy; RPC silently foreclosed                                     |
+| **Equivalence** (`test/equivalence/`)                      | it behaves like a hand-written Hono app                                                                            | a wrong verb, a bodied 204, a validation failure arriving as a 500                                  |
+| **Vocabulary** (`test/vocabulary.test.ts`)                 | the server says only what the document can say                                                                     | a non-derivable Zod call; the split quietly stopping being real                                     |
+| **Isolation** (`test/isolation.test.ts`)                   | no two test files share an output directory                                                                        | the race that made one request answer 400, 200 and 204 across three runs                            |
+| **Sweep coverage** (`test/sweep-coverage.test.ts`)         | the sweeps read the whole corpus                                                                                   | coverage narrowed while every number stays green                                                    |
+| **Packaging** (`test/packaging.test.ts`)                   | what a stranger gets                                                                                               | an entry point outside `files`; a `link:` range published; a wrong install instruction              |
+| **Portability** (`test/portability.test.ts`)               | no machine path, tracked or generated                                                                              | an absolute specifier that resolves on one machine                                                  |
+| **Attribution** (`test/attribution.test.ts`)               | no tool credited, one identity                                                                                     | a trailer in a commit nobody re-reads                                                               |
+| **Provenance · Documentation · Options · Vendored**        | no foreign codebase names; every diagnostic documented; options forwarded as a class; the shared fixture undrifted |                                                                                                     |
 
 ```bash
-pnpm test        # everything
+pnpm test        # everything — builds first
 pnpm typecheck   # LAST, before every commit
 ```
 
 `UPDATE_ROUTE_BASELINE=1` regenerates the route totals. **Scenarios, declared and mounted may only
-grow; refusals may only shrink** — a new refusal is an operation this emitter has stopped serving,
-which is a claim to justify in a commit rather than a number to absorb.
+grow; refusals may only shrink.**
+
+---
+
+## Defects found by being the first adopter
+
+Every one of these passed the full suite before it was found.
+
+| what                                                                                                                                                                                                    | how it became visible                                                                                                       |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
+| **The generated server did not compile with default options.** `runtime-module` defaulted to a module exporting none of the six names `app.gen.ts` imports, and which a consumer cannot resolve at all. | `tsp compile` reported zero diagnostics; `tsc` then reported two `TS2307`s. Every compile in both suites set the option.    |
+| **Every numeric path or query parameter refused every conformant caller.** `z.number().int()` met `"1"` from `c.req.param()`.                                                                           | `GET /pet/1 → 400` while `GET /user/zach → 200`. Every parameter in the only request-making fixture was a `string`.         |
+| **`content-type` validated as an exact literal**, so every multipart request failed — the boundary parameter RFC 2046 requires is what the literal refused.                                             | 78 such validators across the corpus, 17 of them multipart.                                                                 |
+| **Multipart bodies validated as JSON**, and a binary body read with `c.req.text()` — 18 bytes arrived as 23 code points, five destroyed, answering **200**.                                             | Only by sending a request carrying bytes that are not valid UTF-8.                                                          |
+| **A refusal destroyed the consumer's OpenAPI document.**                                                                                                                                                | Adding one `@head` took `openapi/` from one file to none — and it was order-dependent, which is the tell it was accidental. |
+| **`hc` was foreclosed.**                                                                                                                                                                                | `hc<typeof app>` resolved to `unknown`. A hand-chained app with the identical sub-app shape worked perfectly.               |
+| **`--save-dev` fails at deploy.**                                                                                                                                                                       | `pnpm install --prod` then `wrangler deploy --dry-run` → `Could not resolve "typespec-hono/runtime"`.                       |
+
+## Defects found in the ORACLES
+
+| what                                                                                                                                                                                                                                                           | how it was found                                                                                              |
+| -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
+| **Neither suite had ever passed on a clean tree.** `vocabulary` and `packaging` graded whatever `.gen.ts` files were on disk — written by other test files, unordered under vitest's parallelism. Clean → red; second run → green, grading the PREVIOUS build. | A three-state control passed green with the fix deleted from `src/`.                                          |
+| **The route baseline was not reproducible.** Thirteen scenarios had no document, so `577 · 564 · 13` could only have been recorded against files an earlier build left behind.                                                                                 | Guarding the crash that had been hiding it.                                                                   |
+| **`refused` fell to zero** when refusals became warnings, because the harness keyed on severity rather than on the diagnostic code.                                                                                                                            | `mounted + refused === declared` broke at 564 + 0.                                                            |
+| **A floor read 315 files against a threshold of 20.**                                                                                                                                                                                                          | Auditing every counting assertion against its measured value, after finding the same fault twice by accident. |
+| **`provenance` asserted a literal call spelling** and accused the emitter when the call gained an argument, while every property it protects still held.                                                                                                       | Its own failure, on a change that broke nothing.                                                              |
 
 ---
 
 ## Open, in the order I would take them
 
-1. **Nothing.** `app.on(method, …)` was the last untested branch and is now exercised directly by
-   `test/render.test.ts`, because no TypeSpec spec can reach it: six verbs, five with Hono helpers,
-   and the sixth refused.
-2. **Publishing.** Needs explicit approval, and the GitHub repositories do not exist yet. Note that
-   CI checks out the library as a sibling, so **both** repositories must exist before CI passes.
-
-### Done, and worth not redoing
-
-- **The equivalence oracle** (`test/equivalence/`), ported and controlled: mutating the hand-written
-  app's `204` to a `200` turns it red naming the exchange.
-
-- **TypeSpec 1.14 → 1.15 and corpus alpha.40 → alpha.41** (`377effd`), in step with the library. 577
-  declared, 564 mounted, 13 refused — unchanged.
-- **TypeScript 6 → 7** (`fcd4106`). No change to the emitted declarations.
+1. **Push to GitHub.** The repository exists and is public; the push needs the `workflow` scope on the
+   local `gh` token because of `.github/workflows/`. ⚠️ Do not delete the workflows to get around it.
+2. **`application/xml` request bodies are validated as JSON.** There is no Hono target for XML and no
+   Zod representation the document justifies. Five such bodies in the Swagger Petstore. Stated in the
+   README as a limit rather than guessed at.
+3. **Publishing.** Needs explicit approval. ⚠️ **`typespec-http-zod` must be published first** — this
+   package depends on it by a semver range, so the reverse order makes this uninstallable for
+   everyone.

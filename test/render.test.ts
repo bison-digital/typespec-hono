@@ -19,7 +19,18 @@ import { renderApp, toHonoPath } from "../src/app.js";
  * special, and only HEAD is refused.
  */
 
-/** The narrowest `EmittedService` the renderer will accept — everything else is defaulted away. */
+/**
+ * The narrowest `EmittedService` the renderer will accept — everything else is defaulted away.
+ *
+ * ⚠️ **`satisfies`, never `as`, and the difference is a whole direction of drift.** This was
+ * `as EmittedRoute`, which is an assertion: excess-property checking never runs, so the fixture kept
+ * a `paramsSchema: undefined` line for as long as it took somebody to notice — inert, and invisible
+ * to `tsc`. An assertion catches the interface GAINING a field (insufficient overlap) and is blind to
+ * it LOSING one, which is exactly the change a consumer feels and the compiler could have caught.
+ *
+ * `satisfies` checks the literal against the type without widening it, so both directions fail here:
+ * a field removed from `EmittedRoute` leaves a surplus key, and one added leaves a missing property.
+ */
 function serviceWith(
 	route: Partial<EmittedRoute> & { operationId: string; verb: string },
 ): EmittedService {
@@ -27,9 +38,11 @@ function serviceWith(
 		statusCode: 200,
 		statusCodes: [200],
 		responseContentTypes: ["application/json"],
+		// Added when the request media type became readable; the fixture never supplied it, and
+		// `as` hid that for as long as it took to switch to `satisfies`.
+		requestContentTypes: ["application/json"],
 		summary: undefined,
 		requestSchema: undefined,
-		paramsSchema: undefined,
 		pathSchema: undefined,
 		querySchema: undefined,
 		headerSchema: undefined,
@@ -44,7 +57,7 @@ function serviceWith(
 		alternateResponseSchema: undefined,
 		path: "/thing",
 		...route,
-	} as EmittedRoute;
+	} satisfies EmittedRoute;
 	const names: RouteSchemaNames = {
 		operationId: full.operationId,
 		path: undefined,
