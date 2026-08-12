@@ -41,6 +41,17 @@ options:
 
 `app.gen.ts`, plus everything `typespec-http-zod` emits — see its README for the other four.
 
+Routes are grouped into a **sub-app per resource** and mounted with `app.route()`, which is what
+[Hono's best-practices guide](https://hono.dev/docs/guides/best-practices) recommends for building a
+larger application. Its other recommendation is honoured at the same time and matters more: handlers
+are written **directly after the path definitions**, never lifted into Rails-style controllers, because
+a handler in a separate file cannot infer its path parameters. A resource with one route gets no
+sub-app — that is ceremony around a single line, and not what an author writes.
+
+Measured before relying on it: `app.route(prefix, sub)` composes paths exactly, including a parameter
+in the prefix, and the parent's `app.routes` reports the fully composed path — so every arm that
+counts routes still counts them.
+
 The server is **plain `Hono` and `@hono/zod-validator`**, deliberately not `@hono/zod-openapi`. That
 package is the same validation plus a document generated FROM the code — spec-last, and a second
 source of truth competing with the one openapi3 publishes from the spec. We want its validation, not

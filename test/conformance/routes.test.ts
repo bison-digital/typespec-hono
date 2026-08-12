@@ -99,7 +99,7 @@ async function measure(compiled: CompiledScenario): Promise<Measured | undefined
 		app.routes.filter((route) => route.method !== "ALL").map((r) => `${r.method} ${r.path}`),
 	);
 	const registrations = [
-		...readFileSync(join(compiled.serverDir, "app.gen.ts"), "utf8").matchAll(/^\tapp\.\w+\(/gm),
+		...readFileSync(join(compiled.serverDir, "app.gen.ts"), "utf8").matchAll(/^\t\w+\.(?!route\()\w+\(/gm),
 	].length;
 	return {
 		name: compiled.scenario.name,

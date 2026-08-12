@@ -115,6 +115,34 @@ export interface RenderRefusals {
 }
 
 /**
+ * The resource a route belongs to — its first path segment — or `undefined` when it has none.
+ *
+ * ⚠️ **A parameter is not a resource.** `/{id}/things` has no groupable head: mounting a sub-app at
+ * `/:id` would make the parameter the resource name, which is not what the document says and not what
+ * anybody would write.
+ */
+function resourceOf(path: string): string | undefined {
+	const segment = path.split("/").filter((part) => part !== "")[0];
+	if (segment === undefined || segment.startsWith(":") || segment.startsWith("{")) return undefined;
+	return segment;
+}
+
+/**
+ * A safe identifier for a resource's sub-app.
+ *
+ * Suffixed rather than named for the resource alone: every validator this file imports is named from
+ * an operation id, and a bare `widgets` could collide with one. A collision here is a file that does
+ * not compile, which is cheap to prevent and expensive to debug in generated output.
+ */
+function subAppNameOf(resource: string): string {
+	const cleaned = resource.replace(/[^A-Za-z0-9]+(.)?/g, (_match, next: string | undefined) =>
+		next === undefined ? "" : next.toUpperCase(),
+	);
+	const head = cleaned.charAt(0).toLowerCase() + cleaned.slice(1);
+	return `${/^[A-Za-z_$]/.test(head) ? head : `r${head}`}Routes`;
+}
+
+/**
  * The generated Hono server.
  *
  * ⚠️ **This replaces a data table that a hand-written loop interpreted at run time.** The emitter knew,
@@ -198,6 +226,34 @@ export function renderApp(emitted: EmittedService, refuse: RenderRefusals): stri
 			`export type ${capitaliseId(entry.route.operationId)}Handler = Operations[${JSON.stringify(entry.route.operationId)}];`,
 	);
 
+	/**
+	 * **Which resources get a sub-app, and which routes stay on the root.**
+	 *
+	 * ⚠️ **Hono's own guidance, followed rather than guessed at.** Its best-practices page says to use
+	 * `app.route()` to build a larger application instead of Ruby-on-Rails-like controllers — while
+	 * writing handlers *directly after the path definitions*, because a handler in a separate file
+	 * cannot infer its path parameters. Both halves are honoured here: routes are grouped by resource,
+	 * and every handler stays inline where `c.req.valid()` is typed.
+	 *
+	 * ⚠️ **Measured before relying on it:** `app.route(prefix, sub)` composes paths exactly, including a
+	 * parameter in the prefix, and the PARENT's `app.routes` reports the fully composed path — so a
+	 * route mounted through a sub-app is still countable, which is what every arm that counts routes
+	 * depends on.
+	 *
+	 * A resource with ONE route is not a group, and gets no sub-app: that is what a Hono author writes,
+	 * and a one-route sub-app is ceremony around a single line.
+	 */
+	const slotsByResource = new Map<string, string[]>();
+	for (const slot of grouped.keys()) {
+		const resource = resourceOf(slot.slice(slot.indexOf(" ") + 1));
+		if (resource === undefined) continue;
+		slotsByResource.set(resource, [...(slotsByResource.get(resource) ?? []), slot]);
+	}
+	const subApps = new Map<string, string>();
+	for (const [resource, slots] of slotsByResource) {
+		if (slots.length > 1) subApps.set(resource, subAppNameOf(resource));
+	}
+
 	const registrations = [...grouped.values()].map((group) => {
 		const entry = group[0] as AppRoute;
 		const { route, validators } = entry;
@@ -205,6 +261,18 @@ export function renderApp(emitted: EmittedService, refuse: RenderRefusals): stri
 		const path = toHonoPath(route.path, (template, name) =>
 			refuse.unsupportedPathTemplate(route, template, name),
 		);
+		/**
+		 * A route inside a sub-app is registered RELATIVE to the prefix it is mounted at.
+		 *
+		 * ⚠️ **The collection route is `"/"`, never the empty string.** Measured: `sub.get("/")` under
+		 * `app.route("/widgets", sub)` answers `/widgets`, and `/widgets/` is a 404 — so the composed
+		 * path carries no trailing slash and the document's own path is what a caller reaches.
+		 */
+		const resource = resourceOf(path);
+		const mountOn = resource === undefined ? undefined : subApps.get(resource);
+		const target = mountOn ?? "app";
+		const registeredPath =
+			mountOn === undefined ? path : (path.slice(`/${resource ?? ""}`.length) || "/");
 		/**
 		 * The scope gate goes FIRST, before any validator.
 		 *
@@ -292,9 +360,9 @@ export function renderApp(emitted: EmittedService, refuse: RenderRefusals): stri
 		 * emitted, counted by every arm that counted rows, and mounted nowhere.
 		 */
 		return [
-			`\tapp.${method}(`,
+			`\t${target}.${method}(`,
 			...(method === "on" ? [`\t\t${JSON.stringify(route.verb)},`] : []),
-			`\t\t${JSON.stringify(path)},`,
+			`\t\t${JSON.stringify(registeredPath)},`,
 			...middleware,
 			"\t\tasync (c) => {",
 			...body,
@@ -332,13 +400,30 @@ export function renderApp(emitted: EmittedService, refuse: RenderRefusals): stri
 			? ""
 			: `import {\n${referenced.map((id) => `\t${id},`).join("\n")}\n} from "./schemas.gen.js";\n`;
 
+	/**
+	 * One `Hono` per resource, declared before the routes and mounted after them.
+	 *
+	 * ⚠️ **Mounted AFTER, deliberately.** `app.route()` copies the sub-app's routes into the parent at
+	 * the moment it is called, so mounting before the routes are registered mounts nothing — the same
+	 * shape of defect as Hono middleware, which only applies to routes registered after it. Declaring
+	 * at the top and mounting at the bottom is the arrangement that cannot be got wrong by reordering.
+	 */
+	const subAppDeclarations =
+		subApps.size === 0
+			? ""
+			: `${[...subApps.values()].map((name) => `\tconst ${name} = new Hono<AppEnv>();`).join("\n")}\n\n`;
+	const subAppMounts =
+		subApps.size === 0
+			? ""
+			: `\n\n${[...subApps].map(([resource, name]) => `\tapp.route(${JSON.stringify(`/${resource}`)}, ${name});`).join("\n")}`;
+
 	// Imported only where a route actually negotiates: an unused import fails the repo's own lint.
 	const negotiates = [...grouped.values()].some((group) => group.length > 1);
 	const runtimeModule = JSON.stringify(emitted.options.runtimeModule);
 
 	return `${GENERATED_BANNER}
 import { zValidator } from "@hono/zod-validator";
-import type { Context, Hono, Input } from "hono";
+${subApps.size === 0 ? 'import type { Context, Hono, Input } from "hono";' : 'import { Hono } from "hono";\nimport type { Context, Input } from "hono";'}
 import { z } from "zod";
 import type { AppEnv, Awaitable, Ctx, Result, RouteDeps } from ${runtimeModule};${negotiates ? `\nimport { selectContentType } from ${runtimeModule};` : ""}
 ${imports}
@@ -394,7 +479,7 @@ export function registerRoutes<T extends Operations>(
 	handlersFor: <P extends string, I extends Input>(c: Context<AppEnv, P, I>) => Exhaustive<T>,
 	deps: RouteDeps,
 ): void {
-${registrations.join("\n")}
+${subAppDeclarations}${registrations.join("\n")}${subAppMounts}
 }
 `;
 }

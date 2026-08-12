@@ -66,7 +66,7 @@ describe("the emitted server mounts what the document declares", () => {
 		 * the slot list has to do, makes a second registration invisible. A control caught exactly that.
 		 */
 		const registrations = [
-			...readFileSync(join(compiled.outDir, "app.gen.ts"), "utf8").matchAll(/^\tapp\.\w+\(/gm),
+			...readFileSync(join(compiled.outDir, "app.gen.ts"), "utf8").matchAll(/^\t\w+\.(?!route\()\w+\(/gm),
 		].length;
 		expect(registrations).toBe(slots.length);
 		/**
