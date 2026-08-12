@@ -99,6 +99,12 @@ operations; only a Hono server cannot serve them.
 - **An application is compiled against it**, with `runtime-module` pointed at a module that
   substitutes real types, and with no cast anywhere. A signature no application could satisfy passed
   every other test for a long time because the suite that mounted it cast to `unknown`.
+- **Equivalence against a hand-written Hono app** — `test/equivalence/reference-app.ts` follows the
+  pattern in Hono's own validation guide, written without reference to what this emitter produces.
+  Both apps serve the same API and answer thirteen identical exchanges identically, and both routing
+  tables are compared, because behaviour alone would miss two apps that happen to 404 together. ⚠️
+  **Its value is entirely in its independence** — adjusted to match our output, it would prove only
+  that we agree with ourselves, so when the two disagree the emitter is what changes.
 - **Real requests through the real router** — the only thing that can see a validator-to-wire defect.
   A flattened collection parameter once had the document saying `array`, the validator saying `array`,
   and the server rejecting every conformant caller.

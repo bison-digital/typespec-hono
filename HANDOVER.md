@@ -5,7 +5,7 @@ Working record. Everything here is measured; where a number appears, it came fro
 ## START HERE
 
 **State, 2026-08-12.** Extracted from a single un-split emitter, and now a thin consumer of
-[`typespec-http-zod`](https://github.com/bison-digital/typespec-http-zod). **49 tests, 7 files,
+[`typespec-http-zod`](https://github.com/bison-digital/typespec-http-zod). **62 tests, 8 files,
 typecheck clean, lint clean.**
 
 **Three numbers to lead every report with: divergences · emitter warnings · named refusals. Today
@@ -96,6 +96,7 @@ emitter, so the refusal arm asserts the CODES and a floor on how many scenarios 
 | **Route differential** (`test/conformance/routes.test.ts`) | every declared operation is mounted or refused | dropped operations, unreachable registrations, routes still carrying a path template |
 | **Reference service** (`test/reference/`) | question 2 — Hono alone | hyphenated path parameters, negotiation registered once, no schema declared locally, emitted output compiles |
 | **Wiring** (`test/wiring/`) | question 3 — both together | a signature no application can satisfy; and, by making REAL requests, every wire defect no document comparison can see |
+| **Equivalence** (`test/equivalence/`) | the emitted server behaves like one somebody would write | a wrong verb, a bodied 204, a validation failure arriving as a 500 |
 | **Options** (`test/options.test.ts`) | the option schema is derived, not restated | an option the library adds and this package silently drops |
 | **Vendored fixture** (`test/vendored.test.ts`) | the shared spec has not drifted | an edit in either repository |
 | **Packaging** (`test/packaging.test.ts`) | what a stranger gets | an entry point outside `files`; a `link:` range published |
@@ -118,13 +119,13 @@ which is a claim to justify in a commit rather than a number to absorb.
    declares six verbs, five have Hono helpers, and the sixth is `@head`, which is refused. The branch
    is correct and defensive; it is also untested, and that is recorded in the README rather than
    hidden.
-2. **A Hono-equivalence oracle.** An independently hand-written app in Hono's published idiom, serving
-   the same API, answering identical requests — the un-split package had one, and it is the arm that
-   catches "we agree with ourselves". Question 3 covers the wire; this would cover the idiom.
 3. **Publishing.** Needs explicit approval, and the GitHub repositories do not exist yet. Note that
    CI checks out the library as a sibling, so **both** repositories must exist before CI passes.
 
 ### Done, and worth not redoing
+
+- **The equivalence oracle** (`test/equivalence/`), ported and controlled: mutating the hand-written
+  app's `204` to a `200` turns it red naming the exchange.
 
 - **TypeSpec 1.14 → 1.15 and corpus alpha.40 → alpha.41** (`377effd`), in step with the library. 577
   declared, 564 mounted, 13 refused — unchanged.
