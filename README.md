@@ -117,6 +117,53 @@ it works because every route of a resource is mounted under that resource's pref
 `app.onError` and `app.notFound` are **not** subject to this: they are app-level handlers rather than
 route middleware, and may be registered in any order.
 
+## Cloudflare Workers — pick a router
+
+You construct the `Hono` instance, so the router is your choice. **Make it deliberately.** Measured on
+a generated **580-operation** service (58 resources × 10), three runs, on Hono 4.13.1:
+
+| router | register | first request | 1000 requests |
+| --- | --- | --- | --- |
+| SmartRouter *(Hono's default)* | 5.4–6.1 ms | **18.5–18.9 ms** | 24–26 ms |
+| **RegExpRouter** | 2.6–4.4 ms | 2.2–2.6 ms | **16–18 ms** |
+| LinearRouter | **1.1–1.2 ms** | **0.6 ms** | 66–70 ms |
+| PatternRouter | 2.7–2.9 ms | 2.5 ms | 36–39 ms |
+
+⚠️ **The default is the worst choice here, and the reason is a cold-start cost you pay per isolate.**
+SmartRouter picks a router by trying one, and that build happens on the **first request** rather than
+at registration. At this scale that is ~18.8 ms of CPU — and the Workers **free plan allows 10 ms of
+CPU per request**, so the first request into every new isolate can be killed with `exceededCpu`.
+
+**Recommendation for a generated app: `RegExpRouter`.**
+
+```ts
+import { Hono } from "hono";
+import { RegExpRouter } from "hono/router/reg-exp-router";
+
+const routes = registerRoutes(new Hono<AppEnv>({ router: new RegExpRouter() }), handlersFor, deps);
+```
+
+Its reputation for slow registration does not bite here — it registered in under 5 ms and is fastest
+in steady state. Choose `LinearRouter` instead only for a very low-traffic Worker where cold start
+dominates: it is the cheapest to start and ~4× slower per request thereafter.
+
+### Bundle size is not the constraint
+
+| | raw | gzip | share of the 3 MB free limit |
+| --- | --- | --- | --- |
+| 20 operations | 642 KiB | 100.8 KiB | 3.3% |
+| 580 operations | 1008 KiB | **112.6 KiB** | **3.7%** |
+
+560 extra operations cost ~12 KiB gzipped — the baseline is Hono and Zod, not your API. Router choice
+moves it by under 1 KiB, so do not choose a router for size. Limits are 3 MB gzipped on the free plan
+and 10 MB on paid.
+
+`registerRoutes` runs at module scope in 1.1–6.1 ms, comfortably inside the **1 second** startup
+budget, despite the docs' warning that "generating or consuming a large schema at the top level is a
+common cause of exceeding this limit".
+
+Nothing here needs `nodejs_compat`: the generated server runs on `workerd` with no Node built-ins.
+
 ## Streaming
 
 A generated operation returns a **value**, not a `Response`, so a handler cannot hand back a
