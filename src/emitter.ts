@@ -26,8 +26,33 @@ function targetFor(emitted: EmittedService, operationId: string): Type {
 	);
 }
 
+/**
+ * What the generated files import their runtime contract from when the consumer sets nothing.
+ *
+ * ⚠️ **THIS package's runtime, not the library's, and the distinction is the whole of a defect that
+ * shipped.** `app.gen.ts` names `AppEnv`, `Awaitable`, `Ctx`, `Result`, `RouteDeps` and
+ * `selectContentType`; every one of them is declared in `src/runtime.ts` here. The library's runtime
+ * exports `ResponseArm` and `armFor` and nothing else — and it is a TRANSITIVE dependency of a
+ * consumer of this package, so under a strict `node_modules` its specifier does not resolve from
+ * consumer code at all.
+ *
+ * Pointing at `typespec-hono/runtime` fixes both halves at once, because this module RE-EXPORTS
+ * `ResponseArm` and `armFor` (see `runtime.ts`) — which is what `schemas.gen.ts` imports. One
+ * specifier, present in the consumer's own dependency, carrying every name both generated files
+ * reference.
+ *
+ * ⚠️ **Measured in a fresh project installed from `pnpm pack` tarballs, because no test could see it:**
+ * every compile in both harnesses sets `runtime-module` explicitly, so the default branch was ungraded
+ * across 240 tests. `tsp compile` succeeded with zero diagnostics and `tsc` then reported two
+ * `TS2307`s — `Cannot find module 'typespec-http-zod/runtime'` — one in each generated file.
+ * `test/adopter.test.ts` is the arm that now opens that branch.
+ */
+export const DEFAULT_RUNTIME_MODULE = "typespec-hono/runtime";
+
 export async function $onEmit(context: EmitContext): Promise<void> {
-	for (const emitted of await emitHttpZod(context)) {
+	for (const emitted of await emitHttpZod(context, {
+		defaultRuntimeModule: DEFAULT_RUNTIME_MODULE,
+	})) {
 		await emitFile(context.program, {
 			path: resolvePath(emitted.outputDir, "app.gen.ts"),
 			content: renderApp(emitted, {

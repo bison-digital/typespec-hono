@@ -44,6 +44,22 @@ export interface FixtureOptions {
 	 * failure looks exactly like a flaky emitter.
 	 */
 	readonly outName?: string;
+	/**
+	 * Compile with NOTHING set but the output directory — the configuration the README's own example
+	 * produces.
+	 *
+	 * ⚠️ **This exists because every other compile in this suite configures the default away, and a
+	 * defect lived in the gap for the whole life of the package.** `runtime-module` was set by this
+	 * helper on line 64 and by the corpus harness, so across 83 tests here and 157 in the library
+	 * nothing ever compiled with the emitter's own default — which pointed at a module that exports
+	 * none of the six names `app.gen.ts` imports and does not resolve from consumer code at all.
+	 *
+	 * Note what {@link runtimeFixtureModule} says about itself: it points at THIS package's runtime
+	 * "exactly as a consumer's would". The harness had the right answer written down as a workaround
+	 * while the shipped default did something else. A fixture that compensates for a defect is a
+	 * fixture that hides it.
+	 */
+	readonly bare?: boolean;
 }
 
 export async function compileFixture(
@@ -56,24 +72,28 @@ export async function compileFixture(
 		outputDir: outDir,
 		emit: ["typespec-hono"],
 		options: {
-			"typespec-hono": {
-				"emitter-output-dir": outDir,
-				"contracts-output-dir": outDir,
-				"contracts-package": `./${CONTRACTS_BARREL}.js`,
-				"seal-object-schemas": true,
-				"runtime-module": options.runtimeModule ?? runtimeFixtureModule(outDir),
-			},
+			"typespec-hono": options.bare === true
+				? { "emitter-output-dir": outDir }
+				: {
+						"emitter-output-dir": outDir,
+						"contracts-output-dir": outDir,
+						"contracts-package": `./${CONTRACTS_BARREL}.js`,
+						"seal-object-schemas": true,
+						"runtime-module": options.runtimeModule ?? runtimeFixtureModule(outDir),
+					},
 		},
 	});
-	writeFileSync(
-		join(outDir, `${CONTRACTS_BARREL}.ts`),
-		[
-			"// The contracts package, as a consumer's would be: one specifier over both artefacts.",
-			'export * from "./requests.gen.js";',
-			'export * from "./vocabularies.gen.js";',
-			"",
-		].join("\n"),
-	);
+	if (options.bare !== true) {
+		writeFileSync(
+			join(outDir, `${CONTRACTS_BARREL}.ts`),
+			[
+				"// The contracts package, as a consumer's would be: one specifier over both artefacts.",
+				'export * from "./requests.gen.js";',
+				'export * from "./vocabularies.gen.js";',
+				"",
+			].join("\n"),
+		);
+	}
 	return {
 		outDir,
 		diagnostics: program.diagnostics.map((d) => ({ code: d.code, severity: d.severity })),

@@ -179,6 +179,20 @@ describe("the emitter is written against the published API", () => {
 		 * duplicating work it already does.
 		 */
 		expect([...source.matchAll(/emitFile\(/g)].length).toBe(1);
-		expect(source).toMatch(/emitHttpZod\(context\)/);
+		/**
+		 * ⚠️ **The CLASS — one delegation, handed the emit context — not a literal call spelling.**
+		 *
+		 * This asserted `/emitHttpZod\(context\)/` and turned red the moment the call gained a second
+		 * argument, while every property it exists to protect still held: still one delegation, still
+		 * the whole library, still one `emitFile`. It accused the emitter of breaking a rule it had not
+		 * broken, which is the failure mode a hand-spelled assertion has and a class assertion does not.
+		 *
+		 * What matters is that the library is invoked exactly once and receives the context. What it is
+		 * additionally told — `defaultRuntimeModule`, or whatever a wrapper needs next — is this
+		 * package's business and not a fact this test should be pinning.
+		 */
+		const delegations = [...source.matchAll(/emitHttpZod\(\s*(\w+)/g)];
+		expect(delegations.length).toBe(1);
+		expect(delegations[0]?.[1]).toBe("context");
 	});
 });
