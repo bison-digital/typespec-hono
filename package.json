@@ -1,0 +1,85 @@
+{
+	"name": "typespec-hono",
+	"version": "0.1.0",
+	"description": "TypeSpec emitter: generate a Hono server, and the Zod validators it enforces, from an HTTP service definition — agreeing with the OpenAPI document @typespec/openapi3 publishes from the same source.",
+	"keywords": [
+		"cloudflare-workers",
+		"codegen",
+		"hono",
+		"openapi",
+		"typespec",
+		"typespec-emitter",
+		"zod"
+	],
+	"license": "MIT",
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/bison-digital/typespec-hono.git"
+	},
+	"bugs": {
+		"url": "https://github.com/bison-digital/typespec-hono/issues"
+	},
+	"homepage": "https://github.com/bison-digital/typespec-hono#readme",
+	"type": "module",
+	"main": "dist/src/index.js",
+	"tspMain": "lib/main.tsp",
+	"exports": {
+		".": {
+			"typespec": "./lib/main.tsp",
+			"types": "./dist/src/index.d.ts",
+			"default": "./dist/src/index.js"
+		},
+		"./runtime": {
+			"types": "./dist/src/runtime.d.ts",
+			"default": "./dist/src/runtime.js"
+		}
+	},
+	"files": [
+		"dist",
+		"lib",
+		"!dist/test/**"
+	],
+	"engines": {
+		"node": ">=22.0.0"
+	},
+	"scripts": {
+		"build": "tsc -p tsconfig.build.json",
+		"test": "tsc -p tsconfig.build.json && vitest run",
+		"typecheck": "tsc -p tsconfig.json",
+		"lint": "oxlint src/ test/",
+		"format": "oxfmt",
+		"format:check": "oxfmt --check"
+	},
+	"dependencies": {
+		"typespec-http-zod": "^0.1.0"
+	},
+	"peerDependencies": {
+		"@hono/zod-validator": "^0.8.0",
+		"@typespec/compiler": "^1.14.0",
+		"hono": "^4.12.0",
+		"zod": "^4.0.0"
+	},
+	"devDependencies": {
+		"@hono/zod-openapi": "^1.4.0",
+		"@hono/zod-validator": "^0.8.0",
+		"@types/node": "^26.0.0",
+		"@typespec/compiler": "1.14.0",
+		"@typespec/events": "0.84.0",
+		"@typespec/http": "1.14.0",
+		"@typespec/http-specs": "0.1.0-alpha.40",
+		"@typespec/openapi": "1.14.0",
+		"@typespec/openapi3": "1.14.0",
+		"@typespec/rest": "0.84.0",
+		"@typespec/sse": "0.84.0",
+		"@typespec/streams": "0.84.0",
+		"@typespec/versioning": "0.84.0",
+		"@typespec/xml": "0.84.0",
+		"hono": "^4.12.26",
+		"oxfmt": "^0.63.0",
+		"oxlint": "^1.78.0",
+		"typescript": "~6.0.3",
+		"typespec-hono": "link:.",
+		"vitest": "^4.1.9",
+		"zod": "^4.4.3"
+	}
+}

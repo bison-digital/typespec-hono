@@ -1,0 +1,9 @@
+node_modules/
+dist/
+
+# Emitted output. A glob rather than a list of suite directories: an enumerated list goes stale the
+# first time a suite is added, and the failure mode is a generated file committed by accident.
+**/.out/
+
+# `pnpm pack` writes here during the packaging oracle.
+*.tgz

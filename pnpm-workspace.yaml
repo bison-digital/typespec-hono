@@ -1,0 +1,6 @@
+# Single-package root. This file exists ONLY to carry the local override below, which pnpm 11 no
+# longer reads from `package.json`. It deliberately declares no `packages:` list — this is not a
+# multi-package workspace, and it must not become one: `test/packaging.test.ts` exists precisely
+# because a workspace resolves every member's devDependencies and hides a missing declaration.
+overrides:
+  typespec-http-zod: "link:../typespec-http-zod"
