@@ -222,6 +222,34 @@ operations; only a Hono server cannot serve them.
 | `unroutable-verb`           | ⚠️ **A `@head` operation.** Hono rewrites every HEAD request to GET _before_ matching — `hono-base.js` does it unconditionally at the top of `#dispatch` — so a route registered under HEAD is never reached: 404 where the path has no GET, dead code where it has one. Measured on Hono 4.13.1; `on("PURGE", …)` and `on("OPTIONS", …)` both work, so this is HEAD specifically. **The remedy is in your spec:** declare `@get`, and Hono answers HEAD from it with the body stripped, which is what RFC 9110 requires anyway. Hono's own [best-practices guide](https://hono.dev/docs/guides/best-practices) states the same rule. |
 | `unsupported-path-template` | a path parameter that is not a plain name. Hono reads a parameter up to the next `/`, so an RFC 6570 operator or modifier would become part of the name — and `*` would become Hono's wildcard, mounting a route that matches the wrong requests and answers them. Refused rather than approximated, because a route that works and is wrong is worse than one that fails.                                                                                                                                                                                                                                                            |
 
+### Refusals are warnings, and you choose whether they fail the build
+
+A refusal is reported as a **warning**, so a compile that contains one still succeeds and still emits
+everything else — including `@typespec/openapi3`'s document, if you run it.
+
+⚠️ **That last part is why.** A TypeSpec `error` sets `program.hasError()`, and openapi3 declines to
+write anything when the program has errors — _including errors that are not its own_. With these
+refusals as errors, one `@head` operation cost you your entire OpenAPI document, and whether it did
+depended on the order emitters were listed in. Measured: `openapi/` went from one file to none.
+
+It is also what the first-party rule says. openapi3 uses `warning` for exactly this shape —
+`streams-not-supported`, `unsupported-auth` — meaning _"the spec is valid and this emitter cannot
+express it"_, and reserves `error` for a spec that is wrong for any emitter. A `@head` operation is
+valid TypeSpec that openapi3 renders perfectly; only Hono cannot route it.
+
+**Nothing is lost.** The operation is still excluded from the server, still named, still carries its
+remedy. If you want a refusal to fail your build, that is the compiler's switch and always was:
+
+```yaml
+# tspconfig.yaml
+warn-as-error: true
+```
+
+```
+default            -> exit 0, document written, operation excluded
+warn-as-error      -> exit 1, build fails, refusal reported as an error
+```
+
 ## Known limits
 
 - **Fifteen of the seventeen `@head` operations in `@typespec/http-specs` are refused**, and that is

@@ -50,9 +50,24 @@ describe("the emitted server mounts what the document declares", () => {
 		 * server cannot serve it.
 		 *
 		 * Named rather than counted: a refusal is a claim about the reference spec and has to be read.
+		 *
+		 * ⚠️ **The SEVERITY is part of the assertion, and `warning` is deliberate.** An `error` sets
+		 * `program.hasError()`, and `@typespec/openapi3` guards on that before writing anything — so one
+		 * refused `@head` operation cost a consumer their entire OpenAPI document. Measured: `openapi/`
+		 * went from one file to none, and it was order-dependent, which is the tell that it was
+		 * accidental.
+		 *
+		 * `warning` is also what the first-party rule says. openapi3 uses it for exactly this shape —
+		 * `streams-not-supported`, `unsupported-auth` — meaning "the spec is valid and THIS emitter
+		 * cannot express it", and reserves `error` for a spec that is wrong for any emitter. A `@head`
+		 * operation is valid TypeSpec that openapi3 renders perfectly; only Hono cannot route it.
+		 *
+		 * Nothing is lost by it. The operation is still excluded, still named, still carries its remedy —
+		 * and a consumer who wants a refusal to fail the build sets `warn-as-error`, which is the
+		 * compiler's own mechanism for that and always was.
 		 */
 		expect(compiled.diagnostics.map((d) => `${d.severity}: ${d.code}`)).toEqual([
-			"error: typespec-hono/unroutable-verb",
+			"warning: typespec-hono/unroutable-verb",
 		]);
 	});
 

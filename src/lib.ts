@@ -88,7 +88,7 @@ const diagnostics = {
 	 * correct validators for these operations; only a Hono server cannot route them.
 	 */
 	"unroutable-verb": {
-		severity: "error",
+		severity: "warning",
 		messages: {
 			default: paramMessage`'${"operationId"}' is declared on '${"verb"}', which Hono cannot dispatch to: it rewrites every HEAD request to GET before matching, so a route registered under HEAD is never reached — 404 where the path has no GET, and dead code where it has one. Declare the operation as '@get' instead; Hono answers HEAD from it automatically with the body stripped, which is what RFC 9110 requires.`,
 		},
@@ -112,7 +112,7 @@ const diagnostics = {
 	 * reachable by nobody.
 	 */
 	"unsupported-path-template": {
-		severity: "error",
+		severity: "warning",
 		messages: {
 			default: paramMessage`'${"template"}' is not a path template this emitter can mount: the parameter '${"name"}' is not a plain name. Hono reads a parameter up to the next '/', so an RFC 6570 operator or modifier would become part of the name — or, for '*', a wildcard — and the route would match the wrong requests rather than fail. Name the parameter with letters, digits, '_', '-', '.' or '~'.`,
 		},

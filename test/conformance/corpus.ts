@@ -1,8 +1,9 @@
-import { existsSync, readdirSync, statSync } from "node:fs";
+import { readdirSync, statSync } from "node:fs";
 import { join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 import { NodeHost, compile, listServices } from "@typespec/compiler";
 import { getVersions } from "@typespec/versioning";
+import { $lib } from "../../src/lib.js";
 
 /**
  * The independent conformance corpus: `@typespec/http-specs`.
@@ -147,45 +148,6 @@ function ownerOfCrash(message: string): FailureOwner {
  * openapi3 is configured exactly as a consuming project's `tspconfig.yaml` configures it. An oracle
  * running with different options is not the oracle we ship against.
  */
-/**
- * Compile a scenario with **openapi3 alone**, to obtain the document it declined to write beside us.
- *
- * ⚠️ **This exists because a refusal from this emitter suppresses openapi3's entire output.** Our
- * diagnostics are `severity: "error"`, that sets `program.hasError()`, and `openapi.js:200` guards
- * `if (program.compilerOptions.dryRun || program.hasError())` before writing anything. So the thirteen
- * scenarios carrying a refusal had **no document at all**, and the route differential — whose whole job
- * is comparing mounted routes against declared ones — could not grade a single one of them.
- *
- * ⚠️ **Measured, and order-dependent, which is how you can tell it is accidental rather than designed:**
- * listing `@typespec/openapi3` before `typespec-hono` in `tspconfig.yaml` produces the document, and
- * listing it after does not. Same spec, same emitters, same options.
- *
- * ⚠️ **This is a fallback for the ORACLE, and deliberately not a fix for the product.** A consumer
- * still loses their document, and that is a real defect reported separately — this only stops the
- * consequence from also blinding the arm that would catch a dropped route. The two compiles cannot
- * disagree about anything that matters here, because only the document's `paths` are read: no schema
- * is compared across them, which is the reason the main path insists on one program.
- */
-async function documentOnly(scenario: Scenario, openapiDir: string): Promise<boolean> {
-	try {
-		await compile(NodeHost, scenario.mainFile, {
-			outputDir: openapiDir,
-			emit: ["@typespec/openapi3"],
-			options: {
-				"@typespec/openapi3": {
-					"emitter-output-dir": openapiDir,
-					"openapi-versions": ["3.1.0"],
-					"seal-object-schemas": true,
-					"file-type": "json",
-				},
-			},
-		});
-	} catch {
-		return false;
-	}
-	return existsSync(openapiDir);
-}
-
 export async function compileScenario(
 	scenario: Scenario,
 	/**
@@ -299,17 +261,41 @@ export async function compileScenario(
 	 * `mounted + refused === declared` is a stronger property than `mounted === declared` ever was,
 	 * because it makes the exclusions explicit instead of letting them cancel out.
 	 */
+	/**
+	 * ⚠️ **A refusal is identified by its CODE, never by its severity.**
+	 *
+	 * It used to key on `severity === "error"`, which worked only while every refusal happened to be
+	 * one. The moment they became warnings — so that a refusal stops suppressing `@typespec/openapi3`'s
+	 * entire document — `refused` silently fell to **zero** and `mounted + refused === declared` broke
+	 * at 564 + 0 ≠ 577. Nothing had stopped being refused; the counter had stopped recognising it.
+	 *
+	 * Severity answers "how loudly should the compiler complain", which is a consumer's choice via
+	 * `warn-as-error`. Which diagnostics are refusals is a fact about this package, and `$lib` is where
+	 * that fact lives — so it is read from there rather than restated, and a refusal added later is
+	 * counted without anyone remembering to update this.
+	 */
+	const refusalCodes = new Set(
+		Object.keys($lib.diagnostics).map((code) => `typespec-hono/${code}`),
+	);
 	const refusals = program.diagnostics
-		.filter(
-			(diagnostic) =>
-				diagnostic.severity === "error" && diagnostic.code.startsWith("typespec-hono/"),
-		)
+		.filter((diagnostic) => refusalCodes.has(diagnostic.code))
 		.map((diagnostic) => diagnostic.code);
 
+	/**
+	 * ⚠️ **A warning that is NOT a named refusal**, which is the distinction this arm always wanted.
+	 *
+	 * The rule is "a warning THIS emitter raises means the output is knowingly not what the document
+	 * says, and we are shipping it anyway" — a compromise, and there should be none. A refusal is the
+	 * opposite: the operation is EXCLUDED, named, with a remedy. Both are now `warning` severity,
+	 * because severity is what decides whether the whole compile is poisoned, so severity can no longer
+	 * stand in for the distinction. The code does.
+	 */
 	const emitterWarnings = program.diagnostics
 		.filter(
 			(diagnostic) =>
-				diagnostic.code.startsWith("typespec-hono/") && diagnostic.severity === "warning",
+				diagnostic.code.startsWith("typespec-hono/") &&
+				diagnostic.severity === "warning" &&
+				!refusalCodes.has(diagnostic.code),
 		)
 		.map((diagnostic) => `${scenario.name} :: ${diagnostic.code}`);
 	/**
@@ -321,24 +307,6 @@ export async function compileScenario(
 			diagnostic.severity === "error" && !diagnostic.code.startsWith("typespec-hono/"),
 	);
 	if (error === undefined) {
-		/**
-		 * ⚠️ **A refusal of ours costs openapi3 its whole document, so fetch it separately.** Without
-		 * this the thirteen scenarios carrying a refusal were ungradeable — and the route arithmetic
-		 * that is this suite's central claim was being computed over the other 48 while reporting
-		 * totals that could only have come from documents an earlier build left on disk. See
-		 * {@link documentOnly}.
-		 */
-		const documented =
-			existsSync(dirs.openapiDir) || (await documentOnly(scenario, dirs.openapiDir));
-		if (!documented) {
-			return {
-				scenario,
-				...dirs,
-				emitterWarnings,
-				refusals,
-				failure: { owner: "oracle", code: "no-document", detail: "openapi3 emitted no document" },
-			};
-		}
 		return latestVersion === undefined
 			? { scenario, ...dirs, emitterWarnings, refusals }
 			: { scenario, ...dirs, emitterWarnings, latestVersion, refusals };
