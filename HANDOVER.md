@@ -5,7 +5,7 @@ Working record. Everything here is measured; where a number appears, it came fro
 ## START HERE
 
 **State, 2026-08-12.** Extracted from a single un-split emitter, and now a thin consumer of
-[`typespec-http-zod`](https://github.com/bison-digital/typespec-http-zod). **79 tests, 11 files,
+[`typespec-http-zod`](https://github.com/bison-digital/typespec-http-zod). **83 tests, 12 files,
 typecheck clean, lint clean.**
 
 **Three numbers to lead every report with: divergences · emitter warnings · named refusals. Today
@@ -116,10 +116,9 @@ which is a claim to justify in a commit rather than a number to absorb.
 
 ## Open, in the order I would take them
 
-1. **`app.on(method, …)` is reachable in principle and exercised by nothing.** `@typespec/http`
-   declares six verbs, five have Hono helpers, and the sixth is `@head`, which is refused. The branch
-   is correct and defensive; it is also untested, and that is recorded in the README rather than
-   hidden.
+1. **Nothing.** `app.on(method, …)` was the last untested branch and is now exercised directly by
+   `test/render.test.ts`, because no TypeSpec spec can reach it: six verbs, five with Hono helpers,
+   and the sixth refused.
 3. **Publishing.** Needs explicit approval, and the GitHub repositories do not exist yet. Note that
    CI checks out the library as a sibling, so **both** repositories must exist before CI passes.
 

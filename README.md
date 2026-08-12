@@ -86,9 +86,11 @@ operations; only a Hono server cannot serve them.
 - **Fifteen of the seventeen `@head` operations in `@typespec/http-specs` are refused**, and that is
   the honest count rather than a defect: they have no sibling `GET`, so Hono cannot route them at all.
   This emitter previously emitted them, and every route-counting arm called them mounted.
-- **`app.on(method, …)` is reachable in principle and exercised by nothing.** It exists for a verb
-  Hono has no dedicated helper for. `@typespec/http` declares exactly six verbs, five have helpers,
-  and the sixth is `@head`, which is refused — so no spec can currently reach that branch.
+- **`app.on(method, …)` is reachable by no TypeSpec spec**, because `@typespec/http` declares six
+  verbs, five have Hono helpers, and the sixth is `@head`, which is refused. The branch is exercised
+  directly by `test/render.test.ts` rather than left untested or deleted — deleting it would make
+  `HONO_METHOD[verb]` `undefined` for any verb TypeSpec adds later, emitting `app.undefined(...)`
+  from a spec that compiles.
 
 ## How it is graded
 
