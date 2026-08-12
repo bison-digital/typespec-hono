@@ -10,3 +10,9 @@ dist/
 
 # `pnpm pack` writes here during the packaging oracle.
 *.tgz
+
+# IDE state. Five of these were committed; nothing about one machine's editor belongs in a
+# repository that is about to be public.
+.idea/
+.vscode/
+*.iml
