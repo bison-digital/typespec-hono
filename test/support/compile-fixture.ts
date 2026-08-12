@@ -44,6 +44,8 @@ export interface FixtureOptions {
 	 * failure looks exactly like a flaky emitter.
 	 */
 	readonly outName?: string;
+	/** The full output directory, when a suite owns one of its own rather than sharing `dir/.out/`. */
+	readonly outDir?: string;
 	/**
 	 * Compile with NOTHING set but the output directory — the configuration the README's own example
 	 * produces.
@@ -67,7 +69,11 @@ export async function compileFixture(
 	name: string,
 	options: FixtureOptions = {},
 ): Promise<CompiledFixture> {
-	const outDir = join(dir, ".out", options.outName ?? name);
+	/**
+	 * ⚠️ `outDir` lets a sweep own a directory no other suite writes. See `emitted-set.ts` for the
+	 * defect that made it necessary: three oracles graded whatever the previous run had left behind.
+	 */
+	const outDir = options.outDir ?? join(dir, ".out", options.outName ?? name);
 	const program = await compile(NodeHost, join(dir, `${name}.tsp`), {
 		outputDir: outDir,
 		emit: ["typespec-hono"],

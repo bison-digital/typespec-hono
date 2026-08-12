@@ -67,7 +67,10 @@ function handWrittenFiles(): string[] {
 	const found: string[] = [];
 	const walk = (dir: string): void => {
 		for (const entry of readdirSync(dir)) {
-			if (entry === ".out" || entry === "node_modules" || entry === "dist") continue;
+			// ⚠️ `.out*`, not `.out` — the per-suite sweep directories (`.out-vocabulary`, …) hold
+			// generated files too, and treating those as hand-written would grade the emitter's output
+			// against a rule written for prose.
+			if (entry.startsWith(".out") || entry === "node_modules" || entry === "dist") continue;
 			const full = join(dir, entry);
 			if (statSync(full).isDirectory()) walk(full);
 			else if (entry.endsWith(".ts") || entry.endsWith(".tsp")) found.push(full);

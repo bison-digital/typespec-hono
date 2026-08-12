@@ -118,6 +118,33 @@ describe("the generated server mounts what the document declares", () => {
 		measured = all.filter((entry): entry is Measured => entry !== undefined);
 	}, 900_000);
 
+	it("grades every scenario that compiled, dropping none of them silently", () => {
+		/**
+		 * ⚠️ **The arm that stops the previous fix from being un-fixed.**
+		 *
+		 * Every scenario carrying a refusal used to arrive here with no OpenAPI document, because our
+		 * diagnostics are `severity: "error"`, that sets `program.hasError()`, and openapi3 guards on it
+		 * before writing anything. Thirteen scenarios were therefore ungradeable — and the route
+		 * arithmetic that is this suite's central claim was being computed over the remaining 48 while
+		 * reporting totals that could only have come from documents an earlier build left on disk.
+		 *
+		 * The first attempt at this counted the casualties and pinned the number, which accommodated the
+		 * defect instead of removing it. `corpus.ts` now fetches the document openapi3 declined to
+		 * write, and this asserts the consequence: a scenario that compiled is a scenario that got
+		 * graded. Anything that reintroduces a silent drop fails here by name rather than by a number
+		 * quietly drifting.
+		 */
+		const compiled = sources.filter((source) => source.failure === undefined);
+		const gradedNames = new Set(measured.map((entry) => entry.name));
+		const dropped = compiled
+			.map((source) => source.scenario.name)
+			.filter((name) => !gradedNames.has(name))
+			.toSorted();
+		expect(dropped, `compiled but ungraded: ${dropped.join(", ")}`).toEqual([]);
+		// Non-vacuity: the assertion above is trivially satisfied if nothing compiled at all.
+		expect(compiled.length).toBeGreaterThanOrEqual(55);
+	});
+
 	it("records what it measured, so coverage cannot shrink unnoticed", () => {
 		/**
 		 * ⚠️ **A baseline, because "all green" is not a coverage claim.** Sixty-two baselined divergences

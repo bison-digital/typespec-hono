@@ -1,4 +1,4 @@
-import { readdirSync, statSync } from "node:fs";
+import { existsSync, readdirSync, statSync } from "node:fs";
 import { join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 import { NodeHost, compile, listServices } from "@typespec/compiler";
@@ -147,8 +147,59 @@ function ownerOfCrash(message: string): FailureOwner {
  * openapi3 is configured exactly as a consuming project's `tspconfig.yaml` configures it. An oracle
  * running with different options is not the oracle we ship against.
  */
-export async function compileScenario(scenario: Scenario): Promise<CompiledScenario> {
-	const outputDir = join(corpusOutDir, scenario.name.replaceAll("/", "__"));
+/**
+ * Compile a scenario with **openapi3 alone**, to obtain the document it declined to write beside us.
+ *
+ * ⚠️ **This exists because a refusal from this emitter suppresses openapi3's entire output.** Our
+ * diagnostics are `severity: "error"`, that sets `program.hasError()`, and `openapi.js:200` guards
+ * `if (program.compilerOptions.dryRun || program.hasError())` before writing anything. So the thirteen
+ * scenarios carrying a refusal had **no document at all**, and the route differential — whose whole job
+ * is comparing mounted routes against declared ones — could not grade a single one of them.
+ *
+ * ⚠️ **Measured, and order-dependent, which is how you can tell it is accidental rather than designed:**
+ * listing `@typespec/openapi3` before `typespec-hono` in `tspconfig.yaml` produces the document, and
+ * listing it after does not. Same spec, same emitters, same options.
+ *
+ * ⚠️ **This is a fallback for the ORACLE, and deliberately not a fix for the product.** A consumer
+ * still loses their document, and that is a real defect reported separately — this only stops the
+ * consequence from also blinding the arm that would catch a dropped route. The two compiles cannot
+ * disagree about anything that matters here, because only the document's `paths` are read: no schema
+ * is compared across them, which is the reason the main path insists on one program.
+ */
+async function documentOnly(scenario: Scenario, openapiDir: string): Promise<boolean> {
+	try {
+		await compile(NodeHost, scenario.mainFile, {
+			outputDir: openapiDir,
+			emit: ["@typespec/openapi3"],
+			options: {
+				"@typespec/openapi3": {
+					"emitter-output-dir": openapiDir,
+					"openapi-versions": ["3.1.0"],
+					"seal-object-schemas": true,
+					"file-type": "json",
+				},
+			},
+		});
+	} catch {
+		return false;
+	}
+	return existsSync(openapiDir);
+}
+
+export async function compileScenario(
+	scenario: Scenario,
+	/**
+	 * Where this caller's corpus output lands.
+	 *
+	 * ⚠️ **A parameter, because a suite must never read output another suite wrote.** Vitest runs test
+	 * files in parallel with nothing ordering them, so a sweep that read `corpusOutDir` would be
+	 * grading whichever build happened to be on disk — which is precisely the defect that let a control
+	 * pass green with the fix deleted from `src/`. Every caller owns a directory nobody else writes,
+	 * and `isolation.test.ts` asserts it.
+	 */
+	outRoot: string = corpusOutDir,
+): Promise<CompiledScenario> {
+	const outputDir = join(outRoot, scenario.name.replaceAll("/", "__"));
 	const dirs = { serverDir: join(outputDir, "server"), openapiDir: join(outputDir, "openapi") };
 	let program;
 	try {
@@ -270,6 +321,23 @@ export async function compileScenario(scenario: Scenario): Promise<CompiledScena
 			diagnostic.severity === "error" && !diagnostic.code.startsWith("typespec-hono/"),
 	);
 	if (error === undefined) {
+		/**
+		 * ⚠️ **A refusal of ours costs openapi3 its whole document, so fetch it separately.** Without
+		 * this the thirteen scenarios carrying a refusal were ungradeable — and the route arithmetic
+		 * that is this suite's central claim was being computed over the other 48 while reporting
+		 * totals that could only have come from documents an earlier build left on disk. See
+		 * {@link documentOnly}.
+		 */
+		const documented = existsSync(dirs.openapiDir) || (await documentOnly(scenario, dirs.openapiDir));
+		if (!documented) {
+			return {
+				scenario,
+				...dirs,
+				emitterWarnings,
+				refusals,
+				failure: { owner: "oracle", code: "no-document", detail: "openapi3 emitted no document" },
+			};
+		}
 		return latestVersion === undefined
 			? { scenario, ...dirs, emitterWarnings, refusals }
 			: { scenario, ...dirs, emitterWarnings, latestVersion, refusals };

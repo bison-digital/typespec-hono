@@ -3,6 +3,7 @@ import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync } 
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { compileEmittedSet } from "./support/emitted-set.js";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 /**
@@ -64,6 +65,11 @@ describe("the package declares what it needs to run outside this checkout", () =
 		...Object.keys(manifest.peerDependencies ?? {}),
 		...Object.keys(manifest.dependencies ?? {}),
 	]);
+	let emitted: string[] = [];
+
+	beforeAll(async () => {
+		emitted = await compileEmittedSet("packaging");
+	}, 600_000);
 
 	it("declares every package `src/` imports", () => {
 		const used = new Set<string>();
@@ -84,21 +90,11 @@ describe("the package declares what it needs to run outside this checkout", () =
 		 * this manifest.** Generated validators importing `zod` into a project that does not have it
 		 * fail at their build, naming a package they never chose.
 		 */
-		const emitted: string[] = [];
-		const walk = (dir: string): void => {
-			let entries: string[];
-			try {
-				entries = readdirSync(dir);
-			} catch {
-				return;
-			}
-			for (const entry of entries) {
-				const full = join(dir, entry);
-				if (statSync(full).isDirectory()) walk(full);
-				else if (entry.endsWith(".gen.ts")) emitted.push(full);
-			}
-		};
-		walk(join(packageRoot, "test"));
+		/**
+		 * ⚠️ **Compiled by this suite, into a directory only this suite writes.** It used to walk
+		 * `test/` for whatever other suites had emitted, which made it grade the previous run's build
+		 * on a populated tree and nothing at all on a fresh clone. See `support/emitted-set.ts`.
+		 */
 		expect(emitted.length).toBeGreaterThanOrEqual(20);
 
 		const used = new Set<string>();

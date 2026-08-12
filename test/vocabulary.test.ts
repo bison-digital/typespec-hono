@@ -1,7 +1,8 @@
-import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it } from "vitest";
+import { compileEmittedSet } from "./support/emitted-set.js";
 
 /**
  * **Every call in the generated Zod must be derivable from the document.**
@@ -26,40 +27,66 @@ const packageRoot = fileURLToPath(new URL("..", import.meta.url));
 const NOT_DERIVABLE = /\.(refine|superRefine|transform|catch|pipe|brand)\(/g;
 
 /**
- * The ONE permitted `z.preprocess`, written as the only shape it may take.
+ * The permitted `z.preprocess` shapes — each written as the only form it may take.
  *
- * OpenAPI's `style` says a list was flattened into one value with a delimiter; this undoes exactly
- * that, before validation, so the document's own constraints still run. A `preprocess` doing anything
- * else — coercing, defaulting, renaming — is refused, because the document does not say it.
+ * Every one of these undoes a TRANSPORT ENCODING before validation, so the document's own schema and
+ * every constraint on it still run afterwards. A `preprocess` doing anything else — coercing,
+ * defaulting, renaming — is still refused, because the document does not say it.
+ *
+ * ⚠️ **The line between "decoding" and "coercing" is whether an invalid value can become valid.**
+ * `z.coerce.number()` is the forbidden thing and it is one character of effort: `Number("")` is `0`,
+ * so `?limit=` would satisfy a required integer that the document forbids. Every decoder below passes
+ * a malformed value through UNCHANGED, so it fails against the published schema and reports the error
+ * the document justifies. That is the property that makes them derivable; it is not a matter of taste.
  */
+
+/** A list flattened into one value by OpenAPI's `style`/`explode`, split back apart. */
 const DELIMITER_SPLIT =
 	/z\.preprocess\(\(raw\) => \(typeof raw === "string" \? raw\.split\("(?:[^"\\]|\\.)*"\) : raw\), /g;
 
-/** Emitted output, wherever a suite has produced it. */
-function emittedFiles(): string[] {
-	const found: string[] = [];
-	const walk = (dir: string): void => {
-		let entries: string[];
-		try {
-			entries = readdirSync(dir);
-		} catch {
-			return;
-		}
-		for (const entry of entries) {
-			const full = join(dir, entry);
-			if (statSync(full).isDirectory()) walk(full);
-			else if (entry.endsWith(".gen.ts")) found.push(full);
-		}
-	};
-	walk(join(packageRoot, "test"));
-	return found;
+/**
+ * A path, query or header scalar decoded from the only thing HTTP can carry: text.
+ *
+ * ⚠️ **`type: integer` on a query parameter describes the DECODED value, not the wire.** Without this
+ * the emitted `z.number().int()` met `"1"` and refused it — measured against a Petstore server under
+ * `wrangler dev`, `GET /pet/1` answered 400 to every conformant caller while `GET /user/zach` answered
+ * 200. Same class as the split above: the transport carries text, the document describes the value.
+ */
+const SCALAR_DECODE = [
+	/z\.preprocess\(\(raw\) => \(typeof raw === "string" && raw\.trim\(\) !== "" && Number\.isFinite\(Number\(raw\)\) \? Number\(raw\) : raw\), /g,
+	/z\.preprocess\(\(raw\) => \(raw === "true" \? true : raw === "false" \? false : raw\), /g,
+	/z\.preprocess\(\(raw\) => \(Array\.isArray\(raw\) \? raw\.map\(\(raw\) => \((?:typeof raw === "string" && raw\.trim\(\) !== "" && Number\.isFinite\(Number\(raw\)\) \? Number\(raw\) : raw|raw === "true" \? true : raw === "false" \? false : raw)\)\) : raw\), /g,
+];
+
+/**
+ * A `content-type` header reduced to the media type, discarding the parameters the document does not
+ * mention.
+ *
+ * ⚠️ **Refusing parameters is enforcing something the document cannot state**, and it made every
+ * multipart request fail — the boundary parameter RFC 2046 requires is exactly what the literal
+ * refused. Both spellings are permitted: the lowercasing one applies when the declared literal is
+ * itself lowercase, which is every literal openapi3 publishes across this corpus.
+ */
+const MEDIA_TYPE_DECODE = [
+	/z\.preprocess\(\(raw\) => \(typeof raw === "string" \? \(raw\.split\(";"\)\[0\] \?\? ""\)\.trim\(\)\.toLowerCase\(\) : raw\), /g,
+	/z\.preprocess\(\(raw\) => \(typeof raw === "string" \? \(raw\.split\(";"\)\[0\] \?\? ""\)\.trim\(\) : raw\), /g,
+];
+
+/** How many times a set of shapes appears in one file. */
+function countOf(source: string, patterns: readonly RegExp[]): number {
+	return patterns.reduce((total, pattern) => total + (source.match(pattern) ?? []).length, 0);
 }
 
 describe("the generated validator says only what the document can say", () => {
-	const files = emittedFiles();
+	let files: string[] = [];
+
+	beforeAll(async () => {
+		// Compiled here, by this suite, into a directory only this suite writes. See `emitted-set.ts`.
+		files = await compileEmittedSet("vocabulary");
+	}, 600_000);
 
 	it("has emitted output to inspect at all", () => {
-		// Without this the whole file passes the day the suites stop writing `.out/`.
+		// Without this the whole file passes the day the sweep stops producing anything.
 		expect(files.length).toBeGreaterThanOrEqual(20);
 	});
 
@@ -86,12 +113,18 @@ describe("the generated validator says only what the document can say", () => {
 		expect(offenders).toEqual([]);
 	});
 
-	it("permits `z.preprocess` only as a delimiter split", () => {
+	it("permits `z.preprocess` only as a wire decode of a known shape", () => {
+		/**
+		 * ⚠️ **The permitted shapes are lifted verbatim from `typespec-http-zod`, which owns the rule.**
+		 * The schemas being graded here are that package's output; this package grades them too because
+		 * its own `app.gen.ts` sits beside them and could acquire a non-derivable call of its own.
+		 * Copying the shapes rather than loosening the arm is what keeps the two in step.
+		 */
+		const permitted = [DELIMITER_SPLIT, ...SCALAR_DECODE, ...MEDIA_TYPE_DECODE];
 		for (const file of files) {
 			const source = readFileSync(file, "utf8");
 			const all = (source.match(/z\.preprocess\(/g) ?? []).length;
-			const splits = (source.match(DELIMITER_SPLIT) ?? []).length;
-			expect(all, `a non-split z.preprocess in ${file}`).toBe(splits);
+			expect(countOf(source, permitted), `an unrecognised z.preprocess in ${file}`).toBe(all);
 		}
 	});
 
