@@ -5,16 +5,16 @@ import { z } from "zod";
 /**
  * **Idiomatic Hono, written by hand, deliberately without reference to what this emitter produces.**
  *
- * The conformance and round-trip suites both compare our output against `@typespec/openapi3` — they
+ * The conformance and round-trip suites both compare our output against `@typespec/openapi3`, they
  * prove the *document* and the *validator* agree. Neither says anything about whether the server we
  * emit looks and behaves like a server somebody would write. That is what this is for.
  *
- * ⚠️ **The value is entirely in its independence.** This follows the pattern in Hono's own
- * validation guide — `app.post(path, zValidator(target, schema), (c) => c.req.valid(target))` — with
+ * **The value is entirely in its independence.** This follows the pattern in Hono's own
+ * validation guide, `app.post(path, zValidator(target, schema), (c) => c.req.valid(target))`, with
  * `@hono/zod-validator`, the Hono organisation's own middleware. Written against our emitter's
  * output instead, it would encode our assumptions and agree with us by construction.
  *
- * ⚠️ **Plain `Hono`, NOT `OpenAPIHono`.** An earlier version of this file used `@hono/zod-openapi`,
+ * **Plain `Hono`, NOT `OpenAPIHono`.** An earlier version of this file used `@hono/zod-openapi`,
  * which is the same validation plus a document GENERATED FROM THE CODE. That is spec-last, the
  * opposite direction to this pipeline, and shipping it would put a second document generator in the
  * runtime whose output could disagree with the contract `@typespec/openapi3` publishes from the
@@ -62,7 +62,7 @@ export function createReferenceApp(): Hono {
 		return c.json({ id: THE_WIDGET.id, name: body.name, weight: body.weight }, 201);
 	});
 
-	/** A bodyless success — the case that used to vanish from the route table entirely. */
+	/** A bodyless success. The case that used to vanish from the route table entirely. */
 	app.delete("/widgets/:id", zValidator("param", ParamsSchema, invalid), (c) => c.body(null, 204));
 
 	return app;

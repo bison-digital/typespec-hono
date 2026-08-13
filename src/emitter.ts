@@ -8,25 +8,25 @@ import { securityFor } from "./security.js";
 import { reportDiagnostic } from "./lib.js";
 
 /**
- * This emitter's entry point — **the whole of `typespec-http-zod`, plus one file**.
+ * This emitter's entry point. **the whole of `typespec-http-zod`, plus one file**.
  *
- * ⚠️ **A consumer lists ONE emitter, and this is why.** The validators and the server share a naming
+ * **A consumer lists ONE emitter, and this is why.** The validators and the server share a naming
  * contract: `app.gen.ts` imports `readWidgetPath` and `readWidgetResponses` from `schemas.gen.js` by
  * name. Two separate TypeSpec emitters would each get their own `$onEmit` and their own registry, and
  * would have to arrive at identical identifiers by coincidence. Running the library here means it
- * mints the names, writes them, and hands them back — so agreement is structural rather than hoped
+ * mints the names, writes them, and hands them back, so agreement is structural rather than hoped
  * for.
  *
- * ⚠️ **It uses nothing `typespec-http-zod` does not export.** The package's `exports` map makes a deep
+ * **It uses nothing `typespec-http-zod` does not export.** The package's `exports` map makes a deep
  * import impossible, so this file is the proof that the published API is sufficient to build a server
  * generator on. Anything it cannot do from here is a gap in that API, to be fixed there.
  */
 /**
  * The HTTP operation an emitted route came from, keyed on verb and path.
  *
- * ⚠️ **Keyed on the ROUTE, not on the name, and the name was wrong for every interface.**
- * `EmittedRoute.operationId` is the id the document publishes — `Accounts_list`, with the interface
- * prefix `resolveOperationId` inserts — while `operation.operation.name` is the bare `list`. Matching
+ * **Keyed on the ROUTE, not on the name, and the name was wrong for every interface.**
+ * `EmittedRoute.operationId` is the id the document publishes, `Accounts_list`, with the interface
+ * prefix `resolveOperationId` inserts, while `operation.operation.name` is the bare `list`. Matching
  * them never succeeded for an operation declared inside an `interface`, which is most of them.
  *
  * Two things rested on that lookup and both were silently wrong: every diagnostic pointed at the
@@ -52,22 +52,22 @@ function targetFor(emitted: EmittedService, verb: string, path: string): Type {
 /**
  * What the generated files import their runtime contract from when the consumer sets nothing.
  *
- * ⚠️ **THIS package's runtime, not the library's, and the distinction is the whole of a defect that
+ * **THIS package's runtime, not the library's, and the distinction is the whole of a defect that
  * shipped.** `app.gen.ts` names `AppEnv`, `Awaitable`, `Ctx`, `Result`, `RouteDeps` and
  * `selectContentType`; every one of them is declared in `src/runtime.ts` here. The library's runtime
- * exports `ResponseArm` and `armFor` and nothing else — and it is a TRANSITIVE dependency of a
+ * exports `ResponseArm` and `armFor` and nothing else, and it is a TRANSITIVE dependency of a
  * consumer of this package, so under a strict `node_modules` its specifier does not resolve from
  * consumer code at all.
  *
  * Pointing at `typespec-hono/runtime` fixes both halves at once, because this module RE-EXPORTS
- * `ResponseArm` and `armFor` (see `runtime.ts`) — which is what `schemas.gen.ts` imports. One
+ * `ResponseArm` and `armFor` (see `runtime.ts`), which is what `schemas.gen.ts` imports. One
  * specifier, present in the consumer's own dependency, carrying every name both generated files
  * reference.
  *
- * ⚠️ **Measured in a fresh project installed from `pnpm pack` tarballs, because no test could see it:**
+ * **Measured in a fresh project installed from `pnpm pack` tarballs, because no test could see it:**
  * every compile in both harnesses sets `runtime-module` explicitly, so the default branch was ungraded
  * across 240 tests. `tsp compile` succeeded with zero diagnostics and `tsc` then reported two
- * `TS2307`s — `Cannot find module 'typespec-http-zod/runtime'` — one in each generated file.
+ * `TS2307`s (`Cannot find module 'typespec-http-zod/runtime'`) one in each generated file.
  * `test/adopter.test.ts` is the arm that now opens that branch.
  */
 export const DEFAULT_RUNTIME_MODULE = "typespec-hono/runtime";
@@ -77,7 +77,7 @@ export async function $onEmit(context: EmitContext): Promise<void> {
 		defaultRuntimeModule: DEFAULT_RUNTIME_MODULE,
 	})) {
 		/**
-		 * ⚠️ **The path the DOCUMENT says this service is served under.** An OpenAPI path is relative to
+		 * **The path the DOCUMENT says this service is served under.** An OpenAPI path is relative to
 		 * its server, so `@server("/api/v1")` plus `/accounts` publishes `/api/v1/accounts`. Mounting at
 		 * the root made every client generated from the document 404.
 		 */
@@ -89,7 +89,7 @@ export async function $onEmit(context: EmitContext): Promise<void> {
 				{
 					/**
 					 * Reported rather than thrown, so a spec with one unmountable path still names every
-					 * other problem in the same compile — and so the validators for the rest of the service
+					 * other problem in the same compile, and so the validators for the rest of the service
 					 * are still written. A path this router cannot express is not a reason to emit nothing.
 					 */
 					unsupportedPathTemplate: (route, template, name) => {

@@ -9,10 +9,10 @@ import { compileFixture, type CompiledFixture } from "../support/compile-fixture
 /**
  * **Question 2 of three: is the emitted server what a Hono author would have written?**
  *
- * The reference service is shared with `typespec-http-zod` and vendored here — see `PROVENANCE.md`.
+ * The reference service is shared with `typespec-http-zod` and vendored here, see `PROVENANCE.md`.
  * Every construct in it is one that has broken an emitter, and the arms below name which.
  *
- * ⚠️ **Route counts come from `app.routes`, never from the emitted text.** An emitter that writes a
+ * **Route counts come from `app.routes`, never from the emitted text.** An emitter that writes a
  * route it cannot mount produces a file where every text-counting arm agrees with the document and no
  * caller can reach anything. That is not hypothetical: a hyphenated path parameter once mounted at the
  * literal string `/things/{thing-id}` and answered 404 to the only requests it existed for, while
@@ -26,7 +26,7 @@ beforeAll(async () => {
 	compiled = await compileFixture(here, "service");
 });
 
-/** Mount the real `registerRoutes`, with stubs that are never called — registration invokes nothing. */
+/** Mount the real `registerRoutes`, with stubs that are never called, registration invokes nothing. */
 async function mount(): Promise<Hono> {
 	const server = (await import(join(compiled.outDir, "app.gen.ts"))) as {
 		registerRoutes: (app: unknown, handlersFor: unknown, deps: unknown) => void;
@@ -65,9 +65,9 @@ describe("the emitted server mounts what the document declares", () => {
 			),
 		];
 		/**
-		 * ⚠️ **Registrations are counted from the SOURCE, because `app.routes` cannot answer this.**
+		 * **Registrations are counted from the SOURCE, because `app.routes` cannot answer this.**
 		 * Hono lists one entry per middleware as well as per handler, all sharing the slot, so a
-		 * duplicate registration is indistinguishable from a validator — and de-duplicating first, which
+		 * duplicate registration is indistinguishable from a validator, and de-duplicating first, which
 		 * the slot list has to do, makes a second registration invisible. A control caught exactly that.
 		 */
 		const registrations = [
@@ -110,10 +110,10 @@ describe("the emitted server mounts what the document declares", () => {
 		expect(source).not.toMatch(/zValidator\("header", Report_/);
 	});
 
-	it("declares no validator of its own — every one is imported from the library's output", () => {
+	it("declares no validator of its own. Every one is imported from the library's output", () => {
 		const source = readFileSync(join(compiled.outDir, "app.gen.ts"), "utf8");
 		/**
-		 * ⚠️ **The whole split turns on this.** If the server file declares a schema, then two emitters
+		 * **The whole split turns on this.** If the server file declares a schema, then two emitters
 		 * are minting identifiers and agreeing by coincidence. Every `const` it names must come from
 		 * `schemas.gen.js`, which `typespec-http-zod` wrote.
 		 */

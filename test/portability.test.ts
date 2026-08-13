@@ -7,14 +7,14 @@ import { compileEmittedSet } from "./support/emitted-set.js";
 /**
  * **Nothing that ships names a path that exists on one machine.**
  *
- * ⚠️ **The emitted output is the half that matters, and it is the half no other arm reads for this.**
- * A generated file carrying `/Users/somebody/projects/…` compiles perfectly for the person who ran
- * the emitter and for nobody else — and it would be committed by the consumer, because generated
+ * **The emitted output is the half that matters, and it is the half no other arm reads for this.**
+ * A generated file carrying `/Users/somebody/projects/...` compiles perfectly for the person who ran
+ * the emitter and for nobody else, and it would be committed by the consumer, because generated
  * output is checked in. The `runtime-module` and `contracts-package` options both take a specifier
  * that lands verbatim in the output, so an absolute one is a single mis-set option away.
  *
- * ⚠️ **This is a companion to "every import resolves", not a subset of it.** An absolute specifier
- * RESOLVES, on the machine that wrote it — which is exactly why a resolution check cannot see it and
+ * **This is a companion to "every import resolves", not a subset of it.** An absolute specifier
+ * RESOLVES, on the machine that wrote it, which is exactly why a resolution check cannot see it and
  * why portability needs an assertion of its own. Both properties are real and neither implies the
  * other.
  *
@@ -52,11 +52,11 @@ describe("nothing this package ships names one machine's filesystem", () => {
 
 	it("has files to inspect at all", () => {
 		/**
-		 * ⚠️ **The generated floor was 20 against 315 files actually swept — sixteen times under.** This
+		 * **The generated floor was 20 against 315 files actually swept, sixteen times under.** This
 		 * arm could have read a twentieth of the emitted output and still reported a clean sweep, which
 		 * is the failure mode a floor exists to prevent rather than exhibit. Found by auditing every
 		 * counting assertion in this repository against its measured value after the same fault turned
-		 * up twice elsewhere; the corpus-scale arms came out at 1.0–1.1x, these two did not.
+		 * up twice elsewhere; the corpus-scale arms came out at 1.0-1.1x, these two did not.
 		 */
 		expect(tracked.length).toBeGreaterThanOrEqual(30);
 	});
@@ -76,7 +76,7 @@ describe("nothing this package ships names one machine's filesystem", () => {
 
 	it("carries no machine path in anything the emitter GENERATES", () => {
 		/**
-		 * ⚠️ **The arm the review asked for, and the one with a real way to fail.** Tracked files are
+		 * **The arm the review asked for, and the one with a real way to fail.** Tracked files are
 		 * reviewed when they change; generated files are written fresh on every compile from whatever
 		 * options the consumer set, and are then committed into the consumer's repository.
 		 */

@@ -5,14 +5,14 @@ import type { SecurityRequirement } from "./runtime.js";
 /**
  * What the DOCUMENT says a caller must satisfy, in the shape the document says it.
  *
- * ⚠️ **The scheme was being thrown away, and only "is a caller needed" survived.** `@useAuth(BearerAuth)`
+ * **The scheme was being thrown away, and only "is a caller needed" survived.** `@useAuth(BearerAuth)`
  * reaches OpenAPI as `security: [{ "BearerAuth": [] }]`, and this emitter reduced that to
- * `deps.context(c, "required")`. A gate was emitted ONLY when the scheme carried scopes — so for
+ * `deps.context(c, "required")`. A gate was emitted ONLY when the scheme carried scopes, so for
  * bearer, api-key and basic, which is the common case, nothing carried which scheme at all. An
  * application whose `context` read a cookie would happily serve a route the document says needs a
  * bearer token, and nothing anywhere would notice.
  *
- * ⚠️ **Passed through, never enforced here.** Which credentials satisfy a scheme is the application's
+ * **Passed through, never enforced here.** Which credentials satisfy a scheme is the application's
  * business and could not be anything else; which schemes an operation ACCEPTS is a contract fact and
  * is now generated. That is the same split as `context` and `respond`, applied to the half that was
  * missing.
@@ -22,7 +22,7 @@ import type { SecurityRequirement } from "./runtime.js";
 export type { SecurityRequirement } from "./runtime.js";
 
 /**
- * The requirements an operation declares. Satisfying **any one** of them authorises the caller —
+ * The requirements an operation declares. Satisfying **any one** of them authorises the caller,
  * which is what an array of `security` objects means in OpenAPI, and why this is a list of lists
  * rather than a flat set of scopes.
  *
@@ -36,7 +36,7 @@ export function securityFor(program: Program, operation: HttpOperation): Securit
 		let anonymous = false;
 		for (const scheme of option.schemes) {
 			/**
-			 * ⚠️ **`NoAuth` inside an option means that option needs nothing**, which is how a spec says
+			 * **`NoAuth` inside an option means that option needs nothing**, which is how a spec says
 			 * "authentication is optional here". It is not a scheme to demand, and emitting it as one
 			 * would refuse every anonymous caller the document permits.
 			 */

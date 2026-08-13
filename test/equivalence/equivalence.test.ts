@@ -10,19 +10,19 @@ import { createReferenceApp, THE_WIDGET } from "./reference-app.js";
  * **Does the Hono we emit behave like Hono somebody would write?**
  *
  * Two apps serve the same API. One is hand-written in the idiom Hono's own validation guide
- * publishes — `app.get(path, zValidator(target, schema), handler)`. The other is **the server this
+ * publishes, `app.get(path, zValidator(target, schema), handler)`. The other is **the server this
  * emitter generates** from `api.tsp`. The same requests go to both, and the answers have to match.
  *
- * ⚠️ **This used to compare the wrong thing.** The emitter produced a data table and a forty-line
+ * **This used to compare the wrong thing.** The emitter produced a data table and a forty-line
  * hand-written loop interpreted it at run time, so the comparison was "gold standard versus my
- * test scaffolding, fed by our data" — the emitter's output was never the artefact under test. The
+ * test scaffolding, fed by our data". The emitter's output was never the artefact under test. The
  * loop is gone; `registerRoutes` from `app.gen.ts` mounts the app directly.
  *
- * ⚠️ **Behaviour AND shape.** Requests measure what a caller can observe, which no structural check
+ * **Behaviour AND shape.** Requests measure what a caller can observe, which no structural check
  * can; the routing table comparison below measures that both apps mount the same verbs and paths,
  * which behaviour alone would miss if both happened to 404. Neither replaces the other.
  *
- * ⚠️ **The reference must stay independent.** `reference-app.ts` is written from Hono's published
+ * **The reference must stay independent.** `reference-app.ts` is written from Hono's published
  * idiom, never from this emitter's output. The moment it is adjusted to match what we emit, the
  * suite proves that we agree with ourselves.
  *
@@ -153,7 +153,7 @@ beforeAll(async () => {
 				.join(", ")}`,
 		);
 	}
-	// The emitted server itself — not a table plus scaffolding.
+	// The emitted server itself, not a table plus scaffolding.
 	const { registerRoutes } = (await import(join(compiled.outDir, "app.gen.ts"))) as {
 		registerRoutes: (app: unknown, handlersFor: unknown, deps: unknown) => void;
 	};
@@ -181,8 +181,8 @@ const routingTableOf = (app: Hono): string[] =>
 
 describe("the emitted app is shaped like the hand-written one", () => {
 	/**
-	 * ⚠️ **The comparison the old design could not make.** While the emitter produced a table and a
-	 * hand-written loop mounted it, there was no artefact to compare — only behaviour, through
+	 * **The comparison the old design could not make.** While the emitter produced a table and a
+	 * hand-written loop mounted it, there was no artefact to compare, only behaviour, through
 	 * scaffolding written for this test. Now both sides are Hono apps built the same way, so "they
 	 * should be the same" is an assertion.
 	 *

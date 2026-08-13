@@ -27,7 +27,7 @@ jobs:
           node-version: ${{ matrix.node }}
           cache: pnpm
 
-      # ⚠️ **`typespec-http-zod` is resolved from the registry, exactly as a consumer resolves it.**
+      # **`typespec-http-zod` is resolved from the registry, exactly as a consumer resolves it.**
       # Until it published, `pnpm-workspace.yaml` overrode it to `link:../typespec-http-zod` and this
       # job checked the sibling out beside this one to give the link a target. That was a bootstrap
       # measure and it is gone: the override no longer exists, so a second checkout would be built and
@@ -35,19 +35,19 @@ jobs:
       #
       # What it cost while it lasted is worth recording. Two checkouts both need `path:`, which leaves
       # no `package.json` at the workspace root, so `pnpm/action-setup` read no manifest and failed
-      # with "No pnpm version is specified" — naming a field that was present and correct.
+      # with "No pnpm version is specified", naming a field that was present and correct.
       #
-      # ⚠️ **A change spanning both packages is no longer verifiable here**, which the old arrangement
+      # **A change spanning both packages is no longer verifiable here**, which the old arrangement
       # did allow. The library has to publish first and this range has to move. That is the ordinary
       # cost of two packages and two repos, and it is now paid explicitly rather than hidden.
       - run: pnpm install --frozen-lockfile
       - run: pnpm build
       - run: pnpm test
-      # LAST, always — see the library's workflow for why.
+      # LAST, always, see the library's workflow for why.
       - run: pnpm typecheck
       - run: pnpm lint
 
       # A repository that calls itself idiomatic should not depend on whoever opens it next
       # having the same editor settings. `.oxfmtrc.json` matches the style the code is already
-      # written in — tabs — rather than imposing the tool's defaults on it.
+      # written in (tabs) rather than imposing the tool's defaults on it.
       - run: pnpm format:check

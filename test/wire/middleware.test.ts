@@ -7,14 +7,14 @@ import { compileFixture } from "../support/compile-fixture.js";
 /**
  * **What an application can wrap around the routes this emitter mounts.**
  *
- * ⚠️ **Hono middleware applies only to routes registered AFTER it, and `registerRoutes` registers
+ * **Hono middleware applies only to routes registered AFTER it, and `registerRoutes` registers
  * everything at once.** So the one thing a consumer has to know is an ordering rule, and its failure
  * mode is silence: middleware in the wrong place does not error, it simply never runs. Measured on a
- * generated Petstore server — with `app.use` called after `registerRoutes`, a request to
+ * generated Petstore server, with `app.use` called after `registerRoutes`, a request to
  * `/store/inventory` answered 200 having run exactly one of the four middlewares registered.
  *
- * ⚠️ **This grades OUR output, not Hono.** The emitter decides the shape the routes are mounted in —
- * a sub-app per resource, mounted with a chained `app.route()` — and that shape is what decides
+ * **This grades OUR output, not Hono.** The emitter decides the shape the routes are mounted in
+ * (a sub-app per resource, mounted with a chained `app.route()`) and that shape is what decides
  * whether a prefix wildcard can reach a resource, and whether `c.req.routePath` yields a pattern or a
  * concrete URL. A change to how routes are grouped could take any of these away without failing
  * anything else, which is exactly why they are pinned here.
@@ -92,7 +92,7 @@ describe("an application can wrap the routes this emitter mounts", () => {
 
 	it("runs middleware scoped to one resource, which the sub-app grouping has to allow", async () => {
 		/**
-		 * ⚠️ **The sub-apps are `const`s inside `registerRoutes`, so there is no handle to `.use()` on.**
+		 * **The sub-apps are `const`s inside `registerRoutes`, so there is no handle to `.use()` on.**
 		 * A prefix wildcard is the reachable equivalent, and it only works because every route of a
 		 * resource is mounted under that resource's prefix. Grouping them any other way would silently
 		 * remove per-resource middleware as a possibility.
@@ -113,11 +113,11 @@ describe("an application can wrap the routes this emitter mounts", () => {
 		expect(trace).toContain("per-route");
 	});
 
-	it("exposes the route PATTERN, not the concrete URL — the span name an app needs", async () => {
+	it("exposes the route PATTERN, not the concrete URL. The span name an app needs", async () => {
 		/**
-		 * ⚠️ **`/items/7` would be useless as a span name and a cardinality bomb in any tracing
+		 * **`/items/7` would be useless as a span name and a cardinality bomb in any tracing
 		 * backend.** The pattern is what an application needs, and it survives being mounted through a
-		 * sub-app — which is not obvious and is the reason this is asserted rather than assumed.
+		 * sub-app, which is not obvious and is the reason this is asserted rather than assumed.
 		 */
 		const { app, trace } = build();
 		await app.request("/items/7");

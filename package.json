@@ -1,7 +1,7 @@
 {
 	"name": "typespec-hono",
 	"version": "0.1.0",
-	"description": "TypeSpec emitter: generate a Hono server, and the Zod validators it enforces, from an HTTP service definition — agreeing with the OpenAPI document @typespec/openapi3 publishes from the same source.",
+	"description": "TypeSpec emitter: generate a Hono server, and the Zod validators it enforces, from an HTTP service definition, agreeing with the OpenAPI document @typespec/openapi3 publishes from the same source.",
 	"keywords": [
 		"cloudflare-workers",
 		"codegen",

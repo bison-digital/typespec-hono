@@ -5,13 +5,13 @@ using Http;
 /**
  * The same API as `reference-app.ts`, expressed in TypeSpec.
  *
- * ⚠️ **Written from the reference app, not from what this emitter does with it.** The pair is only
+ * **Written from the reference app, not from what this emitter does with it.** The pair is only
  * evidence if the spec describes the API somebody hand-wrote; a spec reverse-engineered from our own
  * output would make the comparison circular. Every operation, status and constraint here has a
  * counterpart in `reference-app.ts`, and `equivalence.test.ts` is what checks the two behave alike.
  *
  * Deliberately small and deliberately load-bearing: a path parameter with a constraint, a validated
- * JSON body, an array response, and a bodyless `204` — the last being the case that used to vanish
+ * JSON body, an array response, and a bodyless `204`. The last being the case that used to vanish
  * from the route table without a word.
  */
 @service(#{ title: "Widgets" })

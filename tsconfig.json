@@ -1,6 +1,6 @@
 {
 	"$schema": "https://json.schemastore.org/tsconfig",
-	"_comment": "Typecheck config. `tsconfig.build.json` emits `dist/` from `src/` alone; this one checks the tests too, which is where the emitter's evidence lives. It sets flags the build config deliberately does not — `noUnusedLocals`, `noUnusedParameters`, `allowUnreachableCode: false` — so `pnpm typecheck` catches what a green `pnpm test` does not. Run it LAST, before every commit.",
+	"_comment": "Typecheck config. `tsconfig.build.json` emits `dist/` from `src/` alone; this one checks the tests too, which is where the emitter's evidence lives. It sets flags the build config deliberately does not (`noUnusedLocals`, `noUnusedParameters`, `allowUnreachableCode: false`) so `pnpm typecheck` catches what a green `pnpm test` does not. Run it LAST, before every commit.",
 	"extends": "./tsconfig.build.json",
 	"compilerOptions": {
 		"noEmit": true,

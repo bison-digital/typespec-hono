@@ -17,19 +17,19 @@ import {
  * cannot be graded there is whether a caller can REACH any of it: that is a property of a router, and
  * it belongs to the emitter that writes one.
  *
- * ⚠️ **Counts come from `app.routes`, never from the emitted text**, and the difference is not
+ * **Counts come from `app.routes`, never from the emitted text**, and the difference is not
  * pedantry. Three defects lived in exactly that gap:
  *
- * - a hyphenated path parameter mounted at the literal string `/things/{thing-id}` — emitted, counted
+ * - a hyphenated path parameter mounted at the literal string `/things/{thing-id}`, emitted, counted
  *   by every text-reading arm, and answering 404 to the only requests it existed for;
  * - `app.on` called without a method, so `HEAD` and `OPTIONS` routes were emitted, counted, and
  *   mounted nowhere;
  * - content negotiation registering every operation on one slot, where a router matches the first, so
  *   each one after it was dead code that looked mounted.
  *
- * ⚠️ **And the emitted server is IMPORTED, which nothing did for a long time.** The validators were
+ * **And the emitted server is IMPORTED, which nothing did for a long time.** The validators were
  * loaded and the server never was, so a spec with two same-named operations in different interfaces
- * produced a file declaring the same `const` twice — output that did not parse, passing every test.
+ * produced a file declaring the same `const` twice, output that did not parse, passing every test.
  */
 
 const here = fileURLToPath(new URL(".", import.meta.url));
@@ -142,11 +142,11 @@ describe("the generated server mounts what the document declares", () => {
 
 	it("grades every scenario that compiled, dropping none of them silently", () => {
 		/**
-		 * ⚠️ **The arm that stops the previous fix from being un-fixed.**
+		 * **The arm that stops the previous fix from being un-fixed.**
 		 *
 		 * Every scenario carrying a refusal used to arrive here with no OpenAPI document, because our
 		 * diagnostics are `severity: "error"`, that sets `program.hasError()`, and openapi3 guards on it
-		 * before writing anything. Thirteen scenarios were therefore ungradeable — and the route
+		 * before writing anything. Thirteen scenarios were therefore ungradeable, and the route
 		 * arithmetic that is this suite's central claim was being computed over the remaining 48 while
 		 * reporting totals that could only have come from documents an earlier build left on disk.
 		 *
@@ -169,7 +169,7 @@ describe("the generated server mounts what the document declares", () => {
 
 	it("records what it measured, so coverage cannot shrink unnoticed", () => {
 		/**
-		 * ⚠️ **A baseline, because "all green" is not a coverage claim.** Sixty-two baselined divergences
+		 * **A baseline, because "all green" is not a coverage claim.** Sixty-two baselined divergences
 		 * once sat on top of 284 silently dropped operations, because nothing counted routes. The totals
 		 * below are the answer to "how much did this actually look at", and they may only grow.
 		 */
@@ -189,8 +189,8 @@ describe("the generated server mounts what the document declares", () => {
 			return;
 		}
 		/**
-		 * ⚠️ **The polarities differ on purpose.** Scenarios, declared operations and mounted routes may
-		 * only GROW — a corpus bump adds material and a regression removes it. Refusals may only SHRINK:
+		 * **The polarities differ on purpose.** Scenarios, declared operations and mounted routes may
+		 * only GROW. A corpus bump adds material and a regression removes it. Refusals may only SHRINK:
 		 * a new one is an operation this emitter has stopped serving, which is a claim that has to be
 		 * justified in a commit rather than absorbed by a number.
 		 */
@@ -233,16 +233,16 @@ describe("the generated server mounts what the document declares", () => {
 
 	it("mounts every operation the document declares", () => {
 		/**
-		 * ⚠️ **Mounted may EXCEED declared, and only the other direction is a defect.** OpenAPI merges
+		 * **Mounted may EXCEED declared, and only the other direction is a defect.** OpenAPI merges
 		 * operations that share a route and negotiate on content type into one path item, so a
-		 * negotiated scenario legitimately has more slots than the document has entries — except this
+		 * negotiated scenario legitimately has more slots than the document has entries, except this
 		 * emitter collapses those onto one registration, so in practice they agree. A shortfall is an
 		 * operation a caller cannot reach at all.
 		 *
-		 * ⚠️ **Refusals are added back, and that is what makes this honest rather than lenient.** An
+		 * **Refusals are added back, and that is what makes this honest rather than lenient.** An
 		 * operation this emitter names a refusal for is one it declines to serve, out loud; an operation
 		 * that simply vanishes is the defect. `mounted + refused === declared` distinguishes them, where
-		 * `mounted === declared` could be satisfied by emitting an unreachable route — which is exactly
+		 * `mounted === declared` could be satisfied by emitting an unreachable route, which is exactly
 		 * what happened for fifteen HEAD operations.
 		 */
 		const short = measured
@@ -256,12 +256,12 @@ describe("the generated server mounts what the document declares", () => {
 
 	it("registers nothing it cannot reach", () => {
 		/**
-		 * ⚠️ **One `app.<verb>(` per distinct verb+path slot.** Anything more is a handler the router
+		 * **One `app.<verb>(` per distinct verb+path slot.** Anything more is a handler the router
 		 * can never reach, because it matches in registration order.
 		 *
 		 * Counted from the SOURCE, because `app.routes` cannot answer it: Hono lists one entry per
 		 * middleware as well as per handler, all sharing the slot, so a duplicate registration is
-		 * indistinguishable from a validator once de-duplicated — and de-duplicating is what the slot
+		 * indistinguishable from a validator once de-duplicated, and de-duplicating is what the slot
 		 * count has to do. A control caught exactly that: disabling the grouping reintroduced the
 		 * defect and a slot-only arm stayed green.
 		 */
@@ -275,7 +275,7 @@ describe("the generated server mounts what the document declares", () => {
 
 	it("mounts no route still carrying a path template", () => {
 		/**
-		 * ⚠️ **A route mounted at the literal `/things/{thing-id}` is reachable by nobody**, and every
+		 * **A route mounted at the literal `/things/{thing-id}` is reachable by nobody**, and every
 		 * count reads it as present. This is the arm that would have caught it.
 		 */
 		const literal: string[] = [];
@@ -293,7 +293,7 @@ describe("the generated server mounts what the document declares", () => {
 		/**
 		 * A warning from this emitter means "the output is knowingly not what the document says, and we
 		 * are shipping it anyway". There was one such warning for exactly one commit, marking an
-		 * injected discriminator, and it was the wrong answer — a custom track with a label on it.
+		 * injected discriminator, and it was the wrong answer. A custom track with a label on it.
 		 */
 		const warnings = sources.flatMap((compiled) => compiled.emitterWarnings ?? []);
 		expect(warnings.toSorted()).toEqual([]);
@@ -301,7 +301,7 @@ describe("the generated server mounts what the document declares", () => {
 
 	it("fails only where the library refuses, and never with a crash", () => {
 		/**
-		 * ⚠️ **`oracle` failures are not ours and must never be counted as ours.** `routes` is refused by
+		 * **`oracle` failures are not ours and must never be counted as ours.** `routes` is refused by
 		 * `@typespec/openapi3` itself (OpenAPI cannot express a path containing a query string) and
 		 * `special-words` crashes it. Folding those into one number is how a corpus starts lying: it
 		 * would move when Microsoft fix their emitter and nobody would know whether we had regressed.
@@ -310,7 +310,7 @@ describe("the generated server mounts what the document declares", () => {
 			.filter((compiled) => compiled.failure?.owner === "ours")
 			.map((compiled) => `${compiled.scenario.name} :: ${compiled.failure?.code}`);
 		/**
-		 * ⚠️ **Refusals are asserted as a CLASS, not a list of scenario names.** What is a fact about
+		 * **Refusals are asserted as a CLASS, not a list of scenario names.** What is a fact about
 		 * this emitter: every refusal it raises is the one it declares, and no scenario is refused for
 		 * an unnamed reason.
 		 *
@@ -323,8 +323,8 @@ describe("the generated server mounts what the document declares", () => {
 		expect(refusalCodes.toSorted()).toEqual([]);
 		/**
 		 * Every one of these is a REFUSAL raised by `typespec-http-zod`, reached through this emitter
-		 * because it runs the library. This package adds exactly one refusal of its own —
-		 * `unsupported-path-template` — and no corpus scenario triggers it.
+		 * because it runs the library. This package adds exactly one refusal of its own,
+		 * `unsupported-path-template`, and no corpus scenario triggers it.
 		 */
 		expect(ours.toSorted()).toEqual([
 			"response/status-code-range :: typespec-http-zod/unsupported-status-code-range",

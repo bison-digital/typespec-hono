@@ -8,19 +8,19 @@ import { compileFixture } from "../support/compile-fixture.js";
 /**
  * **Can a generated server actually stream a response?**
  *
- * ⚠️ **The question is real because the generated signature returns a VALUE, not a `Response`.** An
- * operation is typed `Awaitable<Result<z.infer<typeof …Response>>>`, so a handler cannot hand back a
+ * **The question is real because the generated signature returns a VALUE, not a `Response`.** An
+ * operation is typed `Awaitable<Result<z.infer<typeof ...Response>>>`, so a handler cannot hand back a
  * `ReadableStream` and call it a body. The library emits validators for SSE and JSON Lines payloads,
  * which makes it look as though streaming is supported; whether a server built on them can serve one
  * is a different question and had never been asked.
  *
- * The answer is that it can, through `deps.respond` — the hook that turns a result into a response —
+ * The answer is that it can, through `deps.respond`. The hook that turns a result into a response,
  * and it needs no cast. That is worth pinning rather than trusting, because it is a consequence of
  * `respond` being allowed to return any `Response`, and a future signature that narrowed it to
  * "serialise this value as JSON" would remove streaming without failing anything else.
  *
- * ⚠️ **`Result<T>` is what carries the stream, and substituting it is the documented seam.** An app
- * pointing `runtime-module` at its own module re-declares `Result<T>` — that is the mechanism the
+ * **`Result<T>` is what carries the stream, and substituting it is the documented seam.** An app
+ * pointing `runtime-module` at its own module re-declares `Result<T>`, that is the mechanism the
  * README already describes for envelopes, and streaming is the same mechanism. Nothing special is
  * needed here, which is the finding.
  */
@@ -51,7 +51,7 @@ describe("an application can stream a response through the generated server", ()
 				c: { json: (b: unknown, s: number) => Response },
 			): Response | undefined => (result.success ? undefined : c.json(result, 400)),
 			/**
-			 * ⚠️ **The whole finding is that this is allowed.** `respond` may return any `Response`, so an
+			 * **The whole finding is that this is allowed.** `respond` may return any `Response`, so an
 			 * application streams by streaming here rather than by returning a stream from a handler.
 			 */
 			respond: (c: Parameters<typeof streamSSE>[0], _arms: unknown, value: unknown) =>
@@ -74,9 +74,9 @@ describe("an application can stream a response through the generated server", ()
 
 	it("still validates the request before any of it is streamed", async () => {
 		/**
-		 * ⚠️ **Streaming must not become a way around the contract.** The validators are middleware and
+		 * **Streaming must not become a way around the contract.** The validators are middleware and
 		 * run before the handler, so a request the document forbids is refused with a normal response and
-		 * never reaches the stream — which is the property that would quietly break if `respond` were
+		 * never reaches the stream, which is the property that would quietly break if `respond` were
 		 * ever moved ahead of validation.
 		 */
 		const app = new Hono();

@@ -5,19 +5,19 @@ import { SWEPT_FIXTURES, compileEmittedSet } from "./support/emitted-set.js";
 /**
  * **The sweeps read every scenario the corpus contains, not a subset somebody chose.**
  *
- * ⚠️ **This arm exists because the coverage was quietly narrowed once, by me, to make a floor pass.**
+ * **This arm exists because the coverage was quietly narrowed once, by me, to make a floor pass.**
  * `vocabulary.test.ts` and `packaging.test.ts` used to walk `test/` for emitted output, which happened
- * to include all 61 corpus scenarios — broad, but non-deterministic, because those files were written
+ * to include all 61 corpus scenarios, broad, but non-deterministic, because those files were written
  * by other test files that vitest runs in parallel with nothing ordering them. Fixing the determinism
  * by compiling a handful of local fixtures instead took the sweep from ~300 files to 19 and from 69
  * generated servers to 4, and the floors were lowered to match.
  *
  * That is the shape of the mistake worth guarding against: **the numbers all stayed green while the
  * thing being measured shrank by an order of magnitude.** A floor cannot catch it, because a floor is
- * exactly what gets adjusted. So this asserts the coverage against the corpus ITSELF — a source
- * neither this file nor the sweep controls — rather than against a number anybody can edit.
+ * exactly what gets adjusted. So this asserts the coverage against the corpus ITSELF, a source
+ * neither this file nor the sweep controls, rather than against a number anybody can edit.
  *
- * ⚠️ **Derived, never restated.** `discoverScenarios()` is the same function the route differential
+ * **Derived, never restated.** `discoverScenarios()` is the same function the route differential
  * uses, so the expected breadth moves with a corpus bump instead of going stale. Hard-coding "61"
  * here would reintroduce the maintenance-by-memory this whole suite is built to avoid.
  */
@@ -45,7 +45,7 @@ describe("the vocabulary sweeps grade the whole corpus, not a chosen subset", ()
 			.filter((name) => !covered.has(name))
 			.toSorted();
 		/**
-		 * ⚠️ **Not empty, and it must not be.** A handful of scenarios emit nothing at all — openapi3
+		 * **Not empty, and it must not be.** A handful of scenarios emit nothing at all, openapi3
 		 * crashes on `special-words`, and `routes` declares a path OpenAPI cannot express. Those are the
 		 * oracle's defects, named in `corpus.ts`, and `routes.test.ts` owns them. A CEILING rather than
 		 * an equality, so the known few are tolerated and a new one is not.

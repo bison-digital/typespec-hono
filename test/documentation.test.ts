@@ -8,9 +8,9 @@ import { EmitterOptionsSchema } from "../src/lib.js";
 /**
  * **A user who hits a refusal should find it documented, not discover it.**
  *
- * ⚠️ **Documentation is asserted as a CLASS, the way every other rule here is.** A README listing the
+ * **Documentation is asserted as a CLASS, the way every other rule here is.** A README listing the
  * diagnostics that existed when somebody last wrote it is a list that stops covering what the package
- * does, and the failure is silent — the reader concludes the emitter has no opinion about the thing
+ * does, and the failure is silent. The reader concludes the emitter has no opinion about the thing
  * that just refused their spec.
  *
  * So a diagnostic or an option added later fails this suite until it is written down. That is the
@@ -50,8 +50,8 @@ describe("the README documents everything this package can do to you", () => {
 
 	it("documents every diagnostic that has a call site, and declares none that has not", () => {
 		/**
-		 * ⚠️ **A declared diagnostic with no call site is coverage that does not exist.** It reads as a
-		 * capability — the package refuses this thing — while nothing can ever raise it. Two of these
+		 * **A declared diagnostic with no call site is coverage that does not exist.** It reads as a
+		 * capability (the package refuses this thing) while nothing can ever raise it. Two of these
 		 * sat here mid-extraction, both legitimately, because the code that reported them had not been
 		 * carried across yet; asserting the class is what closed that window rather than leaving it to
 		 * be noticed.
@@ -73,10 +73,10 @@ describe("the README documents everything this package can do to you", () => {
 
 	it("states the refusal count as a limit, with its number", () => {
 		/**
-		 * ⚠️ **A number in a baseline file is not a stated limitation.** Inside a private package these
+		 * **A number in a baseline file is not a stated limitation.** Inside a private package these
 		 * are honest, visible counters; published, they are surfaces a reader has no way to learn about.
 		 * So each one is named in the README, and this arm checks the numbers there against the numbers
-		 * the suite actually measured — a limit documented with a stale figure is worse than none.
+		 * the suite actually measured. A limit documented with a stale figure is worse than none.
 		 */
 		const baseline = JSON.parse(
 			readFileSync(join(packageRoot, "test", "conformance", "baseline.json"), "utf8"),

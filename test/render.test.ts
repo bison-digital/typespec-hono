@@ -5,26 +5,26 @@ import { renderApp, toHonoPath } from "../src/app.js";
 /**
  * **The renderer, exercised directly where no spec can reach it.**
  *
- * ⚠️ **`app.on(method, …)` is reachable in principle and by no TypeSpec spec.** `@typespec/http`
+ * **`app.on(method, ...)` is reachable in principle and by no TypeSpec spec.** `@typespec/http`
  * declares six verbs; five have a dedicated Hono helper, and the sixth is `@head`, which this emitter
  * refuses because Hono rewrites HEAD to GET before matching. So the fallback branch is correct,
- * defensive, and — until this file — taken by nothing.
+ * defensive, and (until this file) taken by nothing.
  *
  * A branch nothing reaches is a branch nobody knows is broken. Deleting it instead would be worse:
  * `HONO_METHOD[verb]` would be `undefined` for any verb TypeSpec adds later, and the emitted call
- * would be `app.undefined(...)` — output that does not run, from a spec that compiles.
+ * would be `app.undefined(...)`, output that does not run, from a spec that compiles.
  *
- * ⚠️ **Measured, not assumed:** `on("PURGE", …)` and `on("OPTIONS", …)` both dispatch correctly on
+ * **Measured, not assumed:** `on("PURGE", ...)` and `on("OPTIONS", ...)` both dispatch correctly on
  * Hono 4.13.1. The fallback is the right shape for a verb Hono has no helper for; only HEAD is
  * special, and only HEAD is refused.
  */
 
 /**
- * The narrowest `EmittedService` the renderer will accept — everything else is defaulted away.
+ * The narrowest `EmittedService` the renderer will accept, everything else is defaulted away.
  *
- * ⚠️ **`satisfies`, never `as`, and the difference is a whole direction of drift.** This was
+ * **`satisfies`, never `as`, and the difference is a whole direction of drift.** This was
  * `as EmittedRoute`, which is an assertion: excess-property checking never runs, so the fixture kept
- * a `paramsSchema: undefined` line for as long as it took somebody to notice — inert, and invisible
+ * a `paramsSchema: undefined` line for as long as it took somebody to notice, inert, and invisible
  * to `tsc`. An assertion catches the interface GAINING a field (insufficient overlap) and is blind to
  * it LOSING one, which is exactly the change a consumer feels and the compiler could have caught.
  *
@@ -92,10 +92,10 @@ const noRefusals = {
 	},
 };
 
-describe("a verb with no dedicated Hono helper goes through `app.on(method, …)`", () => {
+describe("a verb with no dedicated Hono helper goes through `app.on(method, ...)`", () => {
 	it("passes the METHOD first, which is the whole defect this branch once had", () => {
 		/**
-		 * ⚠️ **`app.on` was once called WITHOUT a method** — `on(path, handler)` where the signature is
+		 * **`app.on` was once called WITHOUT a method**, `on(path, handler)` where the signature is
 		 * `on(method, path, handler)`. The route was emitted, counted by every arm that counted rows, and
 		 * mounted nowhere. The argument ORDER is the assertion, not merely that `on` appears.
 		 */
@@ -134,7 +134,7 @@ describe("path templates", () => {
 		const refusals: string[] = [];
 		expect(toHonoPath("/a/{id}/b/{other-id}", () => refusals.push("x"))).toBe("/a/:id/b/:other-id");
 		expect(refusals).toEqual([]);
-		// An RFC 6570 modifier would become part of the name — or, for `*`, Hono's wildcard.
+		// An RFC 6570 modifier would become part of the name, or, for `*`, Hono's wildcard.
 		expect(toHonoPath("/a/{id*}", (_t, name) => refusals.push(name))).toBe("/a/{id*}");
 		expect(refusals).toEqual(["id*"]);
 	});

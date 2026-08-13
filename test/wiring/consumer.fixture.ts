@@ -3,19 +3,19 @@ import { armFor, type AppEnv, type Ctx, type Result, type RouteDeps } from "./ru
 import { registerRoutes, type Operations } from "../reference/.out/service-wired/app.gen.js";
 
 /**
- * **An application built on both packages — question 3 of three.**
+ * **An application built on both packages, question 3 of three.**
  *
- * ⚠️ **This file exists to be COMPILED, and the compiling is the assertion.** The generated
+ * **This file exists to be COMPILED, and the compiling is the assertion.** The generated
  * `registerRoutes` signature had never been checked by a typed consumer for most of this emitter's
  * life: the equivalence suite cast the app to `unknown`, so a signature no application could satisfy
  * passed every other test. The first time a real consumer was compiled against it, there were
- * nineteen errors — and `runtime-module`, the option whose entire purpose is letting an app
+ * nineteen errors, and `runtime-module`, the option whose entire purpose is letting an app
  * substitute its own types, had never once been pointed at a module that substituted anything.
  *
- * ⚠️ **Nothing here casts.** A cast anywhere in this file would hide exactly the defect it exists to
+ * **Nothing here casts.** A cast anywhere in this file would hide exactly the defect it exists to
  * find. If a handler cannot be written without one, the emitted signature is wrong.
  *
- * ⚠️ **The handler factory is deliberately UNANNOTATED.** Annotating it widens the value to
+ * **The handler factory is deliberately UNANNOTATED.** Annotating it widens the value to
  * `Operations`, so `T` infers as `Operations`, `Exclude<keyof T, keyof Operations>` is `never`, and
  * the surplus-key refusal evaporates. That is not a hypothetical: an exported `HandlersFor` alias
  * once did precisely this and silently disabled the exhaustiveness check sitting beside it.
@@ -23,7 +23,7 @@ import { registerRoutes, type Operations } from "../reference/.out/service-wired
 
 const ok = <T>(value: T): Result<T> => ({ ok: true, value });
 
-/** A handful of fixed values — this is a wiring proof, not a data layer. */
+/** A handful of fixed values. This is a wiring proof, not a data layer. */
 const widget = {
 	id: "w-1",
 	name: "Widget",
@@ -38,7 +38,7 @@ const widget = {
  */
 const operations = {
 	readWidget: (_ctx: Ctx, input) => {
-		// The wire names, not the TypeSpec property names — proof the validator keys on what arrives.
+		// The wire names, not the TypeSpec property names, proof the validator keys on what arrives.
 		void input["widget-id"];
 		void input["x-request-id"];
 		return ok(widget);
@@ -84,8 +84,8 @@ export const deps: RouteDeps = {
 	notAcceptable: (c, offered) => c.json({ error: "not acceptable", offered }, 406),
 	invalid: (result, c) => (result.success ? undefined : c.json({ error: "invalid" }, 400)),
 	/**
-	 * ⚠️ **The status is chosen by the app; the schema for it comes from the document.** `armFor`
-	 * applies the Responses Object's own precedence — an exact code, then a range, then `default` —
+	 * **The status is chosen by the app; the schema for it comes from the document.** `armFor`
+	 * applies the Responses Object's own precedence. An exact code, then a range, then `default`,
 	 * which is the rule an application otherwise re-derives as "the first arm with a status ≥ 400" and
 	 * gets wrong on every range.
 	 */
@@ -106,7 +106,7 @@ export const deps: RouteDeps = {
 
 export function buildApp(): Hono<AppEnv> {
 	const app = new Hono<AppEnv>();
-	// Unannotated on purpose — see the docblock above.
+	// Unannotated on purpose, see the docblock above.
 	const handlersFor = () => operations;
 	registerRoutes(app, handlersFor, deps);
 	return app;

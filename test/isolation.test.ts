@@ -6,7 +6,7 @@ import { describe, expect, it } from "vitest";
 /**
  * **No two test files may compile into the same output directory.**
  *
- * ⚠️ **This is the failure that looks exactly like a flaky emitter, and it has now happened twice.**
+ * **This is the failure that looks exactly like a flaky emitter, and it has now happened twice.**
  * Vitest runs test files in parallel. Two files compiling one fixture into one directory with
  * different options overwrite each other, so whichever finishes last decides what the other is
  * asserting against. The first occurrence made the same request answer 400, 200 and 204 across three
@@ -15,7 +15,7 @@ import { describe, expect, it } from "vitest";
  * into one directory, and on a populated tree `emit.test.ts` failed with four `TS2305`s against a
  * `schemas.gen.ts` that a different suite had written under different options.
  *
- * ⚠️ **A comment warning about it was not enough** — `FixtureOptions.outName` already carries that
+ * **A comment warning about it was not enough**, `FixtureOptions.outName` already carries that
  * exact warning, and `wiring.test.ts` and `adopter.test.ts` already use it correctly. The rule was known, written
  * down, and applied inconsistently, which is what a guard is for and a docblock is not.
  *
@@ -40,7 +40,7 @@ function testFiles(dir: string): string[] {
 
 /**
  * Every `compileFixture(dir, "name", { outName })` call in a source file, as the directory it lands
- * in — `outName` when given, the fixture's own name otherwise, mirroring `compileFixture` itself.
+ * in, `outName` when given, the fixture's own name otherwise, mirroring `compileFixture` itself.
  */
 function destinationsIn(source: string): string[] {
 	const calls = [

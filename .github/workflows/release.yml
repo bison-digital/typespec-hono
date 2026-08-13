@@ -1,6 +1,6 @@
 name: Release
 
-# ⚠️ **Publishing is deliberate and cannot happen by accident.** This runs only when a `v*` tag is
+# **Publishing is deliberate and cannot happen by accident.** This runs only when a `v*` tag is
 # pushed, or when somebody dispatches it by hand. A merge to `main` publishes nothing.
 on:
   push:
@@ -25,7 +25,7 @@ jobs:
           cache: pnpm
           registry-url: https://registry.npmjs.org
 
-      # ⚠️ **`--frozen-lockfile` exits 0 on a dangling link.** While `typespec-http-zod` was
+      # **`--frozen-lockfile` exits 0 on a dangling link.** While `typespec-http-zod` was
       # unpublished, `pnpm-workspace.yaml` redirected it to `link:../typespec-http-zod` so the two
       # could be developed together. A release checkout has no sibling on disk: pnpm installs the
       # dangling symlink, reports success, and the failure surfaces four steps later as a wall of
@@ -44,8 +44,8 @@ jobs:
       # The install above can succeed while the dependency is not actually present, so say so here
       # rather than letting `tsc` be the one to notice.
       #
-      # ⚠️ **Resolve the package, not `./package.json`.** The first version of this step asked for the
-      # manifest subpath, which the library does not list in `exports` — matching `@typespec/openapi3`
+      # **Resolve the package, not `./package.json`.** The first version of this step asked for the
+      # manifest subpath, which the library does not list in `exports`, matching `@typespec/openapi3`
       # rather than `@typespec/compiler`. So it threw `ERR_PACKAGE_PATH_NOT_EXPORTED` on a dependency
       # that was present and correct, and failed the release of a package that was fine. A guard that
       # fires when nothing is wrong is worse than no guard.
@@ -57,7 +57,7 @@ jobs:
 
       - run: pnpm build
 
-      # ⚠️ The full gate runs again here, against the exact commit being published. CI passing on the
+      # The full gate runs again here, against the exact commit being published. CI passing on the
       # branch is not the same claim: a tag can point anywhere.
       - run: pnpm test
       - run: pnpm typecheck

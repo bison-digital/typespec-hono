@@ -8,18 +8,18 @@ import { compileFixture } from "../support/compile-fixture.js";
 /**
  * **Question 3: can an application be built on both packages, and does it answer real requests?**
  *
- * ⚠️ **This is the only oracle that can see a validator-to-WIRE defect, and that blind spot has no
+ * **This is the only oracle that can see a validator-to-WIRE defect, and that blind spot has no
  * floor to warn you.** For a flattened collection parameter the document said `array`, the validator
- * said `array`, they agreed perfectly, and the server rejected every conformant caller — because the
+ * said `array`, they agreed perfectly, and the server rejected every conformant caller, because the
  * disagreement was with what arrives, and both sides were describing what was declared. Anything
  * about SERIALISATION is reachable only by making a request.
  *
  * Two halves, and both are needed:
  *
- * 1. **it compiles** — `consumer.fixture.ts` is a typed application, and the generated signatures
+ * 1. **it compiles**, `consumer.fixture.ts` is a typed application, and the generated signatures
  *    have to be satisfiable without a cast. A signature no application could satisfy passed every
  *    other test for most of this emitter's life, because the suite that mounted it cast to `unknown`;
- * 2. **it answers** — real requests through the real router, against the real validators.
+ * 2. **it answers**, real requests through the real router, against the real validators.
  */
 
 const here = fileURLToPath(new URL(".", import.meta.url));
@@ -27,7 +27,7 @@ const referenceDir = join(here, "..", "reference");
 
 beforeAll(async () => {
 	/**
-	 * ⚠️ **Compiled with `runtime-module` pointed at a module that substitutes REAL types.** Left at
+	 * **Compiled with `runtime-module` pointed at a module that substitutes REAL types.** Left at
 	 * the default, `Result<T>` is `T` and `Ctx` is `unknown`, so the generated interface degrades to
 	 * something almost any function satisfies and the compile below proves nothing.
 	 */
@@ -95,7 +95,7 @@ describe("the application answers real requests", () => {
 		).request("/widgets/w-1?%24select=name", {
 			headers: { "x-request-id": "r-1" },
 		});
-		// ⚠️ A literal `{widget-id}` route answers 404 here while every count reads it as mounted.
+		// A literal `{widget-id}` route answers 404 here while every count reads it as mounted.
 		expect(response.status).toBe(200);
 		expect(await response.json()).toMatchObject({ id: "w-1" });
 	});
@@ -109,7 +109,7 @@ describe("the application answers real requests", () => {
 
 	it("accepts a list flattened into one query value", async () => {
 		/**
-		 * ⚠️ **The defect no document comparison could see.** `?tags=a,b,c` is ONE string on the wire;
+		 * **The defect no document comparison could see.** `?tags=a,b,c` is ONE string on the wire;
 		 * a validator expecting an array refuses it, while the document and the validator both say
 		 * `array` and agree perfectly.
 		 */
@@ -135,7 +135,7 @@ describe("the application answers real requests", () => {
 		 * registered under GET to be reachable. `c.req.method` still reads `HEAD` afterwards, which is
 		 * what lets the handler serve the HEAD operation rather than the GET one on the same path.
 		 *
-		 * ⚠️ **The status is the DOCUMENT's, and that is the change.** `widgetExists` is declared
+		 * **The status is the DOCUMENT's, and that is the change.** `widgetExists` is declared
 		 * `: void`, so the document publishes a bodyless success -- 204. This arm previously asserted
 		 * 200, because the operation was refused and the request fell through to `readWidget`, whose
 		 * 200 arrived with the body stripped by Hono. Reading 200 was the symptom of serving the wrong
@@ -154,7 +154,7 @@ describe("the application answers real requests", () => {
 	});
 
 	it("404s a HEAD request on a path with no GET, rather than pretending to serve it", async () => {
-		// `/trees` is POST-only. Hono rewrites HEAD to GET, finds nothing, and 404s — which is exactly
+		// `/trees` is POST-only. Hono rewrites HEAD to GET, finds nothing, and 404s, which is exactly
 		// why a `@head` operation on such a path is refused rather than emitted.
 		const response = await (await app()).request("/trees", { method: "HEAD" });
 		expect(response.status).toBe(404);
@@ -176,8 +176,8 @@ describe("the application answers real requests", () => {
 
 	it("answers 406 for an unacceptable Accept, never 400", async () => {
 		/**
-		 * ⚠️ **`accept` SELECTS the operation.** Validating it against one member's literal answers 400
-		 * to a well-formed request whose real answer is 406 — and RFC 9110 is explicit that a `q=0` is a
+		 * **`accept` SELECTS the operation.** Validating it against one member's literal answers 400
+		 * to a well-formed request whose real answer is 406, and RFC 9110 is explicit that a `q=0` is a
 		 * refusal rather than a weak preference.
 		 */
 		const response = await (await app()).request("/report", { headers: { accept: "image/png" } });

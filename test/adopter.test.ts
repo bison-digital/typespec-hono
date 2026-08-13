@@ -9,9 +9,9 @@ import { compileFixture } from "./support/compile-fixture.js";
 /**
  * **What a stranger gets when they configure nothing.**
  *
- * ⚠️ **This is the branch no other test in either package could reach.** Every compile in this suite
- * and in the library's sets `runtime-module` explicitly — `test/support/compile-fixture.ts` does it,
- * `test/conformance/corpus.ts` does it — so across 83 tests here and 157 there, the emitter's own
+ * **This is the branch no other test in either package could reach.** Every compile in this suite
+ * and in the library's sets `runtime-module` explicitly, `test/support/compile-fixture.ts` does it,
+ * `test/conformance/corpus.ts` does it, so across 83 tests here and 157 there, the emitter's own
  * default was never once exercised. It was wrong, and it had always been wrong:
  *
  * - it named `typespec-http-zod/runtime`, which exports `ResponseArm` and `armFor` and **none** of the
@@ -25,9 +25,9 @@ import { compileFixture } from "./support/compile-fixture.js";
  * An emitter that succeeds and emits something that cannot compile is the worst shape of failure
  * available to it, because every signal says it worked.
  *
- * ⚠️ **The oracle is a COMPILE, not a list of expected specifiers.** A list would have to be kept by
+ * **The oracle is a COMPILE, not a list of expected specifiers.** A list would have to be kept by
  * hand and would stop covering the emitter the first time it referenced something new; and the thing
- * that actually matters — "can a consumer build this" — is exactly what `tsc` answers. Type-only
+ * that actually matters ("can a consumer build this") is exactly what `tsc` answers. Type-only
  * imports settle it: `Ctx` and `RouteDeps` have no runtime existence, so no amount of inspecting a
  * loaded module could tell you they were missing.
  */
@@ -37,16 +37,16 @@ const referenceDir = join(here, "reference");
 let outDir = "";
 
 beforeAll(async () => {
-	// ⚠️ `bare` — nothing set but the output directory, which is what the README's example produces.
+	// `bare`. Nothing set but the output directory, which is what the README's example produces.
 	const compiled = await compileFixture(referenceDir, "service", {
 		bare: true,
 		outName: "service-bare",
 	});
 	outDir = compiled.outDir;
 	/**
-	 * ⚠️ **A named refusal is not a failure, and conflating the two blinds the arm.** The reference
+	 * **A named refusal is not a failure, and conflating the two blinds the arm.** The reference
 	 * service declares a `@head` operation on purpose, so `unroutable-verb` is the expected, documented
-	 * outcome for it — and every other operation still emits, because `reportDiagnostic` does not
+	 * outcome for it, and every other operation still emits, because `reportDiagnostic` does not
 	 * unwind. What must not appear is an error this package has not named.
 	 *
 	 * Read from `$lib` rather than listed here: a refusal added without this arm noticing is exactly
@@ -70,9 +70,9 @@ describe("output emitted with no options but the output directory", () => {
 
 	it("imports its runtime contract from a module that is this package's to publish", () => {
 		/**
-		 * ⚠️ **Asserted as a CLASS: whatever module the generated files name, they must all name the
+		 * **Asserted as a CLASS: whatever module the generated files name, they must all name the
 		 * SAME one, and it must be reachable from a consumer.** The specific string is not the fact
-		 * worth pinning — that the two files agree, and that the specifier is one a consumer's own
+		 * worth pinning. That the two files agree, and that the specifier is one a consumer's own
 		 * dependency provides, is.
 		 *
 		 * A consumer installs `typespec-hono`. Anything under `typespec-http-zod/` is that package's
@@ -95,7 +95,7 @@ describe("output emitted with no options but the output directory", () => {
 		expect(runtime).not.toMatch(/^typespec-http-zod\b/);
 	});
 
-	it("compiles — which is the whole claim, and the part that was false", () => {
+	it("compiles, which is the whole claim, and the part that was false", () => {
 		const config = join(outDir, "tsconfig.adopter.json");
 		writeFileSync(
 			config,

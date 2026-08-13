@@ -7,13 +7,13 @@ import { compileEmittedSet } from "./support/emitted-set.js";
 /**
  * **Every call in the generated Zod must be derivable from the document.**
  *
- * ⚠️ **This is the assertion the governing rule always claimed and did not have — twice.** "Nothing
+ * **This is the assertion the governing rule always claimed and did not have, twice.** "Nothing
  * in the runtime validator is unsayable in the document" sat in the original emitter's plan for its
  * entire life, cited constantly, never built. It was eventually built there; then this package was
  * extracted without it, and the README went on claiming the class was asserted rather than trusted.
  *
  * That is the worst arrangement available: a rule everybody cites, nothing checks, and which
- * therefore drifts exactly as far as attention lapses. It matters more now, not less —
+ * therefore drifts exactly as far as attention lapses. It matters more now, not less,
  * `z.preprocess` is admitted for collection formats, and an unenforced rule with a fresh exception
  * is how a dialect starts.
  *
@@ -27,13 +27,13 @@ const packageRoot = fileURLToPath(new URL("..", import.meta.url));
 const NOT_DERIVABLE = /\.(refine|superRefine|transform|catch|pipe|brand)\(/g;
 
 /**
- * The permitted `z.preprocess` shapes — each written as the only form it may take.
+ * The permitted `z.preprocess` shapes. Each written as the only form it may take.
  *
  * Every one of these undoes a TRANSPORT ENCODING before validation, so the document's own schema and
- * every constraint on it still run afterwards. A `preprocess` doing anything else — coercing,
- * defaulting, renaming — is still refused, because the document does not say it.
+ * every constraint on it still run afterwards. A `preprocess` doing anything else, coercing,
+ * defaulting, renaming, is still refused, because the document does not say it.
  *
- * ⚠️ **The line between "decoding" and "coercing" is whether an invalid value can become valid.**
+ * **The line between "decoding" and "coercing" is whether an invalid value can become valid.**
  * `z.coerce.number()` is the forbidden thing and it is one character of effort: `Number("")` is `0`,
  * so `?limit=` would satisfy a required integer that the document forbids. Every decoder below passes
  * a malformed value through UNCHANGED, so it fails against the published schema and reports the error
@@ -47,8 +47,8 @@ const DELIMITER_SPLIT =
 /**
  * A path, query or header scalar decoded from the only thing HTTP can carry: text.
  *
- * ⚠️ **`type: integer` on a query parameter describes the DECODED value, not the wire.** Without this
- * the emitted `z.number().int()` met `"1"` and refused it — measured against a Petstore server under
+ * **`type: integer` on a query parameter describes the DECODED value, not the wire.** Without this
+ * the emitted `z.number().int()` met `"1"` and refused it. Measured against a Petstore server under
  * `wrangler dev`, `GET /pet/1` answered 400 to every conformant caller while `GET /user/zach` answered
  * 200. Same class as the split above: the transport carries text, the document describes the value.
  */
@@ -62,8 +62,8 @@ const SCALAR_DECODE = [
  * A `content-type` header reduced to the media type, discarding the parameters the document does not
  * mention.
  *
- * ⚠️ **Refusing parameters is enforcing something the document cannot state**, and it made every
- * multipart request fail — the boundary parameter RFC 2046 requires is exactly what the literal
+ * **Refusing parameters is enforcing something the document cannot state**, and it made every
+ * multipart request fail. The boundary parameter RFC 2046 requires is exactly what the literal
  * refused. Both spellings are permitted: the lowercasing one applies when the declared literal is
  * itself lowercase, which is every literal openapi3 publishes across this corpus.
  */
@@ -87,9 +87,9 @@ describe("the generated validator says only what the document can say", () => {
 
 	it("has emitted output to inspect at all", () => {
 		/**
-		 * ⚠️ **These floors were an order of magnitude under what is actually swept, and had been since
+		 * **These floors were an order of magnitude under what is actually swept, and had been since
 		 * before the sweep was made deterministic.** The arms were reading 315 files against a floor of
-		 * 20, 69 generated servers against 10, and 17 delimiter splits against 5 — numbers that would
+		 * 20, 69 generated servers against 10, and 17 delimiter splits against 5, numbers that would
 		 * have gone on passing through almost any regression. A floor that far under the measurement is
 		 * a floor in name only, and this file exists precisely to stop an arm reporting agreement about
 		 * nothing.
@@ -104,8 +104,8 @@ describe("the generated validator says only what the document can say", () => {
 
 	it("has generated SERVERS to inspect, not only validators", () => {
 		/**
-		 * ⚠️ **The arms below would pass on validators alone.** This package's own artefact is
-		 * `app.gen.ts`, and it is the one that could acquire a non-derivable call — a hand-rolled
+		 * **The arms below would pass on validators alone.** This package's own artefact is
+		 * `app.gen.ts`, and it is the one that could acquire a non-derivable call, a hand-rolled
 		 * coercion in a handler, a `.transform()` smuggled into a response. Checking only what the
 		 * library wrote would leave this package's output ungraded by its own rule.
 		 */
@@ -115,7 +115,7 @@ describe("the generated validator says only what the document can say", () => {
 	it("uses no Zod call that enforces something the document cannot state", () => {
 		/**
 		 * Empty, not a count. An allowance that survives the thing it allowed has stopped guarding
-		 * anything — which is why the original wrote this as a number first: reaching zero had to fail
+		 * anything, which is why the original wrote this as a number first: reaching zero had to fail
 		 * here rather than pass quietly.
 		 */
 		const offenders = files.flatMap((file) => {
@@ -127,7 +127,7 @@ describe("the generated validator says only what the document can say", () => {
 
 	it("permits `z.preprocess` only as a wire decode of a known shape", () => {
 		/**
-		 * ⚠️ **The permitted shapes are lifted verbatim from `typespec-http-zod`, which owns the rule.**
+		 * **The permitted shapes are lifted verbatim from `typespec-http-zod`, which owns the rule.**
 		 * The schemas being graded here are that package's output; this package grades them too because
 		 * its own `app.gen.ts` sits beside them and could acquire a non-derivable call of its own.
 		 * Copying the shapes rather than loosening the arm is what keeps the two in step.
@@ -151,9 +151,9 @@ describe("the generated validator says only what the document can say", () => {
 
 	it("declares no schema of its own in the server it generates", () => {
 		/**
-		 * ⚠️ **The split's load-bearing property, asserted here as well as in the reference suite.**
+		 * **The split's load-bearing property, asserted here as well as in the reference suite.**
 		 * Every validator `app.gen.ts` names was declared by `typespec-http-zod`. If this package ever
-		 * declares one, two emitters are minting identifiers and agreeing by coincidence — which is the
+		 * declares one, two emitters are minting identifiers and agreeing by coincidence, which is the
 		 * coupling the split exists to remove.
 		 */
 		const servers = files.filter((file) => file.endsWith("app.gen.ts"));
@@ -167,9 +167,9 @@ describe("the generated validator says only what the document can say", () => {
 
 	it("imports only frameworks, its own siblings, and the configured runtime module", () => {
 		/**
-		 * ⚠️ **The dependency points one way, and nothing else enforced it.** The whole wiring design
+		 * **The dependency points one way, and nothing else enforced it.** The whole wiring design
 		 * turns on the application importing the generated file, implementing what it declares, and
-		 * passing it in. The rejected alternative — the generated file importing the app's handlers —
+		 * passing it in. The rejected alternative. The generated file importing the app's handlers,
 		 * reads better on day one and fails by generation three, because an operation REMOVED from the
 		 * spec just drops its import and leaves an orphan compiling forever.
 		 */
@@ -193,9 +193,9 @@ describe("the generated validator says only what the document can say", () => {
 
 	it("ships no decorator of its own for a spec to depend on", () => {
 		/**
-		 * ⚠️ **The other half, and without it the arm above can be satisfied by a spec that simply
-		 * stopped using the decorator.** Four existed in this emitter's ancestor — `@trimmed`, `@loose`,
-		 * `@externalValues`, `@refine` — and each let a spec state something `@typespec/openapi3` could
+		 * **The other half, and without it the arm above can be satisfied by a spec that simply
+		 * stopped using the decorator.** Four existed in this emitter's ancestor, `@trimmed`, `@loose`,
+		 * `@externalValues`, `@refine`, and each let a spec state something `@typespec/openapi3` could
 		 * not publish, so the emitted validator enforced a rule no caller reading the contract could see.
 		 *
 		 * Asserted against the package's own TypeSpec entry point, because that is the only thing a

@@ -5,9 +5,9 @@ import { EmitterOptionsSchema } from "../src/lib.js";
 /**
  * **Every option the library accepts reaches it through this emitter.**
  *
- * ⚠️ **This emitter runs the whole of `typespec-http-zod`, so its option schema is the library's plus
+ * **This emitter runs the whole of `typespec-http-zod`, so its option schema is the library's plus
  * whatever a server needs.** Written as a second hand-kept list, an option added there would be
- * rejected here as unknown — or, worse, accepted and silently dropped, producing output that is wrong
+ * rejected here as unknown, or, worse, accepted and silently dropped, producing output that is wrong
  * in a way no test of either package would see.
  *
  * Asserted as a CLASS over the published schema's own keys, never as a list of names. The same rule
@@ -32,7 +32,7 @@ describe("the option schema is derived from the library's, not restated", () => 
 
 	it("forwards the per-service overrides too, not only the top level", () => {
 		/**
-		 * ⚠️ **The nested map is a second place the same list can drift.** A spec with two `@service`
+		 * **The nested map is a second place the same list can drift.** A spec with two `@service`
 		 * namespaces configures each one separately; an option forwarded at the top level and dropped
 		 * inside `services` is wrong for exactly the consumers who need it most.
 		 */

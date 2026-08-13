@@ -9,16 +9,16 @@ import { describe, expect, it } from "vitest";
  * No assistant, model or vendor is named anywhere a reader can reach: not in the source, not in the
  * documentation, not in a commit message, not in the authorship of a commit. This is a standing rule
  * across these projects rather than a preference about this one, and it applies to everything that
- * ships or is published — source, README, CHANGELOG, release notes, tags and git metadata alike.
+ * ships or is published, source, README, CHANGELOG, release notes, tags and git metadata alike.
  *
- * ⚠️ **Asserted rather than reviewed, because the failure mode is a default.** Several tools append a
+ * **Asserted rather than reviewed, because the failure mode is a default.** Several tools append a
  * trailer or a signature line unless told not to, so the absence of one is a thing that has to be
  * maintained on every commit forever. A rule enforced by attention is a rule that survives exactly as
  * long as attention does; this is cheap and does not get tired.
  *
- * ⚠️ **Commit messages are checked as well as files, and that is the half that would otherwise rot.**
+ * **Commit messages are checked as well as files, and that is the half that would otherwise rot.**
  * A file is reviewed when it changes. A commit message is written once, is never looked at again, and
- * cannot be corrected after it is pushed without rewriting history — so it is precisely where an
+ * cannot be corrected after it is pushed without rewriting history, so it is precisely where an
  * unwanted line would survive.
  *
  * **The class, not a list.** Matching is case-insensitive over vendor and product names plus the
@@ -31,7 +31,7 @@ const packageRoot = fileURLToPath(new URL("..", import.meta.url));
 const PUBLISHED_IDENTITY = "zach@bison.digital";
 
 /**
- * ⚠️ **Word-boundary anchored, and `AI` deliberately requires punctuation around it.** A bare
+ * **Word-boundary anchored, and `AI` deliberately requires punctuation around it.** A bare
  * case-insensitive `/ai/` matches `contains`, `available`, `fail`, `domain` and `explain`; a rule that
  * cries wolf on ordinary prose gets suppressed, and a suppressed rule guards nothing. The forms that
  * actually appear in an attribution are what is matched.
@@ -95,7 +95,7 @@ describe("the package credits no tool for the work", () => {
 
 	it("names none in any commit message, over the whole history", () => {
 		/**
-		 * ⚠️ **`--all`, so a branch or tag cannot carry one in.** The check is worth nothing if it only
+		 * **`--all`, so a branch or tag cannot carry one in.** The check is worth nothing if it only
 		 * covers what `main` happens to point at today.
 		 */
 		const messages = git("log", "--all", "--format=%H%n%B%n%(trailers)");
@@ -104,13 +104,13 @@ describe("the package credits no tool for the work", () => {
 
 	it("carries exactly one identity, the one this project publishes under", () => {
 		/**
-		 * ⚠️ **One email, in every author and committer field, over the whole history.** Two personal
-		 * addresses had accumulated — a work one and a personal one — which on a public repository reads
+		 * **One email, in every author and committer field, over the whole history.** Two personal
+		 * addresses had accumulated (a work one and a personal one) which on a public repository reads
 		 * as two contributors and attributes half the work to an account that is not the project's.
 		 * Normalised with `git filter-repo --mailmap`; the HEAD tree hash was identical before and after,
 		 * so only metadata moved.
 		 *
-		 * ⚠️ **Pinned to the address rather than merely "all the same", because "consistently wrong" would
+		 * **Pinned to the address rather than merely "all the same", because "consistently wrong" would
 		 * satisfy that.** A local `user.email` is per-clone configuration, so the next machine to commit
 		 * here reintroduces its own unless something says otherwise. This is that something.
 		 */
@@ -124,7 +124,7 @@ describe("the package credits no tool for the work", () => {
 
 	it("attributes every commit to a person, in both the author and committer fields", () => {
 		/**
-		 * ⚠️ **Both fields, because they differ and only one of them is usually looked at.** A rebase or
+		 * **Both fields, because they differ and only one of them is usually looked at.** A rebase or
 		 * an amend by a tool rewrites the COMMITTER and leaves the author alone, so checking the author
 		 * only would miss exactly the case that arises in practice.
 		 */

@@ -10,11 +10,11 @@ import { $lib } from "../../src/lib.js";
  *
  * **Why a first-party corpus rather than more fixtures of our own.** A fixture we write tests what
  * we already thought of; `@typespec/http-specs` is Microsoft's own scenario set for validating
- * emitters, organised by the axes that actually break them — encoding, body-root and spread
+ * emitters, organised by the axes that actually break them, encoding, body-root and spread
  * parameters, multipart, content negotiation, encoded names, special words, streaming, versioning,
  * visibility, inheritance. It is the oracle precisely because we did not choose its contents.
  *
- * ⚠️ **Pinned exactly, and it must stay that way.** Every package here is `0.x` or `alpha`. A
+ * **Pinned exactly, and it must stay that way.** Every package here is `0.x` or `alpha`. A
  * floating range turns the committed baseline into a number that changes for reasons unrelated to
  * this emitter, which is the fastest way to make a gate meaningless.
  */
@@ -27,7 +27,7 @@ const specsRoot = join(packageRoot, "node_modules", "@typespec", "http-specs", "
 export const corpusOutDir = join(here, ".out");
 
 export interface Scenario {
-	/** `serialization/encoded-name/json` — stable, and what the baseline is keyed on. */
+	/** `serialization/encoded-name/json`, stable, and what the baseline is keyed on. */
 	readonly name: string;
 	readonly mainFile: string;
 }
@@ -58,10 +58,10 @@ export function discoverScenarios(): readonly Scenario[] {
 /**
  * The depth source: the shared reference service.
  *
- * ⚠️ **Breadth from a corpus nobody here chose, depth from a fixture written for what it misses.**
+ * **Breadth from a corpus nobody here chose, depth from a fixture written for what it misses.**
  * `@typespec/http-specs` is Microsoft's own scenario set and is the oracle precisely because its
  * contents are not ours. It does not, however, contain a route whose parameter carries a hyphen, a
- * `HEAD` operation, or two operations negotiating on one path — the three constructs that produced
+ * `HEAD` operation, or two operations negotiating on one path. The three constructs that produced
  * routes which counted as present and answered nothing.
  *
  * `constraints.tsp` is deliberately absent: constraints are the library's surface and are graded
@@ -79,9 +79,9 @@ export function depthSources(): readonly Scenario[] {
 /**
  * Who failed, which is a different question from whether the scenario passed.
  *
- * ⚠️ **`oracle` is not our defect and must never be counted as one.** Measured on
+ * **`oracle` is not our defect and must never be counted as one.** Measured on
  * `http-specs@0.1.0-alpha.40`: `routes` is refused by openapi3 itself
- * (`@typespec/openapi3/path-query` — OpenAPI cannot express a path containing a query string), and
+ * (`@typespec/openapi3/path-query`. OpenAPI cannot express a path containing a query string), and
  * `special-words` **crashes** openapi3 (`Cannot read properties of undefined (reading '0')`). For
  * those two there is no document to differentiate against, so the scenario is undifferentiable
  * rather than failing. Folding them into one number is how a corpus starts lying: the count would
@@ -97,14 +97,14 @@ export interface CompiledScenario {
 		readonly code: string;
 		readonly detail: string;
 	};
-	/** Directory holding this emitter's artefacts — `app.gen.ts` and the validators it imports. */
+	/** Directory holding this emitter's artefacts, `app.gen.ts` and the validators it imports. */
 	readonly serverDir: string;
 	/** Directory holding the OpenAPI document openapi3 produced from the same program. */
 	readonly openapiDir: string;
 	/** Warnings THIS emitter raised. Each one is a compromise it is shipping; there should be none. */
 	readonly emitterWarnings?: readonly string[];
 	/**
-	 * Refusals THIS emitter raised — one per operation it will not serve, by diagnostic code.
+	 * Refusals THIS emitter raised. One per operation it will not serve, by diagnostic code.
 	 *
 	 * A refusal is a statement, not a failure: the scenario still emitted everything else, and the
 	 * route arithmetic accounts for the exclusion rather than letting it look like a dropped operation.
@@ -115,8 +115,8 @@ export interface CompiledScenario {
 	/**
 	 * The LAST version the service declares, when it is versioned.
 	 *
-	 * ⚠️ **Not the last document by filename, which is what this used to mean.** `versioning/removed`
-	 * declares `v1, v2preview, v2`, so v2 is current — but the files sort as `openapi.v1.json`,
+	 * **Not the last document by filename, which is what this used to mean.** `versioning/removed`
+	 * declares `v1, v2preview, v2`, so v2 is current, but the files sort as `openapi.v1.json`,
 	 * `openapi.v2.json`, `openapi.v2preview.json`, and taking the last one compared us against a
 	 * PREVIEW. The emitter had it right and the oracle was reading the wrong document, which is worth
 	 * more than the one divergence it produced: seven sources are versioned, and any of them could as
@@ -125,7 +125,7 @@ export interface CompiledScenario {
 	readonly latestVersion?: string;
 }
 
-/** `@typespec/openapi3/path-query` → `@typespec/openapi3`; our own codes have no prefix. */
+/** `@typespec/openapi3/path-query` -> `@typespec/openapi3`; our own codes have no prefix. */
 function ownerOfCode(code: string): FailureOwner {
 	return code.startsWith("@typespec/") ? "oracle" : "ours";
 }
@@ -142,8 +142,8 @@ function ownerOfCrash(message: string): FailureOwner {
 /**
  * Compile one scenario with BOTH emitters, from one program.
  *
- * ⚠️ **One program, not two compiles.** The differential is only meaningful if both artefacts
- * describe the same types — recompiling would compare our output against a document built from a
+ * **One program, not two compiles.** The differential is only meaningful if both artefacts
+ * describe the same types, recompiling would compare our output against a document built from a
  * separately-resolved program, and any disagreement would be ambiguous between "the emitter is
  * wrong" and "the two compiles differed".
  *
@@ -155,9 +155,9 @@ export async function compileScenario(
 	/**
 	 * Where this caller's corpus output lands.
 	 *
-	 * ⚠️ **A parameter, because a suite must never read output another suite wrote.** Vitest runs test
+	 * **A parameter, because a suite must never read output another suite wrote.** Vitest runs test
 	 * files in parallel with nothing ordering them, so a sweep that read `corpusOutDir` would be
-	 * grading whichever build happened to be on disk — which is precisely the defect that let a control
+	 * grading whichever build happened to be on disk, which is precisely the defect that let a control
 	 * pass green with the fix deleted from `src/`. Every caller owns a directory nobody else writes,
 	 * and `isolation.test.ts` asserts it.
 	 */
@@ -169,20 +169,20 @@ export async function compileScenario(
 	try {
 		program = await compile(NodeHost, scenario.mainFile, {
 			outputDir,
-			// Ours FIRST, deliberately — see `ownerOfCrash`.
+			// Ours FIRST, deliberately, see `ownerOfCrash`.
 			emit: ["typespec-hono", "@typespec/openapi3"],
 			options: {
 				"typespec-hono": {
 					"emitter-output-dir": dirs.serverDir,
 					/**
-					 * ⚠️ **The emitted module must be self-contained, or the differential cannot load it.**
+					 * **The emitted module must be self-contained, or the differential cannot load it.**
 					 *
 					 * A scenario declaring an enum emits `z.enum(SPEC_VOCABULARIES.Colors)`, which resolves
 					 * only where the named contracts package exports `Colors`. Writing the vocabularies
 					 * beside the schemas and importing them relatively is what makes the output stand alone
-					 * — measured, 7 of 61 scenarios need it.
+					 *. Measured, 7 of 61 scenarios need it.
 					 *
-					 * ⚠️ **`contracts-package` has no default for exactly this reason.** It once defaulted to
+					 * **`contracts-package` has no default for exactly this reason.** It once defaulted to
 					 * one repository's package name, so a consumer who configured nothing got validators
 					 * importing from a package they had never heard of.
 					 */
@@ -193,7 +193,7 @@ export async function compileScenario(
 					// the other is a contradiction, and this differential is precisely what reports it.
 					"seal-object-schemas": true,
 					/**
-					 * ⚠️ **Without this the emitted files import `typespec-hono/runtime` by name**, which
+					 * **Without this the emitted files import `typespec-hono/runtime` by name**, which
 					 * resolves for a consumer and not from this package's own `.out/`. The suite would emit
 					 * output it cannot load, and would be measuring nothing while looking green.
 					 */
@@ -227,19 +227,19 @@ export async function compileScenario(
 		};
 	}
 	/**
-	 * ⚠️ **Our own warnings are collected, not ignored, and there should be none.**
+	 * **Our own warnings are collected, not ignored, and there should be none.**
 	 *
-	 * The corpus raises warnings we neither own nor can fix — deprecations, and `metadata-ignored` on
-	 * the very models that prove the metadata-position defect — so those are filtered out below. A
+	 * The corpus raises warnings we neither own nor can fix, deprecations, and `metadata-ignored` on
+	 * the very models that prove the metadata-position defect, so those are filtered out below. A
 	 * warning THIS emitter raises is a different thing entirely: it means "the output is knowingly not
 	 * what the document says, and we are shipping it anyway". There was one such warning for exactly
-	 * one commit, marking an injected discriminator, and it was the wrong answer — a custom track with
+	 * one commit, marking an injected discriminator, and it was the wrong answer, a custom track with
 	 * a label on it. Counting them keeps the next one from arriving quietly.
 	 */
 	/**
 	 * Which version the emitter actually emitted, asked of the compiler rather than inferred.
 	 *
-	 * `getVersions` returns the versions in DECLARED order, which is the order that means anything —
+	 * `getVersions` returns the versions in DECLARED order, which is the order that means anything,
 	 * a version name sorts however its author spelled it.
 	 */
 	const latestVersion = ((): string | undefined => {
@@ -253,10 +253,10 @@ export async function compileScenario(
 	})();
 
 	/**
-	 * ⚠️ **A refusal is not a failed scenario, and treating it as one costs coverage for no reason.**
+	 * **A refusal is not a failed scenario, and treating it as one costs coverage for no reason.**
 	 * `reportDiagnostic` does not unwind, so a service containing one operation this emitter refuses
 	 * still emits every other operation correctly. Classifying the whole scenario as failed would blind
-	 * the differential to twenty unrelated operations because one of them is `@head` — measured:
+	 * the differential to twenty unrelated operations because one of them is `@head`, measured:
 	 * `type/model/visibility` has a single HEAD operation and nineteen others.
 	 *
 	 * So a refusal is recorded by NAME and the scenario stays gradable, with the arithmetic adjusted:
@@ -264,20 +264,20 @@ export async function compileScenario(
 	 * because it makes the exclusions explicit instead of letting them cancel out.
 	 */
 	/**
-	 * ⚠️ **A refusal is identified by its CODE, never by its severity.**
+	 * **A refusal is identified by its CODE, never by its severity.**
 	 *
 	 * It used to key on `severity === "error"`, which worked only while every refusal happened to be
-	 * one. The moment they became warnings — so that a refusal stops suppressing `@typespec/openapi3`'s
-	 * entire document — `refused` silently fell to **zero** and `mounted + refused === declared` broke
+	 * one. The moment they became warnings, so that a refusal stops suppressing `@typespec/openapi3`'s
+	 * entire document, `refused` silently fell to **zero** and `mounted + refused === declared` broke
 	 * at 564 + 0 ≠ 577. Nothing had stopped being refused; the counter had stopped recognising it.
 	 *
 	 * Severity answers "how loudly should the compiler complain", which is a consumer's choice via
 	 * `warn-as-error`. Which diagnostics are refusals is a fact about this package, and `$lib` is where
-	 * that fact lives — so it is read from there rather than restated, and a refusal added later is
+	 * that fact lives, so it is read from there rather than restated, and a refusal added later is
 	 * counted without anyone remembering to update this.
 	 */
 	/**
-	 * ⚠️ **`unvalidatable-media-type` is NOT a refusal, and counting it as one broke the arithmetic.**
+	 * **`unvalidatable-media-type` is NOT a refusal, and counting it as one broke the arithmetic.**
 	 * A refusal EXCLUDES an operation, so it has to be added to `mounted` to reach `declared`. This
 	 * one excludes nothing: the route is registered and serves every media type it can parse, and the
 	 * warning names the ones it cannot. Counted as a refusal it made `mounted + refused` overshoot
@@ -296,10 +296,10 @@ export async function compileScenario(
 		.map((diagnostic) => diagnostic.code);
 
 	/**
-	 * ⚠️ **A warning that is NOT a named refusal**, which is the distinction this arm always wanted.
+	 * **A warning that is NOT a named refusal**, which is the distinction this arm always wanted.
 	 *
 	 * The rule is "a warning THIS emitter raises means the output is knowingly not what the document
-	 * says, and we are shipping it anyway" — a compromise, and there should be none. A refusal is the
+	 * says, and we are shipping it anyway". A compromise, and there should be none. A refusal is the
 	 * opposite: the operation is EXCLUDED, named, with a remedy. Both are now `warning` severity,
 	 * because severity is what decides whether the whole compile is poisoned, so severity can no longer
 	 * stand in for the distinction. The code does.

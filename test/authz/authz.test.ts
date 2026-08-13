@@ -7,9 +7,9 @@ import { compileFixture, type CompiledFixture } from "../support/compile-fixture
 /**
  * **The scope gate the document publishes is the gate the generated server applies.**
  *
- * ⚠️ **This is checked on the emitted SOURCE, and it has to be.** Nothing a request can observe
+ * **This is checked on the emitted SOURCE, and it has to be.** Nothing a request can observe
  * distinguishes a server that enforces scopes from one that does not, unless the app's `authorize`
- * happens to reject — and the app is exactly what we are not testing here. The defect it guards
+ * happens to reject, and the app is exactly what we are not testing here. The defect it guards
  * against shipped once: the generated app referenced scopes zero times while the published document
  * declared eleven, so a surface mounted with its OAuth gate silently dropped.
  */
@@ -35,8 +35,8 @@ describe("an operation's declared scopes reach the generated server", () => {
 
 	it("gates every operation the document secures, and only those", () => {
 		/**
-		 * ⚠️ **Derived from the emitted routes rather than counted by hand.** A hardcoded number stops
-		 * discriminating the moment the fixture grows — it was `2`, the fixture gained two operations,
+		 * **Derived from the emitted routes rather than counted by hand.** A hardcoded number stops
+		 * discriminating the moment the fixture grows. It was `2`, the fixture gained two operations,
 		 * and the arm failed for a reason that had nothing to do with what it guards.
 		 *
 		 * The property is a correspondence: one gate per registration, except the `@useAuth(NoAuth)`
@@ -68,9 +68,9 @@ describe("an operation's declared scopes reach the generated server", () => {
 
 	it("carries the scheme even when it declares no scopes", () => {
 		/**
-		 * ⚠️ **The defect this replaced.** `@useAuth(BearerAuth)` publishes
+		 * **The defect this replaced.** `@useAuth(BearerAuth)` publishes
 		 * `security: [{ "BearerAuth": [] }]`, and a scopes-only gate saw an empty list and emitted
-		 * nothing — so bearer, api-key and basic, which is most services, carried no gate at all and
+		 * nothing, so bearer, api-key and basic, which is most services, carried no gate at all and
 		 * rested entirely on `deps.context` returning null. That answers "is somebody here", not "did
 		 * they satisfy the scheme the contract names": an app reading a cookie would have served a
 		 * route the document says needs a bearer token, and nothing would have noticed.
@@ -82,7 +82,7 @@ describe("an operation's declared scopes reach the generated server", () => {
 		/**
 		 * `@useAuth(A | B)` is an OpenAPI `security` array with two entries: satisfying EITHER
 		 * authorises. Flattening them into one requirement would demand both, which is a stricter
-		 * contract than the document states — and a flat set of scopes cannot express the difference
+		 * contract than the document states, and a flat set of scopes cannot express the difference
 		 * at all.
 		 */
 		expect(source).toMatch(

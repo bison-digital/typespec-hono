@@ -7,27 +7,27 @@ import { compileFixture } from "../support/compile-fixture.js";
 /**
  * **What arrives, as opposed to what was declared.**
  *
- * ⚠️ **Every defect this file guards was invisible to a document comparison, by construction.** The
+ * **Every defect this file guards was invisible to a document comparison, by construction.** The
  * validators agreed with the document throughout; the disagreement was with the wire. Three shipped,
  * and all three were found by sending a real request to a server generated from the Swagger Petstore
- * and running under `wrangler dev` — never by a test:
+ * and running under `wrangler dev`, never by a test:
  *
  * - **a numeric path parameter refused every conformant caller.** `z.number().int()` met `"1"` from
  *   `c.req.param()` and answered 400. `GET /pet/1` and `GET /store/order/1` both 400 while
  *   `GET /user/zach` answered 200, same server, same shape of request;
- * - **every request body was validated as JSON.** `zValidator("json", …)` reads `c.req.json()`, so a
- *   `multipart/form-data` upload was parsed as JSON and refused — 17 such registrations in
+ * - **every request body was validated as JSON.** `zValidator("json", ...)` reads `c.req.json()`, so a
+ *   `multipart/form-data` upload was parsed as JSON and refused, 17 such registrations in
  *   `payload/multipart` alone;
  * - **a raw binary body was read with `c.req.text()`**, which UTF-8-decodes. An 18-byte upload
  *   arrived as 23 code points with five bytes replaced by U+FFFD, and the request answered **200**.
  *
- * ⚠️ **Why this file exists rather than another arm on an existing one.** Every path and query
+ * **Why this file exists rather than another arm on an existing one.** Every path and query
  * parameter in `reference/service.tsp` is a `string`, and it is the only fixture that made real
- * requests — so the suite emitted 29 numeric query and header parameters across the corpus and
+ * requests, so the suite emitted 29 numeric query and header parameters across the corpus and
  * requested none of them. An unopened surface, not a narrow arm. `reference/wire.tsp` carries one of
  * each transport encoding, and this sends a request to every one.
  *
- * ⚠️ **Requests, not emitted text.** Asserting that the output contains `zValidator("form", …)` would
+ * **Requests, not emitted text.** Asserting that the output contains `zValidator("form", ...)` would
  * pass for a server that still refuses every upload. Only the exchange settles it.
  */
 
@@ -98,9 +98,9 @@ describe("the generated server accepts what the wire actually carries", () => {
 
 	it("accepts a content-type carrying the parameters a media type is allowed to carry", async () => {
 		/**
-		 * ⚠️ **`z.literal("application/json")` refuses `application/json; charset=utf-8`**, which is
+		 * **`z.literal("application/json")` refuses `application/json; charset=utf-8`**, which is
 		 * entirely legal and extremely common. The same defect made every multipart request fail, because
-		 * RFC 2046 §5.1.1 makes the boundary parameter MANDATORY there.
+		 * RFC 2046 section 5.1.1 makes the boundary parameter MANDATORY there.
 		 */
 		const response = await app.request("/items/json", {
 			method: "POST",
@@ -129,7 +129,7 @@ describe("the generated server accepts what the wire actually carries", () => {
 
 	it("hands a binary body to the handler unchanged, byte for byte", async () => {
 		/**
-		 * ⚠️ **The assertion is byte IDENTITY, not length.** A first attempt at measuring this compared
+		 * **The assertion is byte IDENTITY, not length.** A first attempt at measuring this compared
 		 * counts and passed: the corrupted body happened to have the same number of code points as the
 		 * original had bytes. Only comparing the bytes themselves shows `0x89` arriving as U+FFFD.
 		 */
