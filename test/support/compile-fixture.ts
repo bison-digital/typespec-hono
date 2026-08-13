@@ -12,6 +12,8 @@ import { compile, NodeHost } from "@typespec/compiler";
  */
 export interface CompiledFixture {
 	readonly outDir: string;
+	/** Where `@typespec/openapi3` wrote, when `withDocument` was set. */
+	readonly documentDir: string;
 	readonly diagnostics: readonly { readonly code: string; readonly severity: string }[];
 }
 
@@ -62,6 +64,14 @@ export interface FixtureOptions {
 	 * fixture that hides it.
 	 */
 	readonly bare?: boolean;
+	/**
+	 * Also run `@typespec/openapi3`, so a test can compare the two artefacts a consumer receives.
+	 *
+	 * Off by default because it roughly doubles a fixture compile, and most arms grade the server
+	 * alone. On where the claim is that the server agrees with the DOCUMENT, which several docblocks
+	 * asserted while reading only the server.
+	 */
+	readonly withDocument?: boolean;
 }
 
 export async function compileFixture(
@@ -76,8 +86,10 @@ export async function compileFixture(
 	const outDir = options.outDir ?? join(dir, ".out", options.outName ?? name);
 	const program = await compile(NodeHost, join(dir, `${name}.tsp`), {
 		outputDir: outDir,
-		emit: ["typespec-hono"],
+		emit:
+			options.withDocument === true ? ["typespec-hono", "@typespec/openapi3"] : ["typespec-hono"],
 		options: {
+			"@typespec/openapi3": { "emitter-output-dir": join(outDir, "openapi"), "file-type": "json" },
 			"typespec-hono":
 				options.bare === true
 					? { "emitter-output-dir": outDir }
@@ -103,6 +115,7 @@ export async function compileFixture(
 	}
 	return {
 		outDir,
+		documentDir: join(outDir, "openapi"),
 		diagnostics: program.diagnostics.map((d) => ({ code: d.code, severity: d.severity })),
 	};
 }

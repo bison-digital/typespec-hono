@@ -10,7 +10,22 @@ consumer feels, and is treated as such here rather than as an implementation det
 
 ## [Unreleased]
 
-Nothing since `0.3.0`.
+Nothing since `0.3.1`.
+
+## [0.3.1] - 2026-08-13
+
+A patch: nothing emitted changes. Two properties this package claimed were now
+compared rather than asserted against expectations written by hand.
+
+The gate the document publishes is compared to the gate the server applies, over
+every operation in the 62-scenario corpus. The prefix the document publishes is
+compared to the prefix the server mounts under. Both artefacts are derived
+independently, this emitter from `@typespec/http` and the document from
+`@typespec/openapi3` walking the program itself, so nothing but a comparison can
+show that they agree. They do.
+
+`compileFixture` can emit an OpenAPI document, which is what the base-path
+comparison needed and no fixture previously had.
 
 ## [0.3.0] - 2026-08-13
 

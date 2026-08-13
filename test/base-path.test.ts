@@ -1,3 +1,4 @@
+import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Hono } from "hono";
@@ -97,5 +98,74 @@ describe("a service declaring a base path is served under it", () => {
 		expect(paths).toEqual(["/api/v1/things", "/api/v2/things"]);
 		// And nothing is left at the root, which the document does not publish.
 		expect(paths.some((path) => path === "/things")).toBe(false);
+	}, 300_000);
+});
+
+/**
+ * **What compares the mounted prefix to the one the document publishes.**
+ *
+ * The arms above assert against paths written by hand. That is agreeing with ourselves: this emitter
+ * asks `@typespec/http` for the servers and `@typespec/openapi3` walks the program itself, and
+ * nothing forces the two to arrive at the same answer.
+ *
+ * The corpus cannot cover this. `@typespec/http-specs` declares `@server("{endpoint}")` almost
+ * throughout, so a corpus arm had nothing static to compare and its non-vacuity floor said so. These
+ * fixtures are the only place a static base path exists, which is why the comparison belongs here.
+ *
+ * It is not hypothetical. A service declaring a static `@server("/api/v1")` publishes every path under that
+ * prefix, and a server mounting anywhere else answers 404 to every client generated from its own
+ * document.
+ */
+describe("the mounted prefix is the one the document publishes", () => {
+	/** The static path of each declared server, by the same rules `resolveBasePath` applies. */
+	function declaredPrefixes(documentDir: string): string[] {
+		const file = readdirSync(documentDir).find((name) => name.endsWith(".json"));
+		if (file === undefined) return [];
+		const document = JSON.parse(readFileSync(join(documentDir, file), "utf8")) as {
+			readonly servers?: readonly { readonly url: string }[];
+		};
+		return (
+			(document.servers ?? [])
+				.map((server) => server.url)
+				// A templated URL means the caller supplies the origin, so the root is already correct.
+				.filter((url) => !url.includes("{"))
+				.map((url) =>
+					/^[a-z][a-z0-9+.-]*:\/\//i.test(url) ? (URL.parse(url)?.pathname ?? "/") : url,
+				)
+				.map((path) => path.replace(/\/+$/, ""))
+				.filter((path) => path !== "" && path !== "/")
+				.toSorted()
+		);
+	}
+
+	function mountedPrefixes(outDir: string): string[] {
+		const source = readFileSync(join(outDir, "app.gen.ts"), "utf8");
+		return [...source.matchAll(/\.route\("([^"]+)", basePathRoutes\)/g)]
+			.map((match) => match[1] ?? "")
+			.toSorted();
+	}
+
+	it("agrees for a single declared base path", async () => {
+		const compiled = await compileFixture(referenceDir, "based", {
+			outName: "based-document",
+			withDocument: true,
+		});
+		const declared = declaredPrefixes(compiled.documentDir);
+		expect(declared).toEqual(["/api/v1"]);
+		expect(mountedPrefixes(compiled.outDir)).toEqual(declared);
+	}, 300_000);
+
+	it("agrees when the document declares several", async () => {
+		const compiled = await compileFixture(referenceDir, "ambiguous", {
+			outName: "ambiguous-document",
+			withDocument: true,
+		});
+		const declared = declaredPrefixes(compiled.documentDir);
+		/**
+		 * Non-vacuity for the comparison: two servers that produced no static prefix would make the
+		 * assertion below `[] === []`, which is true of an emitter that mounts nothing anywhere.
+		 */
+		expect(declared.length).toBeGreaterThanOrEqual(2);
+		expect(mountedPrefixes(compiled.outDir)).toEqual(declared);
 	}, 300_000);
 });
