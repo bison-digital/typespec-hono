@@ -20,58 +20,34 @@ jobs:
         node: [22, 24]
     steps:
       - uses: actions/checkout@v4
-        with:
-          path: typespec-hono
-
-      # ⚠️ **The library is a sibling checkout, not a registry install, and that is deliberate.**
-      # `pnpm-workspace.yaml` overrides `typespec-http-zod` to `link:../typespec-http-zod`, so CI has
-      # to reproduce the layout development uses. Installing a published version instead would test a
-      # different pairing from the one the commit was written against — and would make a change that
-      # spans both packages impossible to verify before either is released.
-      #
-      # The published manifest is unaffected: it carries a real semver range, and
-      # `test/packaging.test.ts` asserts that it never carries a path.
-      - uses: actions/checkout@v4
-        with:
-          repository: bison-digital/typespec-http-zod
-          path: typespec-http-zod
-
-      # ⚠️ **Both checkouts above set `path:`, so there is no `package.json` at the workspace root.**
-      # This action reads the pnpm version from `packageManager`, defaults to looking for
-      # `./package.json`, finds nothing, and fails with "No pnpm version is specified" — which names
-      # the missing setting rather than the missing file. `release.yml` checks out to the root and so
-      # does not need this.
       - uses: pnpm/action-setup@v4
-        with:
-          package_json_file: typespec-hono/package.json
 
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ matrix.node }}
           cache: pnpm
-          cache-dependency-path: typespec-hono/pnpm-lock.yaml
 
-      # The library has to be installed and BUILT first: this package resolves it through the link,
-      # and its `exports` point at `dist/`, which does not exist in a fresh checkout.
+      # ⚠️ **`typespec-http-zod` is resolved from the registry, exactly as a consumer resolves it.**
+      # Until it published, `pnpm-workspace.yaml` overrode it to `link:../typespec-http-zod` and this
+      # job checked the sibling out beside this one to give the link a target. That was a bootstrap
+      # measure and it is gone: the override no longer exists, so a second checkout would be built and
+      # then linked to by nothing.
+      #
+      # What it cost while it lasted is worth recording. Two checkouts both need `path:`, which leaves
+      # no `package.json` at the workspace root, so `pnpm/action-setup` read no manifest and failed
+      # with "No pnpm version is specified" — naming a field that was present and correct.
+      #
+      # ⚠️ **A change spanning both packages is no longer verifiable here**, which the old arrangement
+      # did allow. The library has to publish first and this range has to move. That is the ordinary
+      # cost of two packages and two repos, and it is now paid explicitly rather than hidden.
       - run: pnpm install --frozen-lockfile
-        working-directory: typespec-http-zod
       - run: pnpm build
-        working-directory: typespec-http-zod
-
-      - run: pnpm install --frozen-lockfile
-        working-directory: typespec-hono
-      - run: pnpm build
-        working-directory: typespec-hono
       - run: pnpm test
-        working-directory: typespec-hono
       # LAST, always — see the library's workflow for why.
       - run: pnpm typecheck
-        working-directory: typespec-hono
       - run: pnpm lint
-        working-directory: typespec-hono
 
       # A repository that calls itself idiomatic should not depend on whoever opens it next
       # having the same editor settings. `.oxfmtrc.json` matches the style the code is already
       # written in — tabs — rather than imposing the tool's defaults on it.
       - run: pnpm format:check
-        working-directory: typespec-hono

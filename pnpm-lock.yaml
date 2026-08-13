@@ -4,16 +4,13 @@ settings:
   autoInstallPeers: true
   excludeLinksFromLockfile: false
 
-overrides:
-  typespec-http-zod: link:../typespec-http-zod
-
 importers:
 
   .:
     dependencies:
       typespec-http-zod:
-        specifier: link:../typespec-http-zod
-        version: link:../typespec-http-zod
+        specifier: ^0.1.0
+        version: 0.1.0(@typespec/compiler@1.15.0(@types/node@26.2.0))(@typespec/http@1.15.0(@typespec/compiler@1.15.0(@types/node@26.2.0))(@typespec/streams@0.85.0(@typespec/compiler@1.15.0(@types/node@26.2.0))))(@typespec/openapi@1.15.0(@typespec/compiler@1.15.0(@types/node@26.2.0))(@typespec/http@1.15.0(@typespec/compiler@1.15.0(@types/node@26.2.0))(@typespec/streams@0.85.0(@typespec/compiler@1.15.0(@types/node@26.2.0)))))(@typespec/streams@0.85.0(@typespec/compiler@1.15.0(@types/node@26.2.0)))(@typespec/versioning@0.85.0(@typespec/compiler@1.15.0(@types/node@26.2.0)))(zod@4.4.3)
     devDependencies:
       '@hono/zod-openapi':
         specifier: ^1.4.0
@@ -1854,6 +1851,22 @@ packages:
     engines: {node: '>=16.20.0'}
     hasBin: true
 
+  typespec-http-zod@0.1.0:
+    resolution: {integrity: sha512-XdHr0AipjyeK8xrjNT9jtj95t5F+5FlRU+NRgPtBe2iX76shOD+oAHO3bKl2MUAnAkQt+NYiV19M1oEgGiiifg==}
+    engines: {node: '>=22.0.0'}
+    peerDependencies:
+      '@typespec/compiler': ^1.15.0
+      '@typespec/http': ^1.15.0
+      '@typespec/openapi': ^1.15.0
+      '@typespec/streams': ^0.85.0
+      '@typespec/versioning': ^0.85.0
+      zod: ^4.0.0
+    peerDependenciesMeta:
+      '@typespec/streams':
+        optional: true
+      '@typespec/versioning':
+        optional: true
+
   undici-types@7.18.2:
     resolution: {integrity: sha512-AsuCzffGHJybSaRrmr5eHr81mwJU3kjw6M+uprWvCXiNeN9SOGwQ3Jn8jb8m3Z6izVgknn1R0FTCEAP2QrLY/w==}
 
@@ -3646,6 +3659,16 @@ snapshots:
       '@typescript/typescript-sunos-x64': 7.0.2
       '@typescript/typescript-win32-arm64': 7.0.2
       '@typescript/typescript-win32-x64': 7.0.2
+
+  typespec-http-zod@0.1.0(@typespec/compiler@1.15.0(@types/node@26.2.0))(@typespec/http@1.15.0(@typespec/compiler@1.15.0(@types/node@26.2.0))(@typespec/streams@0.85.0(@typespec/compiler@1.15.0(@types/node@26.2.0))))(@typespec/openapi@1.15.0(@typespec/compiler@1.15.0(@types/node@26.2.0))(@typespec/http@1.15.0(@typespec/compiler@1.15.0(@types/node@26.2.0))(@typespec/streams@0.85.0(@typespec/compiler@1.15.0(@types/node@26.2.0)))))(@typespec/streams@0.85.0(@typespec/compiler@1.15.0(@types/node@26.2.0)))(@typespec/versioning@0.85.0(@typespec/compiler@1.15.0(@types/node@26.2.0)))(zod@4.4.3):
+    dependencies:
+      '@typespec/compiler': 1.15.0(@types/node@26.2.0)
+      '@typespec/http': 1.15.0(@typespec/compiler@1.15.0(@types/node@26.2.0))(@typespec/streams@0.85.0(@typespec/compiler@1.15.0(@types/node@26.2.0)))
+      '@typespec/openapi': 1.15.0(@typespec/compiler@1.15.0(@types/node@26.2.0))(@typespec/http@1.15.0(@typespec/compiler@1.15.0(@types/node@26.2.0))(@typespec/streams@0.85.0(@typespec/compiler@1.15.0(@types/node@26.2.0))))
+      zod: 4.4.3
+    optionalDependencies:
+      '@typespec/streams': 0.85.0(@typespec/compiler@1.15.0(@types/node@26.2.0))
+      '@typespec/versioning': 0.85.0(@typespec/compiler@1.15.0(@types/node@26.2.0))
 
   undici-types@7.18.2: {}
 
