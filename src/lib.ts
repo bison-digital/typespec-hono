@@ -94,6 +94,24 @@ const diagnostics = {
 		},
 	},
 	/**
+	 * The document declares several servers whose paths disagree, so there is no prefix to mount under.
+	 *
+	 * ⚠️ **Reported rather than resolved, because every resolution is wrong for somebody.** An OpenAPI
+	 * path is relative to its server, so `@server("/api/v1")` plus `/accounts` means the document
+	 * publishes `/api/v1/accounts`. Where one static path is declared this emitter mounts under it and
+	 * the two artefacts agree. Where several disagree there is no single answer: picking one serves
+	 * the wrong URL for every other, and a route mounted under a wrong prefix still matches and still
+	 * answers, which is worse than one that fails.
+	 *
+	 * Routes are mounted at the root in this case, which is at least predictable, and this says so.
+	 */
+	"ambiguous-server-path": {
+		severity: "warning",
+		messages: {
+			default: paramMessage`The service declares servers with different base paths (${"paths"}), so routes are mounted at the root. An OpenAPI path is relative to its server, so callers following the document will prefix one of these — mount the returned app under the prefix you serve, or declare a single base path.`,
+		},
+	},
+	/**
 	 * A path template this emitter will not translate into a route.
 	 *
 	 * ⚠️ **Refused rather than approximated, because the failure mode is a route that WORKS and is
@@ -138,6 +156,7 @@ const diagnostics = {
 type Diagnostics = {
 	"unroutable-verb": { readonly default: CallableMessage<["operationId", "verb"]> };
 	"unsupported-path-template": { readonly default: CallableMessage<["template", "name"]> };
+	"ambiguous-server-path": { readonly default: CallableMessage<["paths"]> };
 };
 
 /**

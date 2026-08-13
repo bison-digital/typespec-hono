@@ -104,6 +104,17 @@ worked: `hc<typeof app>` resolved to `unknown` — not an empty client, an unusa
 `c.env` and exists only for the duration of a request — there is no module scope in which
 `backendFor(env)` can be resolved.
 
+### The document's base path is honoured
+
+`@server("/api/v1")` reaches OpenAPI as `servers: [{ url: "/api/v1" }]`, and **an OpenAPI path is
+relative to its server** — so the document publishes `/api/v1/accounts`, not `/accounts`. The
+generated routes are mounted under that prefix with a nested `app.route()`, so the server and the
+document agree and a client generated from the document reaches it.
+
+Where the document is ambiguous — several servers with disagreeing paths — routes are mounted at the
+root and `ambiguous-server-path` says so. A templated server such as `@server("{endpoint}")` means the
+caller supplies the whole origin, so the root is already correct and nothing is reported.
+
 ## Middleware — register it BEFORE `registerRoutes`
 
 ⚠️ **This is the one ordering rule, and getting it wrong fails silently.** Hono middleware applies
@@ -233,6 +244,7 @@ operations; only a Hono server cannot serve them.
 | code                        | why                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
 | --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `unroutable-verb`           | ⚠️ **A `@head` operation.** Hono rewrites every HEAD request to GET _before_ matching — `hono-base.js` does it unconditionally at the top of `#dispatch` — so a route registered under HEAD is never reached: 404 where the path has no GET, dead code where it has one. Measured on Hono 4.13.1; `on("PURGE", …)` and `on("OPTIONS", …)` both work, so this is HEAD specifically. **The remedy is in your spec:** declare `@get`, and Hono answers HEAD from it with the body stripped, which is what RFC 9110 requires anyway. Hono's own [best-practices guide](https://hono.dev/docs/guides/best-practices) states the same rule. |
+| `ambiguous-server-path`     | The service declares several `@server` entries whose base paths disagree, so there is no single prefix to mount under. Routes are mounted at the **root** and this says so. An OpenAPI path is relative to its server, so callers following the document will prefix one of them — mount the returned app under the prefix you actually serve, or declare a single base path.                                                                                                                                                                                                                                                         |
 | `unsupported-path-template` | a path parameter that is not a plain name. Hono reads a parameter up to the next `/`, so an RFC 6570 operator or modifier would become part of the name — and `*` would become Hono's wildcard, mounting a route that matches the wrong requests and answers them. Refused rather than approximated, because a route that works and is wrong is worse than one that fails.                                                                                                                                                                                                                                                            |
 
 ### Refusals are warnings, and you choose whether they fail the build

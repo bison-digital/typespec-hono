@@ -2,6 +2,7 @@ import { emitFile, resolvePath, type EmitContext, type Type } from "@typespec/co
 import type { EmittedService } from "typespec-http-zod";
 import { emitHttpZod } from "typespec-http-zod";
 import { renderApp } from "./app.js";
+import { resolveBasePath } from "./base-path.js";
 import { reportDiagnostic } from "./lib.js";
 
 /**
@@ -53,29 +54,46 @@ export async function $onEmit(context: EmitContext): Promise<void> {
 	for (const emitted of await emitHttpZod(context, {
 		defaultRuntimeModule: DEFAULT_RUNTIME_MODULE,
 	})) {
+		/**
+		 * ⚠️ **The path the DOCUMENT says this service is served under.** An OpenAPI path is relative to
+		 * its server, so `@server("/api/v1")` plus `/accounts` publishes `/api/v1/accounts`. Mounting at
+		 * the root made every client generated from the document 404.
+		 */
+		const base = resolveBasePath(context.program, emitted.service.namespace);
+		if (base.ambiguous.length > 0) {
+			reportDiagnostic(context.program, {
+				code: "ambiguous-server-path",
+				format: { paths: base.ambiguous.join(", ") },
+				target: emitted.service.namespace,
+			});
+		}
 		await emitFile(context.program, {
 			path: resolvePath(emitted.outputDir, "app.gen.ts"),
-			content: renderApp(emitted, {
-				/**
-				 * Reported rather than thrown, so a spec with one unmountable path still names every
-				 * other problem in the same compile — and so the validators for the rest of the service
-				 * are still written. A path this router cannot express is not a reason to emit nothing.
-				 */
-				unsupportedPathTemplate: (route, template, name) => {
-					reportDiagnostic(context.program, {
-						code: "unsupported-path-template",
-						format: { template, name },
-						target: targetFor(emitted, route.operationId),
-					});
+			content: renderApp(
+				emitted,
+				{
+					/**
+					 * Reported rather than thrown, so a spec with one unmountable path still names every
+					 * other problem in the same compile — and so the validators for the rest of the service
+					 * are still written. A path this router cannot express is not a reason to emit nothing.
+					 */
+					unsupportedPathTemplate: (route, template, name) => {
+						reportDiagnostic(context.program, {
+							code: "unsupported-path-template",
+							format: { template, name },
+							target: targetFor(emitted, route.operationId),
+						});
+					},
+					unroutableVerb: (route) => {
+						reportDiagnostic(context.program, {
+							code: "unroutable-verb",
+							format: { operationId: route.operationId, verb: route.verb },
+							target: targetFor(emitted, route.operationId),
+						});
+					},
 				},
-				unroutableVerb: (route) => {
-					reportDiagnostic(context.program, {
-						code: "unroutable-verb",
-						format: { operationId: route.operationId, verb: route.verb },
-						target: targetFor(emitted, route.operationId),
-					});
-				},
-			}),
+				base.basePath,
+			),
 		});
 	}
 }

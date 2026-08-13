@@ -231,7 +231,18 @@ function subAppNameOf(resource: string): string {
  * packages one emitter rather than two that must agree by coincidence — and it is why a consumer who
  * wants the validators without a server can simply not install this one.
  */
-export function renderApp(emitted: EmittedService, refuse: RenderRefusals): string {
+export function renderApp(
+	emitted: EmittedService,
+	refuse: RenderRefusals,
+	/**
+	 * The path the DOCUMENT says this service is served under, when it says one unambiguously.
+	 *
+	 * ⚠️ **An OpenAPI path is relative to its server**, so `@server("/api/v1")` plus `/accounts` means
+	 * the document publishes `/api/v1/accounts`. Mounting at the root made every client generated from
+	 * the document, and every "try it" in a rendered document, 404.
+	 */
+	basePath?: string,
+): string {
 	const entries: AppRoute[] = emitted.routes.flatMap((route) => {
 		/**
 		 * ⚠️ **Refused AND skipped, in that order.** Emitting the route anyway would put a registration
@@ -557,9 +568,19 @@ export function renderApp(emitted: EmittedService, refuse: RenderRefusals): stri
 	const negotiates = [...grouped.values()].some((group) => group.length > 1);
 	const runtimeModule = JSON.stringify(emitted.options.runtimeModule);
 
+	/**
+	 * ⚠️ **One base sub-app, mounted with `app.route()` — Hono's own nesting, not a rewritten path on
+	 * every registration.** Prefixing each path individually would fight the resource grouping, and
+	 * would put the prefix in `hc`'s type surface as part of every route name rather than once. A
+	 * nested `.route()` composes exactly, and the parent's `app.routes` still reports the fully
+	 * composed path, which every arm that counts routes depends on.
+	 */
+	const usesBasePath = basePath !== undefined && basePath !== "";
+	const needsHonoValue = subApps.size > 0 || usesBasePath;
+
 	return `${GENERATED_BANNER}
 import { zValidator } from "@hono/zod-validator";
-${subApps.size === 0 ? 'import type { Context, Hono, Input } from "hono";' : 'import { Hono } from "hono";\nimport type { Context, Input } from "hono";'}
+${needsHonoValue ? 'import { Hono } from "hono";\nimport type { Context, Input } from "hono";' : 'import type { Context, Hono, Input } from "hono";'}
 import { z } from "zod";
 import type { AppEnv, Awaitable, Ctx, Result, RouteDeps } from ${runtimeModule};${negotiates ? `\nimport { selectContentType } from ${runtimeModule};` : ""}
 ${imports}
@@ -615,8 +636,11 @@ export function registerRoutes<T extends Operations>(
 	handlersFor: <P extends string, I extends Input>(c: Context<AppEnv, P, I>) => Exhaustive<T>,
 	deps: RouteDeps,
 ) {
-${subAppDeclarations}	return app
-${rootChain.join("\n")};
+${subAppDeclarations}${
+		usesBasePath
+			? `\tconst basePathRoutes = new Hono<AppEnv>()\n${rootChain.join("\n")};\n\n\treturn app.route(${JSON.stringify(basePath)}, basePathRoutes);`
+			: `\treturn app\n${rootChain.join("\n")};`
+	}
 }
 `;
 }
