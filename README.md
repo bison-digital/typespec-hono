@@ -1,8 +1,12 @@
 # typespec-hono
 
 Generate a [Hono](https://hono.dev) server, and the Zod validators it enforces, from a TypeSpec HTTP
-service. The result agrees with the OpenAPI document that
-[`@typespec/openapi3`](https://typespec.io) publishes from the same source.
+service definition.
+
+It reads your `.tsp` source, not an OpenAPI document. [`@typespec/openapi3`](https://typespec.io)
+reads the same source and writes the OpenAPI document; neither emitter consumes the other's output.
+Because both are generated from one definition, the server enforces what the document describes,
+without anyone having to keep the two in step by hand.
 
 This package runs [`typespec-http-zod`](https://github.com/bison-digital/typespec-http-zod) and adds
 one file, so listing one emitter produces five artefacts.

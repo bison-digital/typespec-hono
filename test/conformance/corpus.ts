@@ -269,7 +269,7 @@ export async function compileScenario(
 	 * It used to key on `severity === "error"`, which worked only while every refusal happened to be
 	 * one. The moment they became warnings, so that a refusal stops suppressing `@typespec/openapi3`'s
 	 * entire document, `refused` silently fell to **zero** and `mounted + refused === declared` broke
-	 * at 564 + 0 ≠ 577. Nothing had stopped being refused; the counter had stopped recognising it.
+	 * at 564 + 0, which is not 577. Nothing had stopped being refused; the counter had stopped recognising it.
 	 *
 	 * Severity answers "how loudly should the compiler complain", which is a consumer's choice via
 	 * `warn-as-error`. Which diagnostics are refusals is a fact about this package, and `$lib` is where

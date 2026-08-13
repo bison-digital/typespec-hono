@@ -86,7 +86,7 @@ export const deps: RouteDeps = {
 	/**
 	 * **The status is chosen by the app; the schema for it comes from the document.** `armFor`
 	 * applies the Responses Object's own precedence. An exact code, then a range, then `default`,
-	 * which is the rule an application otherwise re-derives as "the first arm with a status ≥ 400" and
+	 * which is the rule an application otherwise re-derives as "the first arm with a status of 400 or more" and
 	 * gets wrong on every range.
 	 */
 	respond: (c, arms, result) => {

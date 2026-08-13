@@ -49,7 +49,7 @@ const ATTRIBUTION = [
 	/\bAI[- ](?:generated|assisted|authored|written)\b/i,
 	/\bwritten by (?:an? )?(?:AI|LLM|assistant|bot)\b/i,
 	/\bassisted by (?:an? )?(?:AI|LLM)\b/i,
-	/🤖/u,
+	/\u{1F916}/u, // robot face, escaped so a non-ASCII sweep cannot disarm this pattern
 ];
 
 function offendersIn(label: string, text: string): string[] {

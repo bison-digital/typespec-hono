@@ -83,8 +83,10 @@ export type Awaitable<T> = T | Promise<T>;
  * The rules that matter, and that a naive `includes()` gets wrong:
  * - **absent or empty `Accept` means anything is acceptable**, serve the first offer;
  * - **`q=0` is a REFUSAL**, not a weak preference, so a range scoring zero can never be chosen;
- * - **specificity breaks ties before quality does**: `text/plain` beats `text/*` beats `*​/*` at
- *   equal `q`, which is why the score is a pair and not a number;
+ * - **specificity breaks ties before quality does**: an exact type beats a subtype wildcard
+ *   (`text/*`), which beats the fully wildcard range, at equal `q`. That is why the score is a
+ *   pair rather than a number. The fully wildcard range is not written literally here because it
+ *   would close this comment;
  * - parameters after the media range (`;charset=utf-8`) are not part of the match.
  *
  * Returns `undefined` when nothing offered is acceptable. The caller answers 406, and the
