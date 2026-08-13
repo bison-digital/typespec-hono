@@ -42,33 +42,19 @@ async function mount(): Promise<Hono> {
 }
 
 describe("the emitted server mounts what the document declares", () => {
-	it("refuses exactly what it cannot route, and nothing else", () => {
+	it("refuses nothing, and serves the `@head` operation the spec declares", () => {
 		/**
-		 * ⚠️ **One named refusal, and it is a fact about Hono rather than about the spec.** `widgetExists`
-		 * is `@head`, and Hono rewrites every HEAD request to GET before matching — so a route registered
-		 * under HEAD is unreachable. The library emits correct validators for the operation; only a Hono
-		 * server cannot serve it.
+		 * `widgetExists` is `@head`. Hono rewrites every HEAD request to GET before matching, so a route
+		 * registered under HEAD is unreachable -- which is why this operation used to be refused.
 		 *
-		 * Named rather than counted: a refusal is a claim about the reference spec and has to be read.
+		 * It is served now. Registering under GET is what makes it reachable, `c.req.method` still reads
+		 * `HEAD` after the rewrite so the handler can tell the two apart, and Hono strips the response
+		 * body for a real HEAD itself, which is what RFC 9110 requires anyway.
 		 *
-		 * ⚠️ **The SEVERITY is part of the assertion, and `warning` is deliberate.** An `error` sets
-		 * `program.hasError()`, and `@typespec/openapi3` guards on that before writing anything — so one
-		 * refused `@head` operation cost a consumer their entire OpenAPI document. Measured: `openapi/`
-		 * went from one file to none, and it was order-dependent, which is the tell that it was
-		 * accidental.
-		 *
-		 * `warning` is also what the first-party rule says. openapi3 uses it for exactly this shape —
-		 * `streams-not-supported`, `unsupported-auth` — meaning "the spec is valid and THIS emitter
-		 * cannot express it", and reserves `error` for a spec that is wrong for any emitter. A `@head`
-		 * operation is valid TypeSpec that openapi3 renders perfectly; only Hono cannot route it.
-		 *
-		 * Nothing is lost by it. The operation is still excluded, still named, still carries its remedy —
-		 * and a consumer who wants a refusal to fail the build sets `warn-as-error`, which is the
-		 * compiler's own mechanism for that and always was.
+		 * The reference spec exercises the whole surface, so a clean compile here is the claim that this
+		 * emitter has nothing left to refuse on a realistic service.
 		 */
-		expect(compiled.diagnostics.map((d) => `${d.severity}: ${d.code}`)).toEqual([
-			"warning: typespec-hono/unroutable-verb",
-		]);
+		expect(compiled.diagnostics.map((d) => `${d.severity}: ${d.code}`)).toEqual([]);
 	});
 
 	it("mounts one route per verb and path, with nothing unreachable behind it", async () => {
@@ -104,22 +90,13 @@ describe("the emitted server mounts what the document declares", () => {
 		expect(paths.filter((path) => path.includes("{"))).toEqual([]);
 	});
 
-	it("mounts no route for a verb Hono cannot dispatch to", async () => {
-		const app = await mount();
-		/**
-		 * ⚠️ **This arm asserted the OPPOSITE, and it was wrong for the whole life of the un-split
-		 * emitter.** `app.on("HEAD", …)` looks like a mounted route and `app.routes` lists it, but
-		 * `hono-base.js` rewrites every HEAD request to GET at the top of `#dispatch`, so it is never
-		 * reached: 404 where the path has no GET, dead code where it has one. Measured on Hono 4.13.1,
-		 * and measured against `on("PURGE", …)` and `on("OPTIONS", …)`, which both work — so this is
-		 * HEAD specifically.
-		 *
-		 * Fifteen of the seventeen HEAD operations in `@typespec/http-specs` have no sibling GET. Every
-		 * one was a 404 that a route differential counted as present.
-		 */
-		expect(app.routes.filter((route) => route.method === "HEAD")).toEqual([]);
+	it("mounts the `@head` operation under GET, and serves it", () => {
 		const source = readFileSync(join(compiled.outDir, "app.gen.ts"), "utf8");
-		expect(source).not.toMatch(/"HEAD"/);
+		// Not under a verb Hono rewrites away before matching.
+		expect(source).not.toMatch(/\.head\(/);
+		expect(source).not.toMatch(/\.on\(\s*"HEAD"/);
+		// Reachable, and invoked.
+		expect(source).toMatch(/handlersFor\(c\)\.widgetExists\(/);
 	});
 
 	it("registers a negotiated route once, and answers 406 rather than validating `accept`", () => {

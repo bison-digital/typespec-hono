@@ -124,6 +124,27 @@ export function selectContentType(
 }
 
 /**
+ * Let only a real HEAD request through.
+ *
+ * Hono rewrites HEAD to GET before matching, so a `@head` operation has to be registered under GET
+ * to be reachable at all. Where the document declares no GET on that path, this keeps the
+ * registration honest: a GET gets the 404 it would have got if the route had never been registered,
+ * and only a HEAD reaches the validators and the handler. `c.req.method` still reads `HEAD` after the
+ * rewrite, which is what makes the distinction possible.
+ *
+ * In the runtime rather than in {@link RouteDeps} on the usual test: the generated code can proceed
+ * without asking the app anything. Which verbs the document declares is a contract fact, and the
+ * answer for a verb it does not declare is the same 404 any unrouted request already gets, through
+ * whatever `app.notFound()` the application has set.
+ *
+ * A plain middleware rather than `except()` from `hono/combine`, because `except` wraps the final
+ * handler and erases its response type, and Hono's RPC client derives its whole surface from that
+ * type. Measured: `hc<typeof app>` resolved a wrapped route's body to `unknown`.
+ */
+export const headOnly: MiddlewareHandler = async (c, next) =>
+	c.req.method === "HEAD" ? next() : c.notFound();
+
+/**
  * What the app provides. One object, passed once, rather than a module the generated file imports by
  * path — a generated server that hard-codes `../../backend.js` is only usable by the project it was
  * generated in, and this one has to be usable by any.

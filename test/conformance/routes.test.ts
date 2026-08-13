@@ -68,7 +68,12 @@ function operationsInDocument(document: unknown): number {
 interface Measured {
 	readonly name: string;
 	readonly declared: number;
+	/** Operations whose handler the generated file invokes. */
 	readonly mounted: number;
+	/** Distinct router slots. Lower than `mounted` where GET and HEAD share a path. */
+	readonly slots: number;
+	/** Distinct operations the file invokes. Exceeds `declared` where negotiation is used. */
+	readonly served: number;
 	readonly registrations: number;
 	/** Operations this emitter named a refusal for, and therefore did not mount. */
 	readonly refused: number;
@@ -98,15 +103,27 @@ async function measure(compiled: CompiledScenario): Promise<Measured | undefined
 	const slots = new Set(
 		app.routes.filter((route) => route.method !== "ALL").map((r) => `${r.method} ${r.path}`),
 	);
-	const registrations = [
-		...readFileSync(join(compiled.serverDir, "app.gen.ts"), "utf8").matchAll(
-			/^\t\t\.(?!route\()\w+\(/gm,
-		),
-	].length;
+	const source = readFileSync(join(compiled.serverDir, "app.gen.ts"), "utf8");
+	const registrations = [...source.matchAll(/^\t\t\.(?!route\()\w+\(/gm)].length;
+	/**
+	 * A path where the document declares BOTH GET and HEAD is one router slot serving two document
+	 * entries: Hono rewrites HEAD to GET before matching, so the two cannot have separate slots, and
+	 * the handler tells them apart with `c.req.method`. Counting slots alone undercounts those by one
+	 * each, which is what the merge count restores.
+	 */
+	const headMerges = [...source.matchAll(/if \(c\.req\.method === "HEAD"\) \{/g)].length;
+	/**
+	 * Distinct operations the file actually invokes. Higher than the document's entry count wherever
+	 * content negotiation is used, because TypeSpec models that as several operations against one
+	 * OpenAPI path item -- so this is a completeness check, not a term in the arithmetic.
+	 */
+	const served = new Set([...source.matchAll(/handlersFor\(c\)\.(\w+)\(/g)].map((m) => m[1]));
 	return {
 		name: compiled.scenario.name,
 		declared: operationsInDocument(document),
-		mounted: slots.size,
+		mounted: slots.size + headMerges,
+		slots: slots.size,
+		served: served.size,
 		registrations,
 		refused: compiled.refusals?.length ?? 0,
 	};
@@ -157,6 +174,8 @@ describe("the generated server mounts what the document declares", () => {
 			scenarios: measured.length,
 			declared: measured.reduce((sum, entry) => sum + entry.declared, 0),
 			mounted: measured.reduce((sum, entry) => sum + entry.mounted, 0),
+			slots: measured.reduce((sum, entry) => sum + entry.slots, 0),
+			served: measured.reduce((sum, entry) => sum + entry.served, 0),
 			registrations: measured.reduce((sum, entry) => sum + entry.registrations, 0),
 			refused: measured.reduce((sum, entry) => sum + entry.refused, 0),
 		};
@@ -175,8 +194,18 @@ describe("the generated server mounts what the document declares", () => {
 		expect(totals.declared, JSON.stringify(totals)).toBeGreaterThanOrEqual(recorded.declared);
 		expect(totals.mounted, JSON.stringify(totals)).toBeGreaterThanOrEqual(recorded.mounted);
 		expect(totals.refused, JSON.stringify(totals)).toBeLessThanOrEqual(recorded.refused);
+		expect(totals.slots, JSON.stringify(totals)).toBeGreaterThanOrEqual(recorded.slots);
 		// The arithmetic that makes an exclusion visible rather than cancelling out.
 		expect(totals.mounted + totals.refused, JSON.stringify(totals)).toBe(totals.declared);
+		/**
+		 * Every registration reaches a slot the router will dispatch to. Registrations may exceed slots
+		 * -- content negotiation puts several operations on one, and a GET and a HEAD share one -- but a
+		 * slot count BELOW the registration count minus those merges would mean text in the file that
+		 * `app.routes` never lists, which is the phantom-route defect this suite exists for.
+		 */
+		expect(totals.slots, JSON.stringify(totals)).toBeGreaterThan(0);
+		// Every operation the emitter kept is invoked by the file it wrote.
+		expect(totals.served, JSON.stringify(totals)).toBeGreaterThanOrEqual(recorded.served);
 	});
 
 	it("read a real share of the corpus", () => {
@@ -225,10 +254,9 @@ describe("the generated server mounts what the document declares", () => {
 		 * defect and a slot-only arm stayed green.
 		 */
 		const unreachable = measured
-			.filter((entry) => entry.registrations !== entry.mounted)
+			.filter((entry) => entry.registrations !== entry.slots)
 			.map(
-				(entry) =>
-					`${entry.name}: ${entry.registrations} registrations onto ${entry.mounted} slots`,
+				(entry) => `${entry.name}: ${entry.registrations} registrations onto ${entry.slots} slots`,
 			);
 		expect(unreachable.toSorted()).toEqual([]);
 	});
@@ -270,16 +298,17 @@ describe("the generated server mounts what the document declares", () => {
 			.filter((compiled) => compiled.failure?.owner === "ours")
 			.map((compiled) => `${compiled.scenario.name} :: ${compiled.failure?.code}`);
 		/**
-		 * ⚠️ **Refusals are asserted as a CLASS, not a list of scenario names.** Which corpus scenarios
-		 * happen to declare a `@head` operation is not a fact about this emitter, and pinning the list
-		 * would turn a corpus bump into a spurious failure. What IS a fact: every refusal this emitter
-		 * raises is one of the two it declares, and no scenario is refused for an unnamed reason.
+		 * ⚠️ **Refusals are asserted as a CLASS, not a list of scenario names.** What is a fact about
+		 * this emitter: every refusal it raises is the one it declares, and no scenario is refused for
+		 * an unnamed reason.
+		 *
+		 * This corpus now raises NONE. It used to raise `unroutable-verb` on twelve `@head` operations,
+		 * which were refused because Hono rewrites HEAD to GET before matching. They are served now,
+		 * registered under GET and told apart by `c.req.method`, so the only refusal this package
+		 * declares is `unsupported-path-template` and no corpus scenario triggers it.
 		 */
 		const refusalCodes = [...new Set(sources.flatMap((compiled) => compiled.refusals ?? []))];
-		expect(refusalCodes.toSorted()).toEqual(["typespec-hono/unroutable-verb"]);
-		expect(
-			sources.filter((compiled) => (compiled.refusals?.length ?? 0) > 0).length,
-		).toBeGreaterThanOrEqual(7);
+		expect(refusalCodes.toSorted()).toEqual([]);
 		/**
 		 * Every one of these is a REFUSAL raised by `typespec-http-zod`, reached through this emitter
 		 * because it runs the library. This package adds exactly one refusal of its own —

@@ -106,13 +106,6 @@ export async function $onEmit(context: EmitContext): Promise<void> {
 							target: targetFor(emitted, route.verb, route.path),
 						});
 					},
-					unroutableVerb: (route) => {
-						reportDiagnostic(context.program, {
-							code: "unroutable-verb",
-							format: { operationId: route.operationId, verb: route.verb },
-							target: targetFor(emitted, route.verb, route.path),
-						});
-					},
 				},
 				base.basePath,
 				(verb, path) => {

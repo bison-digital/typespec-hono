@@ -129,15 +129,19 @@ describe("the application answers real requests", () => {
 		expect(await response.text()).toBe("");
 	});
 
-	it("answers HEAD from the GET route, with the body stripped", async () => {
+	it("answers a HEAD request from the operation the document declares", async () => {
 		/**
-		 * ⚠️ **This is Hono's behaviour, not the emitter's, and the emitter used to fight it.**
-		 * `hono-base.js` rewrites every HEAD request to GET before matching, so a HEAD request runs the
-		 * GET route — its validators included. That is what RFC 9110 requires of HEAD, and it is why a
-		 * separately-registered HEAD route can never be reached.
+		 * Hono rewrites every HEAD request to GET before matching, so a `@head` operation has to be
+		 * registered under GET to be reachable. `c.req.method` still reads `HEAD` afterwards, which is
+		 * what lets the handler serve the HEAD operation rather than the GET one on the same path.
 		 *
-		 * The header is supplied because the GET route requires it: HEAD behaving *identically* to GET
-		 * is the point, and a HEAD request that skipped validation would be the anomaly.
+		 * ⚠️ **The status is the DOCUMENT's, and that is the change.** `widgetExists` is declared
+		 * `: void`, so the document publishes a bodyless success -- 204. This arm previously asserted
+		 * 200, because the operation was refused and the request fell through to `readWidget`, whose
+		 * 200 arrived with the body stripped by Hono. Reading 200 was the symptom of serving the wrong
+		 * operation; 204 is what the contract actually says.
+		 *
+		 * The header is supplied because the operation requires it.
 		 */
 		const response = await (
 			await app()
@@ -145,7 +149,7 @@ describe("the application answers real requests", () => {
 			method: "HEAD",
 			headers: { "x-request-id": "r-1" },
 		});
-		expect(response.status).toBe(200);
+		expect(response.status).toBe(204);
 		expect(await response.text()).toBe("");
 	});
 

@@ -51,8 +51,14 @@ const operations = {
 	},
 	createWidget: (_ctx: Ctx, input) => ok(input),
 	deleteWidget: (_ctx: Ctx, _input) => ok(undefined),
-	// ⚠️ No `widgetExists`. It is `@head`, which this emitter refuses, so it is absent from
-	// `Operations` — and adding it here would be refused by the exhaustiveness constraint.
+	/**
+	 * `widgetExists` is `@head`. It used to be absent from `Operations` entirely, because the emitter
+	 * refused it: Hono rewrites HEAD to GET before matching, so a route registered under HEAD is
+	 * unreachable. It is served now, registered under GET and told apart by `c.req.method`, and Hono
+	 * strips the response body itself -- so the handler returns the headers-only success the document
+	 * declares and does not have to know it is a HEAD at all.
+	 */
+	widgetExists: (_ctx: Ctx, _input) => ok(undefined),
 	setFlags: (_ctx: Ctx, _input) => ok(widget),
 	addShape: (_ctx: Ctx, input) => ok(input),
 	addTree: (_ctx: Ctx, input) =>

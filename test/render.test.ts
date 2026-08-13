@@ -87,9 +87,6 @@ const noRefusals = {
 	unsupportedPathTemplate: (): void => {
 		throw new Error("unexpected path refusal");
 	},
-	unroutableVerb: (): void => {
-		throw new Error("unexpected verb refusal");
-	},
 };
 
 describe("a verb with no dedicated Hono helper goes through `app.on(method, …)`", () => {
@@ -109,14 +106,22 @@ describe("a verb with no dedicated Hono helper goes through `app.on(method, …)
 		expect(source).not.toMatch(/\.on\(/);
 	});
 
-	it("refuses HEAD rather than emitting a route Hono cannot dispatch to", () => {
-		const refused: string[] = [];
+	it("registers HEAD under GET, guarded, because that is the only verb Hono dispatches", () => {
 		const source = renderApp(serviceWith({ operationId: "headThing", verb: "HEAD" }), {
 			unsupportedPathTemplate: () => undefined,
-			unroutableVerb: (route) => refused.push(route.operationId),
 		});
-		expect(refused).toEqual(["headThing"]);
-		expect(source).not.toMatch(/"HEAD"/);
+		// Registered under GET, not under a verb Hono rewrites away before matching.
+		expect(source).toMatch(/\.get\(/);
+		expect(source).not.toMatch(/\.head\(/);
+		expect(source).not.toMatch(/\.on\(\s*"HEAD"/);
+		/**
+		 * The guard is what keeps the registration honest. The document declares no GET on this path,
+		 * so a real GET has to get the 404 it would have got if nothing were registered there at all.
+		 */
+		expect(source).toMatch(/^\t\t\theadOnly,$/m);
+		expect(source).toMatch(/import \{ headOnly \} from/);
+		// And the operation is actually served, rather than merely registered.
+		expect(source).toMatch(/handlersFor\(c\)\.headThing\(/);
 	});
 });
 

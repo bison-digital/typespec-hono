@@ -1,7 +1,9 @@
 {
 	"scenarios": 61,
 	"declared": 577,
-	"mounted": 564,
-	"registrations": 564,
-	"refused": 13
+	"mounted": 577,
+	"slots": 575,
+	"served": 580,
+	"registrations": 575,
+	"refused": 0
 }

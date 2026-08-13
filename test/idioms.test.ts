@@ -71,14 +71,19 @@ describe("the emitted server follows Hono's own best practices", () => {
 		expect(source).toMatch(/\treturn app\n/);
 	});
 
-	it("registers no HEAD route, because Hono converts HEAD before matching", () => {
+	it("serves a HEAD operation under GET, which is the only verb Hono dispatches", () => {
 		/**
-		 * ⚠️ **Both spellings**, because `app.on("HEAD", …)` reaches the same dead end as `app.head()`
-		 * and only one of them is obvious. The reference service declares a `@head` operation precisely
-		 * so this arm has something to refuse.
+		 * Hono rewrites every HEAD request to GET before matching, so `app.head()` and
+		 * `app.on("HEAD", ...)` are both dead ends -- Hono's own best-practices guide says so outright.
+		 * Registering under GET is what makes the operation reachable, and Hono strips the response
+		 * body for a real HEAD itself, which is what RFC 9110 requires.
+		 *
+		 * The reference service declares a `@head` operation so this arm has something to check.
 		 */
 		expect(source).not.toMatch(/\.head\(/);
-		expect(source).not.toMatch(/"HEAD"/);
+		expect(source).not.toMatch(/\.on\(\s*"HEAD"/);
+		// Reachable, and told apart from a GET the only way Hono leaves open.
+		expect(source).toMatch(/c\.req\.method === "HEAD"|headOnly,/);
 	});
 
 	it("contains no type assertion, because a cast in generated code is nobody's to review", () => {

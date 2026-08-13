@@ -44,15 +44,23 @@ export function toHonoPath(
 }
 
 /**
- * Verbs Hono cannot dispatch to, whatever they are registered with.
+ * The verb Hono actually dispatches under.
  *
- * ⚠️ **`HEAD` is rewritten to `GET` before matching** — `hono-base.js` does it unconditionally at the
- * top of `#dispatch` — so a route registered under it is never reached. See the `unroutable-verb`
- * diagnostic for the measurements.
+ * `HEAD` is rewritten to `GET` before matching -- `hono-base.js` does it unconditionally at the top
+ * of `#dispatch` -- so a route registered under `HEAD` is never reached. Registering it under `GET`
+ * is what makes it reachable, and Hono strips the response body for a real HEAD request itself,
+ * which is what RFC 9110 requires.
+ *
+ * The original verb is still available to the handler: `c.req.method` reads `HEAD` on a HEAD
+ * request even after the rewrite, which is what lets one registration serve both.
  */
-const UNROUTABLE_VERBS = new Set(["HEAD"]);
+const REGISTRATION_VERB: Readonly<Record<string, string>> = { HEAD: "GET" };
 
-/** `GET` → `get`. Hono's per-verb helpers are the idiom; `app.on` is the escape hatch. */
+function registrationVerbOf(verb: string): string {
+	return REGISTRATION_VERB[verb] ?? verb;
+}
+
+/** `GET` -> `get`. Hono's per-verb helpers are the idiom; `app.on` is the escape hatch. */
 const HONO_METHOD: Readonly<Record<string, string>> = {
 	GET: "get",
 	POST: "post",
@@ -180,10 +188,9 @@ function capitaliseId(operationId: string): string {
 	return `${operationId.charAt(0).toUpperCase()}${operationId.slice(1)}`;
 }
 
-/** The two things a Hono server cannot express, handed back rather than thrown. */
+/** The one thing a Hono server cannot express, handed back rather than thrown. */
 export interface RenderRefusals {
 	readonly unsupportedPathTemplate: (route: EmittedRoute, template: string, name: string) => void;
-	readonly unroutableVerb: (route: EmittedRoute) => void;
 }
 
 /**
@@ -254,15 +261,6 @@ export function renderApp(
 	securityFor?: (verb: string, path: string) => readonly SecurityRequirement[],
 ): string {
 	const entries: AppRoute[] = emitted.routes.flatMap((route) => {
-		/**
-		 * ⚠️ **Refused AND skipped, in that order.** Emitting the route anyway would put a registration
-		 * in the file that `app.routes` lists and Hono never dispatches to — which is precisely how
-		 * fifteen unreachable routes passed a differential written to catch unreachable routes.
-		 */
-		if (UNROUTABLE_VERBS.has(route.verb)) {
-			refuse.unroutableVerb(route);
-			return [];
-		}
 		const names = emitted.schemaNames.get(route.operationId);
 		// The library declares a `Responses` const for every operation, so a missing entry is a bug in
 		// this package's pairing rather than a spec the emitter chose not to serve.
@@ -350,184 +348,241 @@ export function renderApp(
 		if (slots.length > 1) subApps.set(resource, subAppNameOf(resource));
 	}
 
-	const registrations = [...grouped.values()].map((group): { target: string; text: string } => {
-		const entry = group[0] as AppRoute;
-		const { route, validators } = entry;
-		const method = HONO_METHOD[route.verb] ?? "on";
-		const path = toHonoPath(route.path, (template, name) =>
-			refuse.unsupportedPathTemplate(route, template, name),
-		);
-		/**
-		 * A route inside a sub-app is registered RELATIVE to the prefix it is mounted at.
-		 *
-		 * ⚠️ **The collection route is `"/"`, never the empty string.** Measured: `sub.get("/")` under
-		 * `app.route("/widgets", sub)` answers `/widgets`, and `/widgets/` is a 404 — so the composed
-		 * path carries no trailing slash and the document's own path is what a caller reaches.
-		 */
-		const resource = resourceOf(path);
-		const mountOn = resource === undefined ? undefined : subApps.get(resource);
-		const target = mountOn ?? "app";
-		const registeredPath =
-			mountOn === undefined ? path : path.slice(`/${resource ?? ""}`.length) || "/";
-		/**
-		 * The scope gate goes FIRST, before any validator.
-		 *
-		 * A caller without the scope must be refused whatever their body looks like: validating first
-		 * answers `400` to a request the contract says is not theirs to make, which tells somebody who
-		 * may not call the operation at all which payloads are well-formed.
-		 */
-		/**
-		 * ⚠️ **Emitted whenever the document declares ANY security, not only when it declares scopes.**
-		 * `@useAuth(BearerAuth)` publishes `security: [{ "BearerAuth": [] }]` — no scopes — so a
-		 * scopes-only gate covered OAuth2 and nothing else. Bearer, api-key and basic carried no gate at
-		 * all and rested entirely on `deps.context` returning null, which answers "is somebody here"
-		 * rather than "did they satisfy the scheme the contract names".
-		 */
-		const requirements = securityFor?.(route.verb, route.path) ?? [];
-		const gate =
-			requirements.length === 0 ? [] : [`\t\tdeps.authorize(${renderSecurity(requirements)}),`];
-		const middleware = [
-			...gate,
-			...validators.map(
-				([target, name]) => `\t\tzValidator(${JSON.stringify(target)}, ${name}, deps.invalid),`,
-			),
-		];
-		/**
-		 * Whether the operation requires a caller — and NOTHING else about the caller.
-		 *
-		 * ⚠️ **This used to pass `"account"` or `"resource"`, chosen by how many path parameters the
-		 * route had, and that was a rule no document states.** `@useAuth(NoAuth)` reaches OpenAPI as
-		 * `security: []`, so "does this need a caller" is a contract fact and is generated. "Is this
-		 * account-scoped or resource-scoped" is not: no OpenAPI keyword expresses it, and the
-		 * path-parameter heuristic happened to fit the first consumer.
-		 */
-		const body: string[] = [];
-		if (route.noAuth !== true) {
-			body.push(`\t\t\tconst ctx = deps.context(c, "required");`);
-			body.push("\t\t\tif (ctx === null) return deps.noContext(c);");
-		} else {
-			/**
-			 * ⚠️ **The same null check as an authenticated route, and it is what removes a CAST from
-			 * generated output.** This used to emit `deps.context(c, "none") as Ctx`, because one
-			 * signature returning `C | null` cannot express "this argument makes null impossible". A cast
-			 * in generated code is worse than one in hand-written code: nobody reviews it, and it
-			 * reappears on every compile.
-			 *
-			 * ⚠️ **Overloading `context` was tried and is worse.** It removes the cast from here and puts
-			 * one in every consumer's `deps`, because an overloaded property type stops contextually
-			 * typing a single implementation — measured, the wiring consumer lost inference on every
-			 * hook. Trading a cast in generated code for a cast in hand-written code is the wrong
-			 * direction.
-			 *
-			 * Checking is also more honest than asserting: an app that returns null here has said it
-			 * could not build a context, and the old cast handed the handler that null typed as `Ctx`.
-			 */
-			body.push(`\t\t\tconst ctx = deps.context(c, "none");`);
-			body.push("\t\t\tif (ctx === null) return deps.noContext(c);");
-		}
-		const pieces = validators.map(([target]) => `...c.req.valid(${JSON.stringify(target)})`);
-		if (route.rawBodyProperty !== undefined) {
-			// The bytes ARE the contract: a signature covers exactly what arrived, so parsing and
-			// re-serialising would verify a different string than the sender signed. WHICH reader
-			// preserves them depends on the media type — see `rawBodyReaderFor`.
-			const reader = rawBodyReaderFor(route.requestContentTypes);
-			pieces.push(`${objectKey(route.rawBodyProperty)}: ${reader.call}`);
-		}
-		const invoke = (member: AppRoute): string => {
-			// The member's own `accept` literal, which its input type requires and which the shared
-			// validator no longer supplies. We know it exactly: it is the branch we are in.
-			const own =
-				group.length > 1 && member.route.accept !== undefined
-					? [`${objectKey(member.route.accept.name)}: ${JSON.stringify(member.route.accept.value)}`]
-					: [];
-			const input = [...pieces, ...own];
-			/**
-			 * ⚠️ **Broken across lines rather than emitted as one.** Generated code is read far more often
-			 * than it is written — in review, in a stack trace, in a diff — and a single call reached 219
-			 * characters on a real service, against the 60-to-80 of every example in Hono's own
-			 * documentation. Nothing about the behaviour changes; a reader's ability to see it does.
-			 *
-			 * A call with no input stays on one line, because wrapping it would add ceremony to something
-			 * already short.
-			 */
-			/**
-			 * ⚠️ **Indented literally, because the surrounding `+1 tab` only reaches the FIRST physical
-			 * line.** A multi-line fragment keeps whatever tabs it was written with, so the depths here
-			 * are absolute: the `return` sits at four, its arguments at five, and the handler's input
-			 * properties at six.
-			 */
-			const call =
-				input.length === 0
-					? `handlersFor(c).${member.route.operationId}(ctx)`
-					: [
-							`handlersFor(c).${member.route.operationId}(ctx, {`,
-							...input.map((piece) => `\t\t\t\t\t\t${piece},`),
-							"\t\t\t\t\t})",
-						].join("\n");
-			return input.length === 0
-				? `deps.respond(c, ${member.names.responses}, await ${call})`
-				: [
-						`deps.respond(`,
-						`\t\t\t\t\tc,`,
-						`\t\t\t\t\t${member.names.responses},`,
-						`\t\t\t\t\tawait ${call},`,
-						"\t\t\t\t)",
-					].join("\n");
-		};
+	/**
+	 * Registration slots, which are not the same as negotiation groups.
+	 *
+	 * A HEAD operation shares GET's slot, because that is the only verb Hono will dispatch it under.
+	 * So one slot can hold two groups -- the GET's and the HEAD's -- and the handler tells them apart
+	 * with `c.req.method`. Everything else is one group per slot, exactly as before.
+	 */
+	const slots = new Map<string, AppRoute[][]>();
+	for (const group of grouped.values()) {
+		const { route } = group[0] as AppRoute;
+		const slot = `${registrationVerbOf(route.verb)} ${route.path}`;
+		slots.set(slot, [...(slots.get(slot) ?? []), group]);
+	}
 
-		if (group.length === 1) {
-			body.push(`\t\t\treturn ${invoke(entry)};`);
-		} else {
+	const registrations = [...slots.values()].map(
+		(groupsInSlot): { target: string; text: string } => {
+			const headGroups = groupsInSlot.filter((g) => (g[0] as AppRoute).route.verb === "HEAD");
+			const plainGroups = groupsInSlot.filter((g) => (g[0] as AppRoute).route.verb !== "HEAD");
 			/**
-			 * Several operations, one route: the caller's `Accept` chooses which one answers.
-			 *
-			 * The offered list and which operation serves each type are both read from the document.
-			 * `selectContentType` applies RFC 9110 §12.5.1 to them — it lives in the runtime rather than
-			 * in `deps` because both halves are derivable, and an app forced to supply it would be
-			 * re-implementing the standard.
+			 * When a path declares both, the GET is the one whose validators the single registration
+			 * carries, and the HEAD branch is served from the same request. RFC 9110 defines HEAD as
+			 * identical to GET apart from the response body, so the two accepting different inputs is a
+			 * contradiction in the document rather than something to reconcile here.
 			 */
-			const offers = group.flatMap((member) =>
-				member.route.responseContentTypes.map((contentType) => ({ contentType, member })),
+			const primary = (plainGroups[0] ?? headGroups[0]) as AppRoute[];
+			const headBranch = plainGroups.length > 0 ? headGroups[0] : undefined;
+			const group = primary;
+			const entry = group[0] as AppRoute;
+			const { route, validators } = entry;
+			/** A HEAD with no GET beside it: registered under GET, and guarded so only a HEAD reaches it. */
+			const headOnly = plainGroups.length === 0 && headGroups.length > 0;
+			const method = HONO_METHOD[registrationVerbOf(route.verb)] ?? "on";
+			const path = toHonoPath(route.path, (template, name) =>
+				refuse.unsupportedPathTemplate(route, template, name),
 			);
-			const offered = `[${offers.map((offer) => JSON.stringify(offer.contentType)).join(", ")}]`;
-			body.push(`\t\t\tconst served = selectContentType(c.req.header("accept"), ${offered});`);
-			body.push(`\t\t\tif (served === undefined) return deps.notAcceptable(c, ${offered});`);
-			for (const offer of offers) {
-				body.push(
-					`\t\t\tif (served === ${JSON.stringify(offer.contentType)}) return ${invoke(offer.member)};`,
-				);
+			/**
+			 * A route inside a sub-app is registered RELATIVE to the prefix it is mounted at.
+			 *
+			 * ⚠️ **The collection route is `"/"`, never the empty string.** Measured: `sub.get("/")` under
+			 * `app.route("/widgets", sub)` answers `/widgets`, and `/widgets/` is a 404 — so the composed
+			 * path carries no trailing slash and the document's own path is what a caller reaches.
+			 */
+			const resource = resourceOf(path);
+			const mountOn = resource === undefined ? undefined : subApps.get(resource);
+			const target = mountOn ?? "app";
+			const registeredPath =
+				mountOn === undefined ? path : path.slice(`/${resource ?? ""}`.length) || "/";
+			/**
+			 * The scope gate goes FIRST, before any validator.
+			 *
+			 * A caller without the scope must be refused whatever their body looks like: validating first
+			 * answers `400` to a request the contract says is not theirs to make, which tells somebody who
+			 * may not call the operation at all which payloads are well-formed.
+			 */
+			/**
+			 * ⚠️ **Emitted whenever the document declares ANY security, not only when it declares scopes.**
+			 * `@useAuth(BearerAuth)` publishes `security: [{ "BearerAuth": [] }]` — no scopes — so a
+			 * scopes-only gate covered OAuth2 and nothing else. Bearer, api-key and basic carried no gate at
+			 * all and rested entirely on `deps.context` returning null, which answers "is somebody here"
+			 * rather than "did they satisfy the scheme the contract names".
+			 */
+			const requirements = securityFor?.(route.verb, route.path) ?? [];
+			const gate =
+				requirements.length === 0 ? [] : [`\t\tdeps.authorize(${renderSecurity(requirements)}),`];
+			/**
+			 * A HEAD operation with no GET beside it is registered under GET, because that is the only verb
+			 * Hono dispatches. The guard keeps the registration honest: a real GET is not in the document,
+			 * so it gets the 404 it would have got before this route was registered at all, and only a HEAD
+			 * reaches the validators and the handler.
+			 *
+			 * A plain middleware rather than `except()` from `hono/combine`, deliberately. `except` wraps the
+			 * final handler, which erases its response type, and Hono's RPC client derives its entire surface
+			 * from that type -- measured, `hc<typeof app>` resolved the wrapped route's body to `unknown`.
+			 */
+			const middleware = [
+				...(headOnly ? ["\t\theadOnly,"] : []),
+				...gate,
+				...validators.map(
+					([target, name]) => `\t\tzValidator(${JSON.stringify(target)}, ${name}, deps.invalid),`,
+				),
+			];
+			/**
+			 * Whether the operation requires a caller — and NOTHING else about the caller.
+			 *
+			 * ⚠️ **This used to pass `"account"` or `"resource"`, chosen by how many path parameters the
+			 * route had, and that was a rule no document states.** `@useAuth(NoAuth)` reaches OpenAPI as
+			 * `security: []`, so "does this need a caller" is a contract fact and is generated. "Is this
+			 * account-scoped or resource-scoped" is not: no OpenAPI keyword expresses it, and the
+			 * path-parameter heuristic happened to fit the first consumer.
+			 */
+			const body: string[] = [];
+			if (route.noAuth !== true) {
+				body.push(`\t\t\tconst ctx = deps.context(c, "required");`);
+				body.push("\t\t\tif (ctx === null) return deps.noContext(c);");
+			} else {
+				/**
+				 * ⚠️ **The same null check as an authenticated route, and it is what removes a CAST from
+				 * generated output.** This used to emit `deps.context(c, "none") as Ctx`, because one
+				 * signature returning `C | null` cannot express "this argument makes null impossible". A cast
+				 * in generated code is worse than one in hand-written code: nobody reviews it, and it
+				 * reappears on every compile.
+				 *
+				 * ⚠️ **Overloading `context` was tried and is worse.** It removes the cast from here and puts
+				 * one in every consumer's `deps`, because an overloaded property type stops contextually
+				 * typing a single implementation — measured, the wiring consumer lost inference on every
+				 * hook. Trading a cast in generated code for a cast in hand-written code is the wrong
+				 * direction.
+				 *
+				 * Checking is also more honest than asserting: an app that returns null here has said it
+				 * could not build a context, and the old cast handed the handler that null typed as `Ctx`.
+				 */
+				body.push(`\t\t\tconst ctx = deps.context(c, "none");`);
+				body.push("\t\t\tif (ctx === null) return deps.noContext(c);");
 			}
-			// `selectContentType` only ever returns a member of the list it was given, so this is
-			// unreachable — and stating that is cheaper than a cast that would hide it if it were not.
-			body.push(`\t\t\treturn deps.notAcceptable(c, ${offered});`);
-		}
-		/**
-		 * ⚠️ **`app.on` takes the METHOD first, and we were not passing one.** Only five verbs have a
-		 * dedicated Hono method; everything else — `HEAD`, `OPTIONS`, anything a spec invents — fell
-		 * through to `app.on(path, handler)`, which Hono reads as `on(method, path)`. The route was
-		 * emitted, counted by every arm that counted rows, and mounted nowhere.
-		 */
-		/**
-		 * ⚠️ **Emitted as a CHAINED call fragment rather than a statement, and that is what makes Hono's
-		 * RPC client work at all.** `hc<typeof app>` derives its entire surface from the `Schema` type
-		 * parameter Hono accumulates through chaining — not from what is registered at run time. As
-		 * separate statements each call's type was discarded, `registerRoutes` returned `void`, and
-		 * measured in a fresh project `hc<typeof app>` resolved to **`unknown`**: not an empty client, an
-		 * unusable one. A hand-chained app with the same sub-app-per-resource shape supports it
-		 * perfectly, so the shape was never the obstacle — only the statements were.
-		 */
-		const text = [
-			`\t\t.${method}(`,
-			...(method === "on" ? [`\t\t\t${JSON.stringify(route.verb)},`] : []),
-			`\t\t\t${JSON.stringify(registeredPath)},`,
-			...middleware.map((line) => `\t${line}`),
-			"\t\t\tasync (c) => {",
-			...body.map((line) => `\t${line}`),
-			"\t\t\t},",
-			"\t\t)",
-		].join("\n");
-		return { target, text };
-	});
+			const pieces = validators.map(([target]) => `...c.req.valid(${JSON.stringify(target)})`);
+			if (route.rawBodyProperty !== undefined) {
+				// The bytes ARE the contract: a signature covers exactly what arrived, so parsing and
+				// re-serialising would verify a different string than the sender signed. WHICH reader
+				// preserves them depends on the media type — see `rawBodyReaderFor`.
+				const reader = rawBodyReaderFor(route.requestContentTypes);
+				pieces.push(`${objectKey(route.rawBodyProperty)}: ${reader.call}`);
+			}
+			const invoke = (member: AppRoute): string => {
+				// The member's own `accept` literal, which its input type requires and which the shared
+				// validator no longer supplies. We know it exactly: it is the branch we are in.
+				const own =
+					group.length > 1 && member.route.accept !== undefined
+						? [
+								`${objectKey(member.route.accept.name)}: ${JSON.stringify(member.route.accept.value)}`,
+							]
+						: [];
+				const input = [...pieces, ...own];
+				/**
+				 * ⚠️ **Broken across lines rather than emitted as one.** Generated code is read far more often
+				 * than it is written — in review, in a stack trace, in a diff — and a single call reached 219
+				 * characters on a real service, against the 60-to-80 of every example in Hono's own
+				 * documentation. Nothing about the behaviour changes; a reader's ability to see it does.
+				 *
+				 * A call with no input stays on one line, because wrapping it would add ceremony to something
+				 * already short.
+				 */
+				/**
+				 * ⚠️ **Indented literally, because the surrounding `+1 tab` only reaches the FIRST physical
+				 * line.** A multi-line fragment keeps whatever tabs it was written with, so the depths here
+				 * are absolute: the `return` sits at four, its arguments at five, and the handler's input
+				 * properties at six.
+				 */
+				const call =
+					input.length === 0
+						? `handlersFor(c).${member.route.operationId}(ctx)`
+						: [
+								`handlersFor(c).${member.route.operationId}(ctx, {`,
+								...input.map((piece) => `\t\t\t\t\t\t${piece},`),
+								"\t\t\t\t\t})",
+							].join("\n");
+				return input.length === 0
+					? `deps.respond(c, ${member.names.responses}, await ${call})`
+					: [
+							`deps.respond(`,
+							`\t\t\t\t\tc,`,
+							`\t\t\t\t\t${member.names.responses},`,
+							`\t\t\t\t\tawait ${call},`,
+							"\t\t\t\t)",
+						].join("\n");
+			};
+
+			/**
+			 * Both verbs on one path: `c.req.method` still reads `HEAD` after Hono's rewrite, so one
+			 * registration serves both and each operation keeps its own handler and its own response arms.
+			 * Hono strips the body on the HEAD branch itself.
+			 *
+			 * The HEAD branch is emitted FIRST because it is the narrower condition, and it returns, so the
+			 * GET path below is reached only by a real GET.
+			 */
+			if (headBranch !== undefined) {
+				const headEntry = headBranch[0] as AppRoute;
+				body.push(`\t\t\tif (c.req.method === "HEAD") {`);
+				body.push(`\t\t\t\treturn ${invoke(headEntry).replaceAll("\n", "\n\t")};`);
+				body.push("\t\t\t}");
+			}
+
+			if (group.length === 1) {
+				body.push(`\t\t\treturn ${invoke(entry)};`);
+			} else {
+				/**
+				 * Several operations, one route: the caller's `Accept` chooses which one answers.
+				 *
+				 * The offered list and which operation serves each type are both read from the document.
+				 * `selectContentType` applies RFC 9110 §12.5.1 to them — it lives in the runtime rather than
+				 * in `deps` because both halves are derivable, and an app forced to supply it would be
+				 * re-implementing the standard.
+				 */
+				const offers = group.flatMap((member) =>
+					member.route.responseContentTypes.map((contentType) => ({ contentType, member })),
+				);
+				const offered = `[${offers.map((offer) => JSON.stringify(offer.contentType)).join(", ")}]`;
+				body.push(`\t\t\tconst served = selectContentType(c.req.header("accept"), ${offered});`);
+				body.push(`\t\t\tif (served === undefined) return deps.notAcceptable(c, ${offered});`);
+				for (const offer of offers) {
+					body.push(
+						`\t\t\tif (served === ${JSON.stringify(offer.contentType)}) return ${invoke(offer.member)};`,
+					);
+				}
+				// `selectContentType` only ever returns a member of the list it was given, so this is
+				// unreachable — and stating that is cheaper than a cast that would hide it if it were not.
+				body.push(`\t\t\treturn deps.notAcceptable(c, ${offered});`);
+			}
+			/**
+			 * ⚠️ **`app.on` takes the METHOD first, and we were not passing one.** Only five verbs have a
+			 * dedicated Hono method; everything else — `HEAD`, `OPTIONS`, anything a spec invents — fell
+			 * through to `app.on(path, handler)`, which Hono reads as `on(method, path)`. The route was
+			 * emitted, counted by every arm that counted rows, and mounted nowhere.
+			 */
+			/**
+			 * ⚠️ **Emitted as a CHAINED call fragment rather than a statement, and that is what makes Hono's
+			 * RPC client work at all.** `hc<typeof app>` derives its entire surface from the `Schema` type
+			 * parameter Hono accumulates through chaining — not from what is registered at run time. As
+			 * separate statements each call's type was discarded, `registerRoutes` returned `void`, and
+			 * measured in a fresh project `hc<typeof app>` resolved to **`unknown`**: not an empty client, an
+			 * unusable one. A hand-chained app with the same sub-app-per-resource shape supports it
+			 * perfectly, so the shape was never the obstacle — only the statements were.
+			 */
+			const text = [
+				`\t\t.${method}(`,
+				...(method === "on" ? [`\t\t\t${JSON.stringify(registrationVerbOf(route.verb))},`] : []),
+				`\t\t\t${JSON.stringify(registeredPath)},`,
+				...middleware.map((line) => `\t${line}`),
+				"\t\t\tasync (c) => {",
+				...body.map((line) => `\t${line}`),
+				"\t\t\t},",
+				"\t\t)",
+			].join("\n");
+			return { target, text };
+		},
+	);
 
 	/**
 	 * Every identifier this file names, imported from the module that declares it.
@@ -609,6 +664,8 @@ export function renderApp(
 
 	// Imported only where a route actually negotiates: an unused import fails the repo's own lint.
 	const negotiates = [...grouped.values()].some((group) => group.length > 1);
+	// Same rule: imported only where a HEAD operation stands alone on its path.
+	const guardsHead = registrations.some((registration) => registration.text.includes("headOnly,"));
 	const runtimeModule = JSON.stringify(emitted.options.runtimeModule);
 
 	/**
@@ -625,7 +682,7 @@ export function renderApp(
 import { zValidator } from "@hono/zod-validator";
 ${needsHonoValue ? 'import { Hono } from "hono";\nimport type { Context, Input } from "hono";' : 'import type { Context, Hono, Input } from "hono";'}
 import { z } from "zod";
-import type { AppEnv, Awaitable, Ctx, Result, RouteDeps } from ${runtimeModule};${negotiates ? `\nimport { selectContentType } from ${runtimeModule};` : ""}
+import type { AppEnv, Awaitable, Ctx, Result, RouteDeps } from ${runtimeModule};${negotiates ? `\nimport { selectContentType } from ${runtimeModule};` : ""}${guardsHead ? `\nimport { headOnly } from ${runtimeModule};` : ""}
 ${imports}
 /**
  * One method per operation, each concretely typed from the schemas it validates against.
