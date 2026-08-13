@@ -43,8 +43,17 @@ jobs:
 
       # The install above can succeed while the dependency is not actually present, so say so here
       # rather than letting `tsc` be the one to notice.
+      #
+      # ⚠️ **Resolve the package, not `./package.json`.** The first version of this step asked for the
+      # manifest subpath, which the library does not list in `exports` — matching `@typespec/openapi3`
+      # rather than `@typespec/compiler`. So it threw `ERR_PACKAGE_PATH_NOT_EXPORTED` on a dependency
+      # that was present and correct, and failed the release of a package that was fine. A guard that
+      # fires when nothing is wrong is worse than no guard.
+      #
+      # `import.meta.resolve` rather than `require.resolve`: both packages are ESM, and the actual
+      # question is whether the emitter can load it.
       - name: Verify the dependency resolved
-        run: node -e "require.resolve('typespec-http-zod/package.json')"
+        run: node --input-type=module -e "await import('typespec-http-zod')"
 
       - run: pnpm build
 
