@@ -10,7 +10,32 @@ consumer feels, and is treated as such here rather than as an implementation det
 
 ## [Unreleased]
 
-Nothing since `0.2.0`.
+Nothing since `0.3.0`.
+
+## [0.3.0] - 2026-08-13
+
+Requires `typespec-http-zod@^0.3.0`.
+
+Nothing this package emits has changed. The bump is a minor rather than a patch
+because the library's `requests.gen.ts` changes shape, and a consumer regenerating
+gets different contract types. A patch would have installed itself on anyone
+holding `^0.2.0` and altered their generated types without an opt-in, which is
+what this project's versioning policy exists to prevent.
+
+### What the library fixed
+
+A renamed parameter was keyed by its TypeSpec property name in the contracts and
+by its wire name in the validator, so the two artefacts generated from one
+document disagreed about the same request. `@header("x-thing")`, `@path("thing-id")`
+and `@query("$select")` are all keyed by wire name now, matching what the
+validator has always used and what the document publishes.
+
+A raw binary request body was typed `string` in the contracts while the server
+read `arrayBuffer()` and typed `ArrayBuffer`. Both say `ArrayBuffer` now. A `bytes`
+value inside a JSON payload is still `string`.
+
+Anyone using `contracts-output-dir` should regenerate. Without it, a handler
+satisfying the contract types could not satisfy the generated `Operations`.
 
 ## [0.2.0] - 2026-08-13
 
