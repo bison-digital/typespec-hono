@@ -261,12 +261,11 @@ types instead of the identity defaults.
 
 ## What it refuses, and why
 
-One refusal, and it is about the target framework rather than the spec.
+One refusal, and it is a correctness guarantee rather than a gap.
 
-| code                        | why                                                                                                                                                                                                                                                                                                                                                                           |
-| --------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `ambiguous-server-path`     | The service declares several `@server` entries whose base paths disagree, so there is no single prefix to mount under. Routes are mounted at the **root** and this says so. An OpenAPI path is relative to its server, so callers following the document will prefix one of them — mount the returned app under the prefix you actually serve, or declare a single base path. |
-| `unsupported-path-template` | a path parameter that is not a plain name. Hono reads a parameter up to the next `/`, so an RFC 6570 operator or modifier would become part of the name — and `*` would become Hono's wildcard, mounting a route that matches the wrong requests and answers them. Refused rather than approximated, because a route that works and is wrong is worse than one that fails.    |
+| code                        | why                                                                                                                                                                                                                                                                                                                                                                        |
+| --------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `unsupported-path-template` | a path parameter that is not a plain name. Hono reads a parameter up to the next `/`, so an RFC 6570 operator or modifier would become part of the name — and `*` would become Hono's wildcard, mounting a route that matches the wrong requests and answers them. Refused rather than approximated, because a route that works and is wrong is worse than one that fails. |
 
 ### Refusals are warnings, and you choose whether they fail the build
 

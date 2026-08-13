@@ -10,9 +10,9 @@ import type { Namespace, Program } from "@typespec/compiler";
  * generated router answered `/accounts`. Measured: every client generated from the document, and
  * every "try it" button in a rendered document, 404s.
  *
- * ⚠️ **A prefix is only taken where the document is unambiguous about it.** Guessing wrong is worse
- * than not applying one: a route mounted under the wrong prefix still matches, still answers, and
- * answers the wrong URL.
+ * ⚠️ **Every declared prefix is honoured, because the document publishes all of them.** A route
+ * mounted under only one of several still matches and still answers, and answers the wrong URL for
+ * every caller who followed one of the others.
  */
 
 /** The static path of a server URL, or `undefined` when it has none this can rely on. */
@@ -32,24 +32,32 @@ function pathOf(server: HttpServer): string | undefined {
 }
 
 export interface BasePathResolution {
-	/** The prefix to mount every route under, or `undefined` to mount at the root. */
-	readonly basePath: string | undefined;
-	/** The distinct paths found, when the document declares more than one and they disagree. */
-	readonly ambiguous: readonly string[];
+	/**
+	 * Every prefix the document publishes, in declaration order after de-duplication.
+	 *
+	 * Empty means the root, which is what a document with no `@server` -- or a templated one -- means.
+	 * More than one is not a conflict to resolve: the document says the service answers at all of
+	 * them, and Hono mounts one sub-app under several prefixes without duplicating a single route.
+	 */
+	readonly basePaths: readonly string[];
 }
 
 /**
- * Read the service's declared servers and decide what to mount under.
+ * Read the service's declared servers and return every prefix it publishes.
  *
- * - no `@server`, or a templated one → the root, which is what the document means;
- * - one static path, or several that agree → that path;
- * - several that DISAGREE → the root, and the caller reports it. There is no answer that serves all
- *   of them, and picking one would silently serve the wrong URLs for the others.
+ * - no `@server`, or a templated one, gives none, and the routes mount at the root;
+ * - one static path gives that path;
+ * - several give all of them, each mounted with its own `app.route()` over one shared sub-app.
+ *
+ * ⚠️ **Several servers used to be reported as ambiguous and mounted at the root.** That was wrong in
+ * the one way that matters: an OpenAPI path is relative to its server, so every caller following the
+ * document prefixed one of the declared paths and got a 404. The document was never ambiguous -- it
+ * says the service answers at all of them -- and Hono mounts one sub-app under as many prefixes as
+ * asked, so there was nothing to choose between in the first place.
  */
 export function resolveBasePath(program: Program, namespace: Namespace): BasePathResolution {
 	const servers = getServers(program, namespace) ?? [];
-	const paths = [...new Set(servers.map(pathOf).filter((path) => path !== undefined))];
-	if (paths.length === 0) return { basePath: undefined, ambiguous: [] };
-	if (paths.length === 1) return { basePath: paths[0], ambiguous: [] };
-	return { basePath: undefined, ambiguous: paths.toSorted() };
+	return {
+		basePaths: [...new Set(servers.map(pathOf).filter((path) => path !== undefined))],
+	};
 }

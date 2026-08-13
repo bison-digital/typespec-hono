@@ -243,13 +243,13 @@ export function renderApp(
 	emitted: EmittedService,
 	refuse: RenderRefusals,
 	/**
-	 * The path the DOCUMENT says this service is served under, when it says one unambiguously.
+	 * Every path the DOCUMENT says this service is served under. All of them are mounted.
 	 *
 	 * ⚠️ **An OpenAPI path is relative to its server**, so `@server("/api/v1")` plus `/accounts` means
 	 * the document publishes `/api/v1/accounts`. Mounting at the root made every client generated from
 	 * the document, and every "try it" in a rendered document, 404.
 	 */
-	basePath?: string,
+	basePaths: readonly string[] = [],
 	/**
 	 * What the DOCUMENT says a caller must satisfy, per operation id.
 	 *
@@ -675,7 +675,7 @@ export function renderApp(
 	 * nested `.route()` composes exactly, and the parent's `app.routes` still reports the fully
 	 * composed path, which every arm that counts routes depends on.
 	 */
-	const usesBasePath = basePath !== undefined && basePath !== "";
+	const usesBasePath = basePaths.length > 0;
 	const needsHonoValue = subApps.size > 0 || usesBasePath;
 
 	return `${GENERATED_BANNER}
@@ -738,7 +738,7 @@ export function registerRoutes<T extends Operations>(
 ) {
 ${subAppDeclarations}${
 		usesBasePath
-			? `\tconst basePathRoutes = new Hono<AppEnv>()\n${rootChain.join("\n")};\n\n\treturn app.route(${JSON.stringify(basePath)}, basePathRoutes);`
+			? `\tconst basePathRoutes = new Hono<AppEnv>()\n${rootChain.join("\n")};\n\n\treturn app${basePaths.map((prefix) => `\n\t\t.route(${JSON.stringify(prefix)}, basePathRoutes)`).join("")};`
 			: `\treturn app\n${rootChain.join("\n")};`
 	}
 }

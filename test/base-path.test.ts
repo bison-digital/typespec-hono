@@ -80,16 +80,22 @@ describe("a service declaring a base path is served under it", () => {
 		expect((await app.request("/things")).status).toBe(404);
 	}, 300_000);
 
-	it("reports rather than guesses when the declared servers disagree", async () => {
+	it("mounts under every prefix the document declares, not one of them", async () => {
 		/**
-		 * ⚠️ **Mounted at the root, and SAID so.** There is no prefix that serves both `/api/v1` and
-		 * `/api/v2`; choosing one would serve the wrong URL for the other, and a route under a wrong
-		 * prefix still matches and still answers.
+		 * ⚠️ **This used to warn and mount at the root, and that was wrong.** The reasoning was that
+		 * several `@server` entries are ambiguous and no single prefix serves them all. The premise is
+		 * false: the document is not asking which one to pick, it says the service answers at all of
+		 * them, and Hono mounts one sub-app under as many prefixes as it is given. Mounting at the root
+		 * meant every caller following the document 404d.
+		 *
+		 * Asked of `app.routes` rather than the emitted text, because a prefix that appears in the
+		 * source but does not reach the router is the exact defect class this file exists for.
 		 */
 		const compiled = await compileFixture(referenceDir, "ambiguous", { outName: "ambiguous" });
-		expect(compiled.diagnostics.map((d) => `${d.severity}: ${d.code}`)).toEqual([
-			"warning: typespec-hono/ambiguous-server-path",
-		]);
-		expect(await mountedPaths(compiled.outDir)).toEqual(["/things"]);
+		expect(compiled.diagnostics).toEqual([]);
+		const paths = await mountedPaths(compiled.outDir);
+		expect(paths).toEqual(["/api/v1/things", "/api/v2/things"]);
+		// And nothing is left at the root, which the document does not publish.
+		expect(paths.some((path) => path === "/things")).toBe(false);
 	}, 300_000);
 });

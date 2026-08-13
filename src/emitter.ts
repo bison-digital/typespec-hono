@@ -82,13 +82,6 @@ export async function $onEmit(context: EmitContext): Promise<void> {
 		 * the root made every client generated from the document 404.
 		 */
 		const base = resolveBasePath(context.program, emitted.service.namespace);
-		if (base.ambiguous.length > 0) {
-			reportDiagnostic(context.program, {
-				code: "ambiguous-server-path",
-				format: { paths: base.ambiguous.join(", ") },
-				target: emitted.service.namespace,
-			});
-		}
 		await emitFile(context.program, {
 			path: resolvePath(emitted.outputDir, "app.gen.ts"),
 			content: renderApp(
@@ -107,7 +100,7 @@ export async function $onEmit(context: EmitContext): Promise<void> {
 						});
 					},
 				},
-				base.basePath,
+				base.basePaths,
 				(verb, path) => {
 					const operation = operationFor(emitted, verb, path);
 					return operation === undefined ? [] : securityFor(context.program, operation);

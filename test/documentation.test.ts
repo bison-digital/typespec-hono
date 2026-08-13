@@ -32,7 +32,13 @@ describe("the README documents everything this package can do to you", () => {
 
 	it("names every diagnostic it can raise", () => {
 		const codes = Object.keys($lib.diagnostics);
-		expect(codes.length).toBeGreaterThanOrEqual(2);
+		/**
+		 * One, and it is deliberate that this floor is not higher. Two diagnostics were deleted rather
+		 * than documented better: `unroutable-verb` because a HEAD operation is served now, and
+		 * `ambiguous-server-path` because several declared servers are all mounted. A floor that had
+		 * been pinned at the old count would have made removing them look like a regression.
+		 */
+		expect(codes.length).toBeGreaterThanOrEqual(1);
 		expect(codes.filter((code) => !readme.includes(`\`${code}\``)).toSorted()).toEqual([]);
 	});
 
