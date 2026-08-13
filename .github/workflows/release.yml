@@ -25,7 +25,27 @@ jobs:
           cache: pnpm
           registry-url: https://registry.npmjs.org
 
+      # ⚠️ **`--frozen-lockfile` exits 0 on a dangling link.** While `typespec-http-zod` was
+      # unpublished, `pnpm-workspace.yaml` redirected it to `link:../typespec-http-zod` so the two
+      # could be developed together. A release checkout has no sibling on disk: pnpm installs the
+      # dangling symlink, reports success, and the failure surfaces four steps later as a wall of
+      # TS2307 that names the module but not the cause. Measured, not assumed.
+      - name: Refuse to publish against a locally-linked dependency
+        run: |
+          if grep -qE '^\s+typespec-[a-z-]+:\s*"?(link|file):' pnpm-workspace.yaml; then
+            echo "::error::pnpm-workspace.yaml still overrides a first-party package to a local path."
+            echo "::error::Remove the 'overrides' block and re-run 'pnpm install' so the lockfile"
+            echo "::error::resolves it from the registry, then re-tag."
+            exit 1
+          fi
+
       - run: pnpm install --frozen-lockfile
+
+      # The install above can succeed while the dependency is not actually present, so say so here
+      # rather than letting `tsc` be the one to notice.
+      - name: Verify the dependency resolved
+        run: node -e "require.resolve('typespec-http-zod/package.json')"
+
       - run: pnpm build
 
       # ⚠️ The full gate runs again here, against the exact commit being published. CI passing on the
