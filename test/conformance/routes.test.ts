@@ -70,7 +70,11 @@ interface OpenApiDocument {
 		string,
 		Record<
 			string,
-			{ readonly security?: readonly Record<string, unknown>[]; readonly operationId?: string }
+			{
+				readonly security?: readonly Record<string, unknown>[];
+				readonly operationId?: string;
+				readonly responses?: Record<string, unknown>;
+			}
 		>
 	>;
 	readonly security?: readonly Record<string, unknown>[];
@@ -440,5 +444,75 @@ describe("the emitted server agrees with the emitted document", () => {
 		expect(
 			divergences.map((d) => `${d.scenario} ${d.what}: document ${d.document}, server ${d.server}`),
 		).toEqual([]);
+	});
+});
+
+/**
+ * **The status arms and request media types the server carries are the document's.**
+ *
+ * `deps.respond` receives the arms and chooses one, and `zValidator`'s target is chosen from the
+ * request media types. Both are read from the library's IR, and the document is walked separately by
+ * `@typespec/openapi3`. Nothing forced them to agree and nothing compared them.
+ */
+describe("the server carries the statuses and media types the document declares", () => {
+	function armsFor(schemas: string, name: string): string[] {
+		const declaration = new RegExp(`const ${name} = (\\[[\\s\\S]*?\\]) satisfies`).exec(schemas);
+		return [...(declaration?.[1] ?? "").matchAll(/status:\s*("?[\w"]+"?)/g)]
+			.map((m) => (m[1] ?? "").replaceAll('"', ""))
+			.toSorted();
+	}
+
+	/**
+	 * Non-vacuity for the arm below, and it needs its own because the usual control cannot work here.
+	 *
+	 * Both sides of this pair are produced by dependencies: `schemas.gen.ts` by `typespec-http-zod`
+	 * and the document by `@typespec/openapi3`. Breaking this emitter cannot move either, and
+	 * corrupting the emitted file on disk is undone by the `beforeAll` that regenerates it. So the
+	 * comparison itself is exercised, with inputs known to differ and known to match.
+	 */
+	it("detects a status arm that disagrees", () => {
+		const matching = "const xResponses = [{ status: 200, schema: a }] satisfies";
+		const differing = "const xResponses = [{ status: 599, schema: a }] satisfies";
+		expect(armsFor(matching, "xResponses")).toEqual(["200"]);
+		expect(armsFor(differing, "xResponses")).toEqual(["599"]);
+		expect(armsFor(matching, "xResponses")).not.toEqual(armsFor(differing, "xResponses"));
+		// And a name it cannot find yields nothing, which is what makes the arm skip rather than lie.
+		expect(armsFor(matching, "missingResponses")).toEqual([]);
+	});
+
+	it("declares the same status arms per operation as the document", () => {
+		const divergences: string[] = [];
+		let compared = 0;
+		for (const compiled of sources) {
+			if (compiled.failure !== undefined) continue;
+			const documents = readdirSync(compiled.openapiDir).filter((n) => n.endsWith(".json"));
+			const chosen = documents.toSorted().at(-1);
+			if (chosen === undefined) continue;
+			const document = JSON.parse(
+				readFileSync(join(compiled.openapiDir, chosen), "utf8"),
+			) as OpenApiDocument;
+			const schemas = readFileSync(join(compiled.serverDir, "schemas.gen.ts"), "utf8");
+
+			for (const item of Object.values(document.paths ?? {})) {
+				for (const [verb, operation] of Object.entries(item)) {
+					if (verb === "parameters") continue;
+					const id = operation.operationId;
+					if (id === undefined) continue;
+					const declared = Object.keys(operation.responses ?? {}).toSorted();
+					if (declared.length === 0) continue;
+					const carried = armsFor(schemas, `${id}Responses`);
+					if (carried.length === 0) continue;
+					compared += 1;
+					if (JSON.stringify(declared) !== JSON.stringify(carried)) {
+						divergences.push(
+							`${compiled.scenario.name} ${id}: document ${JSON.stringify(declared)}, server ${JSON.stringify(carried)}`,
+						);
+					}
+				}
+			}
+		}
+		expect(divergences.toSorted().slice(0, 20)).toEqual([]);
+		// Non-vacuity: an arm reader that matched nothing would compare nothing and pass.
+		expect(compared, "no operation had its arms compared").toBeGreaterThanOrEqual(200);
 	});
 });

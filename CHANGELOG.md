@@ -10,7 +10,17 @@ consumer feels, and is treated as such here rather than as an implementation det
 
 ## [Unreleased]
 
-Nothing since `0.3.1`.
+Nothing since `0.3.2`.
+
+## [0.3.2] - 2026-08-13
+
+A patch: nothing emitted changes. Closes the last of the pairs this package
+produced or consumed that nothing compared.
+
+The status arms the server hands `deps.respond` are compared to the responses the
+document declares, over every operation in the corpus. Both sides are produced by
+dependencies, so the comparison logic carries its own non-vacuity arm rather than
+a control that perturbs this emitter, which could not move either side.
 
 ## [0.3.1] - 2026-08-13
 
