@@ -100,26 +100,48 @@ const VALIDATOR_TARGET = {
  * justifies, so it keeps the existing behaviour rather than acquiring a new one on the way past. That
  * gap is real and is stated in the README rather than papered over here.
  */
-function bodyTargetFor(contentTypes: readonly string[]): string {
-	/**
-	 * ⚠️ **EVERY, not some, and the difference is a regression I shipped for one measurement.**
-	 * `addPet` in the Swagger Petstore accepts `application/json`, `application/xml` **and**
-	 * `application/x-www-form-urlencoded`. Choosing `"form"` because one member is form-ish made
-	 * `zValidator` call `c.req.parseBody()` on JSON bodies, and a request that answered **200** before
-	 * the change answered **400** after it. Measured both ways against the same server.
-	 *
-	 * ⚠️ **A route offering several media types cannot be validated by one target at all**, because
-	 * which parser applies is decided by the caller's `Content-Type` at REQUEST time and `zValidator`
-	 * is chosen at generation time. So a mixed body keeps `"json"`: unchanged behaviour, and a stated
-	 * limitation rather than a guess that breaks the common case to fix the rare one. Only a body that
-	 * is form-encoded in every form it may take is unambiguous enough to switch.
-	 */
-	const form =
-		contentTypes.length > 0 &&
-		contentTypes.every(
-			(type) => type.startsWith("multipart/") || type === "application/x-www-form-urlencoded",
-		);
-	return form ? "form" : VALIDATOR_TARGET.body;
+function targetForMediaType(type: string): string | undefined {
+	if (type === "application/x-www-form-urlencoded" || type.startsWith("multipart/")) return "form";
+	// `application/json`, and the `+json` structured suffix RFC 6839 defines.
+	if (type === "application/json" || type.endsWith("+json")) return VALIDATOR_TARGET.body;
+	return undefined;
+}
+
+interface BodyValidation {
+	/** `[media type, zValidator target]`, one per type this can parse, in the document's order. */
+	readonly byType: readonly (readonly [string, string])[];
+	/** Types the document declares that no `zValidator` target can parse. */
+	readonly unparseable: readonly string[];
+}
+
+/**
+ * Which `zValidator` target parses each media type the request may carry.
+ *
+ * ⚠️ **This used to return ONE target for the whole route, and that was silently wrong for a mixed
+ * body.** Which parser applies is decided by the caller's `Content-Type` at REQUEST time;
+ * `zValidator`'s target is fixed at generation time. So a route declaring
+ * `application/json | application/xml | application/x-www-form-urlencoded` -- which is `addPet` in
+ * the Swagger Petstore, and 11 of its 17 request bodies are not JSON -- got `zValidator("json")` and
+ * rejected every form-encoded body with a 400, raising no diagnostic at all.
+ *
+ * The answer is to decide at request time, which is the only time the answer exists. Where the
+ * document declares one parseable type this still emits a single `zValidator` exactly as before.
+ *
+ * ⚠️ **`application/xml` and friends are reported, not guessed at.** There is no Hono parser and no
+ * Zod representation for XML, and adding an XML dependency to a Zod emitter is not a trade this
+ * package should make. Naming them is what stops a consumer believing a route is validated when it
+ * is not -- the previous behaviour said nothing and rejected them.
+ */
+function bodyValidationFor(contentTypes: readonly string[]): BodyValidation {
+	if (contentTypes.length === 0) return { byType: [["", VALIDATOR_TARGET.body]], unparseable: [] };
+	const byType: (readonly [string, string])[] = [];
+	const unparseable: string[] = [];
+	for (const type of contentTypes) {
+		const target = targetForMediaType(type);
+		if (target === undefined) unparseable.push(type);
+		else byType.push([type, target]);
+	}
+	return { byType, unparseable };
 }
 
 interface AppRoute {
@@ -127,6 +149,13 @@ interface AppRoute {
 	readonly names: RouteSchemaNames;
 	/** `[zValidator target, the identifier holding its schema]`, in the order they are applied. */
 	readonly validators: readonly (readonly [string, string])[];
+	/**
+	 * Set where the document declares request media types needing DIFFERENT parsers, so the validator
+	 * is chosen from the request's `Content-Type` rather than at generation time.
+	 */
+	readonly dispatched:
+		| { readonly byType: readonly (readonly [string, string])[]; readonly identifier: string }
+		| undefined;
 }
 
 /**
@@ -191,6 +220,12 @@ function capitaliseId(operationId: string): string {
 /** The one thing a Hono server cannot express, handed back rather than thrown. */
 export interface RenderRefusals {
 	readonly unsupportedPathTemplate: (route: EmittedRoute, template: string, name: string) => void;
+	readonly unvalidatableMediaType: (route: EmittedRoute, types: readonly string[]) => void;
+}
+
+/** The schema identifier a dispatched body validates against. */
+function identifierOf(entry: AppRoute): string {
+	return entry.dispatched?.identifier ?? "";
 }
 
 /**
@@ -261,6 +296,9 @@ export function renderApp(
 	securityFor?: (verb: string, path: string) => readonly SecurityRequirement[],
 ): string {
 	const entries: AppRoute[] = emitted.routes.flatMap((route) => {
+		let dispatched:
+			| { byType: readonly (readonly [string, string])[]; identifier: string }
+			| undefined;
 		const names = emitted.schemaNames.get(route.operationId);
 		// The library declares a `Responses` const for every operation, so a missing entry is a bug in
 		// this package's pairing rather than a spec the emitter chose not to serve.
@@ -269,12 +307,26 @@ export function renderApp(
 		for (const location of ["path", "query", "header", "body"] as const) {
 			const identifier = names[location];
 			if (identifier === undefined) continue;
-			// The body's target depends on what the document says the wire carries; the rest are fixed.
-			const target =
-				location === "body" ? bodyTargetFor(route.requestContentTypes) : VALIDATOR_TARGET[location];
-			validators.push([target, identifier]);
+			if (location !== "body") {
+				validators.push([VALIDATOR_TARGET[location], identifier]);
+				continue;
+			}
+			/**
+			 * The body is the one location whose parser the document does not fix at generation time.
+			 * Where it declares a single parseable media type this is one `zValidator`, unchanged. Where
+			 * it declares several, the choice belongs to the caller's `Content-Type` and is made then.
+			 */
+			const body = bodyValidationFor(route.requestContentTypes);
+			if (body.unparseable.length > 0) refuse.unvalidatableMediaType(route, body.unparseable);
+			if (body.byType.length === 0) continue;
+			const targets = [...new Set(body.byType.map(([, target]) => target))];
+			if (targets.length === 1) {
+				validators.push([targets[0] as string, identifier]);
+				continue;
+			}
+			dispatched = { byType: body.byType, identifier };
 		}
-		return [{ route, names, validators }];
+		return [{ route, names, validators, dispatched }];
 	});
 
 	/**
@@ -422,12 +474,29 @@ export function renderApp(
 			 * final handler, which erases its response type, and Hono's RPC client derives its entire surface
 			 * from that type -- measured, `hc<typeof app>` resolved the wrapped route's body to `unknown`.
 			 */
+			/**
+			 * Where the document declares request media types needing different parsers, the validator
+			 * is chosen from the request's `Content-Type`. `byContentType` is a plain middleware, so the
+			 * final handler is untouched and Hono's RPC client still derives its surface from it.
+			 */
+			const dispatch =
+				entry.dispatched === undefined
+					? []
+					: [
+							"\t\tbyContentType([",
+							...entry.dispatched.byType.map(
+								([type, target]) =>
+									`\t\t\t[${JSON.stringify(type)}, ${JSON.stringify(target)}, zValidator(${JSON.stringify(target)}, ${identifierOf(entry)}, deps.invalid)],`,
+							),
+							"\t\t]),",
+						];
 			const middleware = [
 				...(headOnly ? ["\t\theadOnly,"] : []),
 				...gate,
 				...validators.map(
 					([target, name]) => `\t\tzValidator(${JSON.stringify(target)}, ${name}, deps.invalid),`,
 				),
+				...dispatch,
 			];
 			/**
 			 * Whether the operation requires a caller — and NOTHING else about the caller.
@@ -463,6 +532,14 @@ export function renderApp(
 				body.push("\t\t\tif (ctx === null) return deps.noContext(c);");
 			}
 			const pieces = validators.map(([target]) => `...c.req.valid(${JSON.stringify(target)})`);
+			/**
+			 * Only one dispatched branch runs, and `zValidator` writes under its own target. Spreading every
+			 * possible target is how the handler reads whichever one it was: an unset target reads
+			 * `undefined`, and spreading `undefined` into an object literal contributes nothing.
+			 */
+			for (const target of new Set((entry.dispatched?.byType ?? []).map(([, name]) => name))) {
+				pieces.push(`...c.req.valid(${JSON.stringify(target)})`);
+			}
 			if (route.rawBodyProperty !== undefined) {
 				// The bytes ARE the contract: a signature covers exactly what arrived, so parsing and
 				// re-serialising would verify a different string than the sender signed. WHICH reader
@@ -666,6 +743,7 @@ export function renderApp(
 	const negotiates = [...grouped.values()].some((group) => group.length > 1);
 	// Same rule: imported only where a HEAD operation stands alone on its path.
 	const guardsHead = registrations.some((registration) => registration.text.includes("headOnly,"));
+	const dispatchesBody = registrations.some((r) => r.text.includes("byContentType(["));
 	const runtimeModule = JSON.stringify(emitted.options.runtimeModule);
 
 	/**
@@ -682,7 +760,7 @@ export function renderApp(
 import { zValidator } from "@hono/zod-validator";
 ${needsHonoValue ? 'import { Hono } from "hono";\nimport type { Context, Input } from "hono";' : 'import type { Context, Hono, Input } from "hono";'}
 import { z } from "zod";
-import type { AppEnv, Awaitable, Ctx, Result, RouteDeps } from ${runtimeModule};${negotiates ? `\nimport { selectContentType } from ${runtimeModule};` : ""}${guardsHead ? `\nimport { headOnly } from ${runtimeModule};` : ""}
+import type { AppEnv, Awaitable, Ctx, Result, RouteDeps } from ${runtimeModule};${negotiates ? `\nimport { selectContentType } from ${runtimeModule};` : ""}${guardsHead ? `\nimport { headOnly } from ${runtimeModule};` : ""}${dispatchesBody ? `\nimport { byContentType } from ${runtimeModule};` : ""}
 ${imports}
 /**
  * One method per operation, each concretely typed from the schemas it validates against.

@@ -145,6 +145,40 @@ export const headOnly: MiddlewareHandler = async (c, next) =>
 	c.req.method === "HEAD" ? next() : c.notFound();
 
 /**
+ * Apply the validator that parses the media type the request actually carries.
+ *
+ * A route may declare several request media types needing different parsers -- `addPet` in the
+ * Swagger Petstore accepts JSON, XML and urlencoded on one path. `zValidator`'s target is fixed when
+ * the server is generated; which parser applies is decided by the caller's `Content-Type` when the
+ * request arrives. Those are different times, and only the second one has the answer.
+ *
+ * ⚠️ **Before this, one target was chosen for the whole route and everything else was rejected.** A
+ * form-encoded body to a route declaring JSON first was handed to `c.req.json()` and answered 400,
+ * with no diagnostic anywhere. The status looked like the caller's fault and was not.
+ *
+ * Parameters after the media type (`; charset=utf-8`, `; boundary=...`) are not part of the match,
+ * which matters because a multipart request always carries a boundary.
+ *
+ * A `Content-Type` matching nothing declared falls through to the first validator, which reproduces
+ * the previous behaviour exactly for that case: the body fails to parse and `deps.invalid` answers.
+ * No status is invented here that the document does not describe.
+ */
+export function byContentType<E extends Env>(
+	validators: readonly (readonly [
+		mediaType: string,
+		target: string,
+		validator: MiddlewareHandler<E>,
+	])[],
+): MiddlewareHandler<E> {
+	return async (c, next) => {
+		const declared = (c.req.header("content-type") ?? "").split(";")[0]?.trim().toLowerCase() ?? "";
+		const matched = validators.find(([mediaType]) => mediaType.toLowerCase() === declared);
+		const [, , validator] = matched ?? (validators[0] as (typeof validators)[number]);
+		return validator(c, next);
+	};
+}
+
+/**
  * What the app provides. One object, passed once, rather than a module the generated file imports by
  * path — a generated server that hard-codes `../../backend.js` is only usable by the project it was
  * generated in, and this one has to be usable by any.

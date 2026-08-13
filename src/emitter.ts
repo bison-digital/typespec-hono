@@ -99,6 +99,13 @@ export async function $onEmit(context: EmitContext): Promise<void> {
 							target: targetFor(emitted, route.verb, route.path),
 						});
 					},
+					unvalidatableMediaType: (route, types) => {
+						reportDiagnostic(context.program, {
+							code: "unvalidatable-media-type",
+							format: { operationId: route.operationId, types: types.join(", ") },
+							target: targetFor(emitted, route.verb, route.path),
+						});
+					},
 				},
 				base.basePaths,
 				(verb, path) => {

@@ -87,6 +87,9 @@ const noRefusals = {
 	unsupportedPathTemplate: (): void => {
 		throw new Error("unexpected path refusal");
 	},
+	unvalidatableMediaType: (): void => {
+		throw new Error("unexpected media-type refusal");
+	},
 };
 
 describe("a verb with no dedicated Hono helper goes through `app.on(method, …)`", () => {
@@ -109,6 +112,7 @@ describe("a verb with no dedicated Hono helper goes through `app.on(method, …)
 	it("registers HEAD under GET, guarded, because that is the only verb Hono dispatches", () => {
 		const source = renderApp(serviceWith({ operationId: "headThing", verb: "HEAD" }), {
 			unsupportedPathTemplate: () => undefined,
+			unvalidatableMediaType: () => undefined,
 		});
 		// Registered under GET, not under a verb Hono rewrites away before matching.
 		expect(source).toMatch(/\.get\(/);

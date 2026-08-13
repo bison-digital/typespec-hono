@@ -263,9 +263,10 @@ types instead of the identity defaults.
 
 One refusal, and it is a correctness guarantee rather than a gap.
 
-| code                        | why                                                                                                                                                                                                                                                                                                                                                                        |
-| --------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `unsupported-path-template` | a path parameter that is not a plain name. Hono reads a parameter up to the next `/`, so an RFC 6570 operator or modifier would become part of the name — and `*` would become Hono's wildcard, mounting a route that matches the wrong requests and answers them. Refused rather than approximated, because a route that works and is wrong is worse than one that fails. |
+| code                        | why                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| --------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `unvalidatable-media-type`  | The document declares a request media type no `zValidator` target can parse, `application/xml` being the common one. The route is still mounted and still validates every type this can parse, chosen from the request's `Content-Type`; requests carrying the others are refused rather than mis-parsed. Named because the previous behaviour was to hand them to `c.req.json()` and answer 400 with no diagnostic at all. |
+| `unsupported-path-template` | a path parameter that is not a plain name. Hono reads a parameter up to the next `/`, so an RFC 6570 operator or modifier would become part of the name — and `*` would become Hono's wildcard, mounting a route that matches the wrong requests and answers them. Refused rather than approximated, because a route that works and is wrong is worse than one that fails.                                                  |
 
 ### Refusals are warnings, and you choose whether they fail the build
 
@@ -310,7 +311,7 @@ warn-as-error      -> exit 1, build fails, refusal reported as an error
 
 - **Route surface over the corpus** — 61 scenarios of `@typespec/http-specs`, with counts read from
   `app.routes` after mounting the real `registerRoutes`, never from the emitted text. **577 declared,
-  577 mounted, 0 refused**, and `mounted + refused === declared` is asserted, because
+  577 mounted, 0 refused**, with **27 partially validated**, and `mounted + refused === declared` is asserted, because
   `mounted === declared` can be satisfied by a route nobody can reach — and was.
 - **An application is compiled against it**, with `runtime-module` pointed at a module that
   substitutes real types, and with no cast anywhere. A signature no application could satisfy passed

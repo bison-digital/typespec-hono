@@ -71,6 +71,24 @@ const diagnostics = {
 	 * literal route `/things/{thing-id}`: mounted, counted by every arm that counted routes, and
 	 * reachable by nobody.
 	 */
+	/**
+	 * The document declares a request media type no `zValidator` target can parse.
+	 *
+	 * Reported rather than silently mis-parsed. This emitter used to hand every unrecognised media type
+	 * to `zValidator("json", ...)`, which reads `c.req.json()`, so an `application/xml` body was
+	 * rejected with a 400 and nothing said why. Naming it is what stops a consumer believing a route is
+	 * validated when it is not.
+	 *
+	 * There is no Hono parser and no Zod representation for XML, and adding an XML dependency to a Zod
+	 * emitter is not a trade this package should make. Where the same route also declares a media type
+	 * that CAN be parsed, that one is still validated, chosen from the request's `Content-Type`.
+	 */
+	"unvalidatable-media-type": {
+		severity: "warning",
+		messages: {
+			default: paramMessage`'${"operationId"}' declares request media types this emitter cannot validate (${"types"}). Requests carrying them are refused rather than validated. Declare a media type with a parser -- JSON, multipart or urlencoded -- or handle the body yourself with '@body body: bytes'.`,
+		},
+	},
 	"unsupported-path-template": {
 		severity: "warning",
 		messages: {
@@ -97,6 +115,7 @@ const diagnostics = {
  */
 type Diagnostics = {
 	"unsupported-path-template": { readonly default: CallableMessage<["template", "name"]> };
+	"unvalidatable-media-type": { readonly default: CallableMessage<["operationId", "types"]> };
 };
 
 /**

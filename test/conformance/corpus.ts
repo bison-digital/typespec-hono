@@ -110,6 +110,8 @@ export interface CompiledScenario {
 	 * route arithmetic accounts for the exclusion rather than letting it look like a dropped operation.
 	 */
 	readonly refusals?: readonly string[];
+	/** Operations mounted with at least one declared media type this emitter cannot validate. */
+	readonly partiallyValidated?: number;
 	/**
 	 * The LAST version the service declares, when it is versioned.
 	 *
@@ -274,9 +276,21 @@ export async function compileScenario(
 	 * that fact lives — so it is read from there rather than restated, and a refusal added later is
 	 * counted without anyone remembering to update this.
 	 */
+	/**
+	 * ⚠️ **`unvalidatable-media-type` is NOT a refusal, and counting it as one broke the arithmetic.**
+	 * A refusal EXCLUDES an operation, so it has to be added to `mounted` to reach `declared`. This
+	 * one excludes nothing: the route is registered and serves every media type it can parse, and the
+	 * warning names the ones it cannot. Counted as a refusal it made `mounted + refused` overshoot
+	 * `declared` by 27 while every one of those 27 operations was mounted and working.
+	 */
+	const PARTIAL = "typespec-hono/unvalidatable-media-type";
 	const refusalCodes = new Set(
-		Object.keys($lib.diagnostics).map((code) => `typespec-hono/${code}`),
+		Object.keys($lib.diagnostics)
+			.map((code) => `typespec-hono/${code}`)
+			.filter((code) => code !== PARTIAL),
 	);
+	/** Operations mounted but with at least one declared media type left unvalidated. */
+	const partiallyValidated = program.diagnostics.filter((d) => d.code === PARTIAL).length;
 	const refusals = program.diagnostics
 		.filter((diagnostic) => refusalCodes.has(diagnostic.code))
 		.map((diagnostic) => diagnostic.code);
@@ -295,6 +309,7 @@ export async function compileScenario(
 			(diagnostic) =>
 				diagnostic.code.startsWith("typespec-hono/") &&
 				diagnostic.severity === "warning" &&
+				diagnostic.code !== PARTIAL &&
 				!refusalCodes.has(diagnostic.code),
 		)
 		.map((diagnostic) => `${scenario.name} :: ${diagnostic.code}`);
@@ -308,8 +323,8 @@ export async function compileScenario(
 	);
 	if (error === undefined) {
 		return latestVersion === undefined
-			? { scenario, ...dirs, emitterWarnings, refusals }
-			: { scenario, ...dirs, emitterWarnings, latestVersion, refusals };
+			? { scenario, ...dirs, emitterWarnings, refusals, partiallyValidated }
+			: { scenario, ...dirs, emitterWarnings, latestVersion, refusals, partiallyValidated };
 	}
 	return {
 		scenario,

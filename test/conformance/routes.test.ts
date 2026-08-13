@@ -77,6 +77,8 @@ interface Measured {
 	readonly registrations: number;
 	/** Operations this emitter named a refusal for, and therefore did not mount. */
 	readonly refused: number;
+	/** Operations mounted but with a declared media type this emitter cannot validate. */
+	readonly partiallyValidated: number;
 }
 
 async function measure(compiled: CompiledScenario): Promise<Measured | undefined> {
@@ -126,6 +128,7 @@ async function measure(compiled: CompiledScenario): Promise<Measured | undefined
 		served: served.size,
 		registrations,
 		refused: compiled.refusals?.length ?? 0,
+		partiallyValidated: compiled.partiallyValidated ?? 0,
 	};
 }
 
@@ -178,6 +181,7 @@ describe("the generated server mounts what the document declares", () => {
 			served: measured.reduce((sum, entry) => sum + entry.served, 0),
 			registrations: measured.reduce((sum, entry) => sum + entry.registrations, 0),
 			refused: measured.reduce((sum, entry) => sum + entry.refused, 0),
+			partiallyValidated: measured.reduce((sum, entry) => sum + entry.partiallyValidated, 0),
 		};
 		const recorded = JSON.parse(readFileSync(join(here, "baseline.json"), "utf8")) as typeof totals;
 		if (process.env["UPDATE_ROUTE_BASELINE"] === "1") {
@@ -194,6 +198,14 @@ describe("the generated server mounts what the document declares", () => {
 		expect(totals.declared, JSON.stringify(totals)).toBeGreaterThanOrEqual(recorded.declared);
 		expect(totals.mounted, JSON.stringify(totals)).toBeGreaterThanOrEqual(recorded.mounted);
 		expect(totals.refused, JSON.stringify(totals)).toBeLessThanOrEqual(recorded.refused);
+		/**
+		 * Visible rather than absorbed. These operations ARE mounted and serve every media type this
+		 * emitter can parse; the number is how many also declare one it cannot, which today is
+		 * `application/xml`. It may only shrink, for the same reason refusals may only shrink.
+		 */
+		expect(totals.partiallyValidated, JSON.stringify(totals)).toBeLessThanOrEqual(
+			recorded.partiallyValidated,
+		);
 		expect(totals.slots, JSON.stringify(totals)).toBeGreaterThanOrEqual(recorded.slots);
 		// The arithmetic that makes an exclusion visible rather than cancelling out.
 		expect(totals.mounted + totals.refused, JSON.stringify(totals)).toBe(totals.declared);
