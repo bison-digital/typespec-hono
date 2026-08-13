@@ -23,9 +23,15 @@ const PLAIN_PATH_PARAMETER = /^[A-Za-z0-9_.~-]+$/;
  * that counts routes, and reachable by nobody. It answered 404 to the only requests it was for. Hono
  * handles `:thing-id` and `:x.y` perfectly well; the narrow character class was ours.
  *
- * A name that is not plain is REFUSED rather than approximated. Hono reads a parameter up to the next
- * `/`, so an RFC 6570 modifier would survive into the name and `*` would become Hono's wildcard — a
- * route that matches the wrong requests and answers them, which is worse than one that fails.
+ * A name that is not plain is REFUSED rather than approximated, and the route stays at the literal
+ * template so it matches nothing rather than matching the wrong thing.
+ *
+ * ⚠️ **This is about the NAME, not about RFC 6570 operators.** An earlier version of this comment
+ * claimed `{+path}` or `{tag*}` would survive into the name and that `*` would become Hono's
+ * wildcard. Measured, that is false: `@typespec/http` resolves the operator before this emitter sees
+ * the path, and `@typespec/openapi3` strips it from the published document too, so both artefacts say
+ * `/files{path}` and agree. What actually reaches here is a wire name from `@path("...")`, and the
+ * forms that fail are a space, `+` and `!`. `*` is rejected by `@typespec/http` before it arrives.
  *
  * ⚠️ **This runs at RENDER time, not during collection.** It used to run inside `collectRoutes`, which
  * put one framework's spelling into the shared intermediate representation and refused the whole
