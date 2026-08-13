@@ -20,3 +20,7 @@ dist/
 # Written by wiring.test.ts on every run. It was tracked, so a generated file was being
 # committed and reformatted.
 test/wiring/tsconfig.wiring.json
+
+# Redirected command output. `git add -A` swept one of these into a commit once, and
+# `portability.test.ts` caught it on the absolute path it carried.
+*.log
