@@ -80,4 +80,34 @@ describe("the emitted server follows Hono's own best practices", () => {
 		expect(source).not.toMatch(/\.head\(/);
 		expect(source).not.toMatch(/"HEAD"/);
 	});
+
+	it("contains no type assertion, because a cast in generated code is nobody's to review", () => {
+		/**
+		 * ⚠️ **A cast in emitted output is worse than one in hand-written code.** Nobody reviews it, it
+		 * reappears on every compile, and it is precisely the thing this emitter exists to spare a
+		 * consumer writing. One shipped: `deps.context(c, "none") as Ctx`, on every unauthenticated
+		 * route, asserting a non-null the type system could not see.
+		 *
+		 * ⚠️ **The fix was to CHECK rather than to overload.** Overloading `context` so `"none"` cannot
+		 * return null does remove the cast from here — and puts one in every consumer's `deps`, because
+		 * an overloaded property type stops contextually typing a single implementation. Measured: the
+		 * wiring consumer lost parameter inference on every hook. Trading a cast in generated code for a
+		 * cast in hand-written code is the wrong direction, so the generated route checks for null on
+		 * every path instead.
+		 *
+		 * Asserted as a CLASS over the whole file — `as X`, `as unknown as X`, and non-null `!` — so a
+		 * different assertion cannot arrive under a different spelling.
+		 */
+		/**
+		 * ⚠️ **Comments are stripped first, and the first draft of this arm did not.** It matched the
+		 * prose "so T infers as Operations" inside a docblock and accused the emitter of a cast it does
+		 * not write. A rule that cries wolf on English gets suppressed, and a suppressed rule guards
+		 * nothing — so this reads code, which is what it is a rule about.
+		 */
+		const code = source.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
+		expect(code).not.toMatch(/\bas\s+[A-Z]\w*/);
+		expect(code).not.toMatch(/\bas\s+unknown\b/);
+		expect(code).not.toMatch(/\w!\.|\w!\)|\w!,/);
+		expect(code).not.toMatch(/@ts-(expect-error|ignore)/);
+	});
 });

@@ -379,7 +379,24 @@ export function renderApp(emitted: EmittedService, refuse: RenderRefusals): stri
 			body.push(`\t\t\tconst ctx = deps.context(c, "required");`);
 			body.push("\t\t\tif (ctx === null) return deps.noContext(c);");
 		} else {
-			body.push(`\t\t\tconst ctx = deps.context(c, "none") as Ctx;`);
+			/**
+			 * ⚠️ **The same null check as an authenticated route, and it is what removes a CAST from
+			 * generated output.** This used to emit `deps.context(c, "none") as Ctx`, because one
+			 * signature returning `C | null` cannot express "this argument makes null impossible". A cast
+			 * in generated code is worse than one in hand-written code: nobody reviews it, and it
+			 * reappears on every compile.
+			 *
+			 * ⚠️ **Overloading `context` was tried and is worse.** It removes the cast from here and puts
+			 * one in every consumer's `deps`, because an overloaded property type stops contextually
+			 * typing a single implementation — measured, the wiring consumer lost inference on every
+			 * hook. Trading a cast in generated code for a cast in hand-written code is the wrong
+			 * direction.
+			 *
+			 * Checking is also more honest than asserting: an app that returns null here has said it
+			 * could not build a context, and the old cast handed the handler that null typed as `Ctx`.
+			 */
+			body.push(`\t\t\tconst ctx = deps.context(c, "none");`);
+			body.push("\t\t\tif (ctx === null) return deps.noContext(c);");
 		}
 		const pieces = validators.map(([target]) => `...c.req.valid(${JSON.stringify(target)})`);
 		if (route.rawBodyProperty !== undefined) {
