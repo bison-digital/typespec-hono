@@ -8,8 +8,8 @@ Working record. Everything here is measured; where a number appears, it came fro
 [`typespec-http-zod`](https://github.com/bison-digital/typespec-http-zod). **121 tests, 21 files,
 typecheck clean, lint clean, format clean, all four green on a CLEAN tree.**
 
-**Three numbers to lead every report with: divergences · emitter warnings · named refusals. Today
-they are `0 · 0 · 2`.** Say them unprompted and flag the moment one moves.
+**Three numbers to lead every report with: divergences / emitter warnings / named refusals. Today
+they are `0 / 0 / 2`.** Say them unprompted and flag the moment one moves.
 
 Divergences are the library's business. What is graded HERE is whether a caller can reach any of it:
 **577 operations declared, 564 mounted, 13 refused**, `mounted + refused === declared`, and the
@@ -93,7 +93,7 @@ refusals, and the severity decision, come from what those say rather than from w
 | **Packaging** (`test/packaging.test.ts`)                   | what a stranger gets                                                                                               | an entry point outside `files`; a `link:` range published; a wrong install instruction             |
 | **Portability** (`test/portability.test.ts`)               | no machine path, tracked or generated                                                                              | an absolute specifier that resolves on one machine                                                 |
 | **Attribution** (`test/attribution.test.ts`)               | no tool credited, one identity                                                                                     | a trailer in a commit nobody re-reads                                                              |
-| **Provenance · Documentation · Options · Vendored**        | no foreign codebase names; every diagnostic documented; options forwarded as a class; the shared fixture undrifted |                                                                                                    |
+| **Provenance / Documentation / Options / Vendored**        | no foreign codebase names; every diagnostic documented; options forwarded as a class; the shared fixture undrifted |                                                                                                    |
 
 ```bash
 pnpm test        # everything, builds first
@@ -124,7 +124,7 @@ Every one of these passed the full suite before it was found.
 | what                                                                                                                                                                                                                                                            | how it was found                                                                                              |
 | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
 | **Neither suite had ever passed on a clean tree.** `vocabulary` and `packaging` graded whatever `.gen.ts` files were on disk, written by other test files, unordered under vitest's parallelism. Clean -> red; second run -> green, grading the PREVIOUS build. | A three-state control passed green with the fix deleted from `src/`.                                          |
-| **The route baseline was not reproducible.** Thirteen scenarios had no document, so `577 · 564 · 13` could only have been recorded against files an earlier build left behind.                                                                                  | Guarding the crash that had been hiding it.                                                                   |
+| **The route baseline was not reproducible.** Thirteen scenarios had no document, so `577 / 564 / 13` could only have been recorded against files an earlier build left behind.                                                                                  | Guarding the crash that had been hiding it.                                                                   |
 | **`refused` fell to zero** when refusals became warnings, because the harness keyed on severity rather than on the diagnostic code.                                                                                                                             | `mounted + refused === declared` broke at 564 + 0.                                                            |
 | **A floor read 315 files against a threshold of 20.**                                                                                                                                                                                                           | Auditing every counting assertion against its measured value, after finding the same fault twice by accident. |
 | **`provenance` asserted a literal call spelling** and accused the emitter when the call gained an argument, while every property it protects still held.                                                                                                        | Its own failure, on a change that broke nothing.                                                              |

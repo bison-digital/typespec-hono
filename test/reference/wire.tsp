@@ -39,7 +39,7 @@ model Item {
   label: string;
 }
 
-// ─── Numeric and boolean parameters, in every location that carries text ─────────────────────────
+// --- Numeric and boolean parameters, in every location that carries text ---------------------
 
 @route("/items/{itemId}")
 @get
@@ -60,7 +60,7 @@ op readItem(
   @header("x-max-age") maxAge?: int32,
 ): Item;
 
-// ─── A collection whose ELEMENTS need decoding after the split ───────────────────────────────────
+// --- A collection whose ELEMENTS need decoding after the split -------------------------------
 
 @route("/items")
 @get
@@ -74,7 +74,7 @@ op listItems(
   flags?: boolean[],
 ): Item[];
 
-// ─── Media types, where the document states a type and the wire adds parameters ──────────────────
+// --- Media types, where the document states a type and the wire adds parameters --------------
 
 @route("/items/json")
 @post
