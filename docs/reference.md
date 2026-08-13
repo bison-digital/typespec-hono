@@ -60,7 +60,7 @@ warn-as-error: true
 
 ## Coverage
 
-Graded against 61 scenarios of [`@typespec/http-specs`](https://github.com/microsoft/typespec), a
+Graded against 62 scenarios of [`@typespec/http-specs`](https://github.com/microsoft/typespec), a
 corpus this project did not write, with route counts read from `app.routes` after mounting the real
-server rather than from the emitted text: 577 declared, 577 mounted, 0 refused, 27 partially
+server rather than from the emitted text: 635 declared, 635 mounted, 0 refused, 27 partially
 validated.

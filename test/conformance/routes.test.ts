@@ -326,9 +326,17 @@ describe("the generated server mounts what the document declares", () => {
 		 * because it runs the library. This package adds exactly one refusal of its own,
 		 * `unsupported-path-template`, and no corpus scenario triggers it.
 		 */
+		/**
+		 * `type/property/value-types` used to be here under `unsupported-type`. It compiles against
+		 * `typespec-http-zod@0.2.0`: a `never` property is dropped from the emitted schema exactly as
+		 * `@typespec/openapi3` drops it from the document, rather than being refused. The scenario had
+		 * never been graded at all while it failed to compile.
+		 *
+		 * Both survivors mirror a first-party rule. openapi3 raises its own error on the status-code
+		 * range, and the discriminator one is upstream `microsoft/typespec#7141`.
+		 */
 		expect(ours.toSorted()).toEqual([
 			"response/status-code-range :: typespec-http-zod/unsupported-status-code-range",
-			"type/property/value-types :: typespec-http-zod/unsupported-type",
 			"type/union/discriminated :: typespec-http-zod/undeclared-discriminator",
 		]);
 		expect(ours.filter((entry) => entry.includes("crashed"))).toEqual([]);

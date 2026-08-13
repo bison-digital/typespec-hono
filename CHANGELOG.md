@@ -60,6 +60,14 @@ Media types no parser can handle, `application/xml` being the common one, are na
 Added `unvalidatable-media-type`. Removed `unroutable-verb` and `ambiguous-server-path`, both of which
 described things this release does rather than refuses.
 
+### Requires `typespec-http-zod@^0.2.0`
+
+That release stopped refusing unknown scalars and `never` properties and started emitting what the
+document describes for both, so the validators this package pairs with a server are different. Coverage
+over `@typespec/http-specs` moved with it: a scenario that previously failed to compile at all now
+does, taking the graded corpus from 61 scenarios and 577 operations to 62 and 635, with refusals still
+at zero.
+
 ### Documentation
 
 The README is a README again rather than a manual, with the reference material in `docs/`.
