@@ -36,7 +36,14 @@ jobs:
           repository: bison-digital/typespec-http-zod
           path: typespec-http-zod
 
+      # ⚠️ **Both checkouts above set `path:`, so there is no `package.json` at the workspace root.**
+      # This action reads the pnpm version from `packageManager`, defaults to looking for
+      # `./package.json`, finds nothing, and fails with "No pnpm version is specified" — which names
+      # the missing setting rather than the missing file. `release.yml` checks out to the root and so
+      # does not need this.
       - uses: pnpm/action-setup@v4
+        with:
+          package_json_file: typespec-hono/package.json
 
       - uses: actions/setup-node@v4
         with:
