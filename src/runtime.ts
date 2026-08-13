@@ -16,6 +16,18 @@ import type { ResponseArm } from "typespec-http-zod/runtime";
 export { armFor, type ResponseArm } from "typespec-http-zod/runtime";
 
 /**
+ * One acceptable combination of credentials, exactly as OpenAPI's `security` states it: scheme id to
+ * the scopes that scheme requires. Every entry in one requirement must be satisfied TOGETHER, and
+ * satisfying ANY ONE requirement authorises the caller.
+ *
+ * ⚠️ **Declared here rather than beside the code that derives it**, because `./runtime` is what a
+ * running server imports and must stay free of every build-time dependency — a packaging arm asserts
+ * it names no `@typespec/*` package at all. An application should not drag a compiler into its
+ * Worker to read one type.
+ */
+export type SecurityRequirement = Readonly<Record<string, readonly string[]>>;
+
+/**
  * The contract between the GENERATED server and the app that mounts it.
  *
  * ⚠️ **This exists because "here is a data table, write your own router" is not a deliverable.**
@@ -147,8 +159,18 @@ export interface RouteDeps<E extends Env = AppEnv, C = Ctx> {
 	 * Its absence was a real defect for one commit: the generated server carried **zero** references
 	 * to scopes while the document published eleven, so a surface mounted with its gate silently
 	 * dropped.
+	 *
+	 * ⚠️ **It receives the document's REQUIREMENTS, not a flat list of scopes, and that is the second
+	 * half of the same defect.** `@useAuth(BearerAuth)` publishes `security: [{ "BearerAuth": [] }]` —
+	 * no scopes — so a scopes-only gate was emitted for OAuth2 and for nothing else. Bearer, api-key
+	 * and basic, which is most services, carried no gate at all and rested entirely on `context`
+	 * returning null. An app whose `context` read a cookie would serve a route the document says needs
+	 * a bearer token.
+	 *
+	 * Satisfying ANY ONE requirement authorises the caller, and every scheme WITHIN a requirement must
+	 * be satisfied together — which is exactly what an array of OpenAPI `security` objects means.
 	 */
-	readonly authorize: (scopes: readonly string[]) => MiddlewareHandler<E>;
+	readonly authorize: (requirements: readonly SecurityRequirement[]) => MiddlewareHandler<E>;
 	/**
 	 * The caller's context, or `null` when there is none to establish.
 	 *

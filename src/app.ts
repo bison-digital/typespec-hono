@@ -1,3 +1,4 @@
+import { renderSecurity, type SecurityRequirement } from "./security.js";
 import {
 	isRawBinaryMediaType,
 	objectKey,
@@ -242,6 +243,15 @@ export function renderApp(
 	 * the document, and every "try it" in a rendered document, 404.
 	 */
 	basePath?: string,
+	/**
+	 * What the DOCUMENT says a caller must satisfy, per operation id.
+	 *
+	 * ⚠️ **Resolved by the caller rather than read off `EmittedRoute`**, because which schemes an
+	 * operation accepts is a fact about the HTTP program and not part of the validator IR the library
+	 * publishes. Keeping it out of that IR is what stops a Hono concern leaking into a package whose
+	 * audience is wider.
+	 */
+	securityFor?: (verb: string, path: string) => readonly SecurityRequirement[],
 ): string {
 	const entries: AppRoute[] = emitted.routes.flatMap((route) => {
 		/**
@@ -366,10 +376,16 @@ export function renderApp(
 		 * answers `400` to a request the contract says is not theirs to make, which tells somebody who
 		 * may not call the operation at all which payloads are well-formed.
 		 */
+		/**
+		 * ⚠️ **Emitted whenever the document declares ANY security, not only when it declares scopes.**
+		 * `@useAuth(BearerAuth)` publishes `security: [{ "BearerAuth": [] }]` — no scopes — so a
+		 * scopes-only gate covered OAuth2 and nothing else. Bearer, api-key and basic carried no gate at
+		 * all and rested entirely on `deps.context` returning null, which answers "is somebody here"
+		 * rather than "did they satisfy the scheme the contract names".
+		 */
+		const requirements = securityFor?.(route.verb, route.path) ?? [];
 		const gate =
-			route.scopes.length === 0
-				? []
-				: [`\t\tdeps.authorize([${route.scopes.map((s) => JSON.stringify(s)).join(", ")}]),`];
+			requirements.length === 0 ? [] : [`\t\tdeps.authorize(${renderSecurity(requirements)}),`];
 		const middleware = [
 			...gate,
 			...validators.map(
@@ -425,11 +441,38 @@ export function renderApp(
 					? [`${objectKey(member.route.accept.name)}: ${JSON.stringify(member.route.accept.value)}`]
 					: [];
 			const input = [...pieces, ...own];
+			/**
+			 * ⚠️ **Broken across lines rather than emitted as one.** Generated code is read far more often
+			 * than it is written — in review, in a stack trace, in a diff — and a single call reached 219
+			 * characters on a real service, against the 60-to-80 of every example in Hono's own
+			 * documentation. Nothing about the behaviour changes; a reader's ability to see it does.
+			 *
+			 * A call with no input stays on one line, because wrapping it would add ceremony to something
+			 * already short.
+			 */
+			/**
+			 * ⚠️ **Indented literally, because the surrounding `+1 tab` only reaches the FIRST physical
+			 * line.** A multi-line fragment keeps whatever tabs it was written with, so the depths here
+			 * are absolute: the `return` sits at four, its arguments at five, and the handler's input
+			 * properties at six.
+			 */
 			const call =
 				input.length === 0
 					? `handlersFor(c).${member.route.operationId}(ctx)`
-					: `handlersFor(c).${member.route.operationId}(ctx, { ${input.join(", ")} })`;
-			return `deps.respond(c, ${member.names.responses}, await ${call})`;
+					: [
+							`handlersFor(c).${member.route.operationId}(ctx, {`,
+							...input.map((piece) => `\t\t\t\t\t\t${piece},`),
+							"\t\t\t\t\t})",
+						].join("\n");
+			return input.length === 0
+				? `deps.respond(c, ${member.names.responses}, await ${call})`
+				: [
+						`deps.respond(`,
+						`\t\t\t\t\tc,`,
+						`\t\t\t\t\t${member.names.responses},`,
+						`\t\t\t\t\tawait ${call},`,
+						"\t\t\t\t)",
+					].join("\n");
 		};
 
 		if (group.length === 1) {

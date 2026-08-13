@@ -115,6 +115,29 @@ Where the document is ambiguous — several servers with disagreeing paths — r
 root and `ambiguous-server-path` says so. A templated server such as `@server("{endpoint}")` means the
 caller supplies the whole origin, so the root is already correct and nothing is reported.
 
+### Authentication carries the scheme, not just "someone is here"
+
+`@useAuth(BearerAuth)` publishes `security: [{ "BearerAuth": [] }]`, and `deps.authorize` receives
+exactly that:
+
+```ts
+deps.authorize([{ BearerAuth: [] }])                      // one scheme, no scopes
+deps.authorize([{ OAuth2Auth: ["widgets:read"] }])        // scopes, from the declared flows
+deps.authorize([{ OAuth2Auth: [...] }, { BearerAuth: [] }]) // EITHER authorises
+```
+
+Satisfying **any one** requirement authorises the caller; every scheme **within** one must be
+satisfied together. That is what an array of OpenAPI `security` objects means, and a flat list of
+scopes cannot express the difference.
+
+⚠️ **This used to carry scopes only**, so a gate was emitted for OAuth2 and for nothing else — bearer,
+api-key and basic carried none at all and rested entirely on `deps.context` returning null. That
+answers "is somebody here", not "did they satisfy the scheme the contract names": an application
+reading a cookie would have served a route the document says needs a bearer token.
+
+Which credentials satisfy a scheme is still yours — it could not be anything else. Which schemes an
+operation accepts is a contract fact, and is now generated.
+
 ## Middleware — register it BEFORE `registerRoutes`
 
 ⚠️ **This is the one ordering rule, and getting it wrong fails silently.** Hono middleware applies

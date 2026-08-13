@@ -1,8 +1,10 @@
 import { emitFile, resolvePath, type EmitContext, type Type } from "@typespec/compiler";
 import type { EmittedService } from "typespec-http-zod";
+import type { HttpOperation } from "@typespec/http";
 import { emitHttpZod } from "typespec-http-zod";
 import { renderApp } from "./app.js";
 import { resolveBasePath } from "./base-path.js";
+import { securityFor } from "./security.js";
 import { reportDiagnostic } from "./lib.js";
 
 /**
@@ -19,12 +21,32 @@ import { reportDiagnostic } from "./lib.js";
  * import impossible, so this file is the proof that the published API is sufficient to build a server
  * generator on. Anything it cannot do from here is a gap in that API, to be fixed there.
  */
-/** The declaration a diagnostic should point at, falling back to the service when it cannot be found. */
-function targetFor(emitted: EmittedService, operationId: string): Type {
-	return (
-		emitted.service.operations.find((operation) => operation.operation.name === operationId)
-			?.operation ?? emitted.service.namespace
+/**
+ * The HTTP operation an emitted route came from, keyed on verb and path.
+ *
+ * ⚠️ **Keyed on the ROUTE, not on the name, and the name was wrong for every interface.**
+ * `EmittedRoute.operationId` is the id the document publishes — `Accounts_list`, with the interface
+ * prefix `resolveOperationId` inserts — while `operation.operation.name` is the bare `list`. Matching
+ * them never succeeded for an operation declared inside an `interface`, which is most of them.
+ *
+ * Two things rested on that lookup and both were silently wrong: every diagnostic pointed at the
+ * service namespace instead of the operation that caused it, and the security requirements resolved
+ * to none, so a scheme-gated route emitted no gate. Verb and path identify a route exactly, and are
+ * what both sides already agree on.
+ */
+function operationFor(
+	emitted: EmittedService,
+	verb: string,
+	path: string,
+): HttpOperation | undefined {
+	return emitted.service.operations.find(
+		(candidate) => candidate.verb.toUpperCase() === verb.toUpperCase() && candidate.path === path,
 	);
+}
+
+/** The declaration a diagnostic should point at, falling back to the service when it cannot be found. */
+function targetFor(emitted: EmittedService, verb: string, path: string): Type {
+	return operationFor(emitted, verb, path)?.operation ?? emitted.service.namespace;
 }
 
 /**
@@ -81,18 +103,22 @@ export async function $onEmit(context: EmitContext): Promise<void> {
 						reportDiagnostic(context.program, {
 							code: "unsupported-path-template",
 							format: { template, name },
-							target: targetFor(emitted, route.operationId),
+							target: targetFor(emitted, route.verb, route.path),
 						});
 					},
 					unroutableVerb: (route) => {
 						reportDiagnostic(context.program, {
 							code: "unroutable-verb",
 							format: { operationId: route.operationId, verb: route.verb },
-							target: targetFor(emitted, route.operationId),
+							target: targetFor(emitted, route.verb, route.path),
 						});
 					},
 				},
 				base.basePath,
+				(verb, path) => {
+					const operation = operationFor(emitted, verb, path);
+					return operation === undefined ? [] : securityFor(context.program, operation);
+				},
 			),
 		});
 	}
