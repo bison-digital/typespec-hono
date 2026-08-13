@@ -303,8 +303,9 @@ describe("the install instruction matches what actually ships", () => {
 		const readme = readFileSync(join(packageRoot, "README.md"), "utf8");
 		const relative = DEFAULT_RUNTIME_MODULE.startsWith(".");
 		expect(relative, `default runtime module is ${DEFAULT_RUNTIME_MODULE}`).toBe(true);
-		expect(readme).toMatch(/npm install --save-dev typespec-hono/);
-		expect(readme).not.toMatch(/npm install typespec-hono/);
+		expect(readme).toMatch(/pnpm add -D typespec-hono/);
+		// The instruction that used to be here, and that a stale copy would reintroduce.
+		expect(readme).not.toMatch(/(?:npm install|pnpm add) typespec-hono\b/);
 	});
 
 	it("emits that runtime, so the relative specifier resolves to something", () => {

@@ -20,14 +20,28 @@ import { EmitterOptionsSchema } from "../src/lib.js";
 
 const packageRoot = fileURLToPath(new URL("..", import.meta.url));
 const readme = readFileSync(join(packageRoot, "README.md"), "utf8");
+/**
+ * The reference lives in `docs/`, so the README can stay short enough to read. These arms follow it
+ * there: what matters is that a capability is written down somewhere a reader is pointed to, not
+ * which file it landed in.
+ */
+const reference = readFileSync(join(packageRoot, "docs", "reference.md"), "utf8");
 
 describe("the README documents everything this package can do to you", () => {
-	it("has a README with the sections the arms below read", () => {
+	it("has the sections the arms below read, and links to them", () => {
 		// Non-vacuity: every arm below passes trivially against an empty file.
 		expect(readme.length).toBeGreaterThanOrEqual(2000);
-		expect(readme).toMatch(/^## What it refuses, and why$/m);
-		expect(readme).toMatch(/^## Options$/m);
-		expect(readme).toMatch(/^## Known limits$/m);
+		expect(reference.length).toBeGreaterThanOrEqual(1000);
+		expect(reference).toMatch(/^## What it refuses, and why$/m);
+		expect(reference).toMatch(/^## Options$/m);
+		expect(reference).toMatch(/^## Known limits$/m);
+		/**
+		 * A reference nothing points at is a reference nobody reads, which is the failure mode of
+		 * moving it out of the README in the first place.
+		 */
+		for (const doc of ["docs/guides.md", "docs/cloudflare-workers.md", "docs/reference.md"]) {
+			expect(readme, `README does not link ${doc}`).toContain(`(${doc})`);
+		}
 	});
 
 	it("names every diagnostic it can raise", () => {
@@ -39,13 +53,13 @@ describe("the README documents everything this package can do to you", () => {
 		 * been pinned at the old count would have made removing them look like a regression.
 		 */
 		expect(codes.length).toBeGreaterThanOrEqual(1);
-		expect(codes.filter((code) => !readme.includes(`\`${code}\``)).toSorted()).toEqual([]);
+		expect(codes.filter((code) => !reference.includes(`\`${code}\``)).toSorted()).toEqual([]);
 	});
 
 	it("names every option it accepts", () => {
 		const options = Object.keys(EmitterOptionsSchema.properties ?? {});
 		expect(options.length).toBeGreaterThanOrEqual(6);
-		expect(options.filter((option) => !readme.includes(`\`${option}\``)).toSorted()).toEqual([]);
+		expect(options.filter((option) => !reference.includes(`\`${option}\``)).toSorted()).toEqual([]);
 	});
 
 	it("documents every diagnostic that has a call site, and declares none that has not", () => {
@@ -81,8 +95,8 @@ describe("the README documents everything this package can do to you", () => {
 		const baseline = JSON.parse(
 			readFileSync(join(packageRoot, "test", "conformance", "baseline.json"), "utf8"),
 		) as { declared: number; mounted: number; refused: number };
-		expect(readme).toContain(`${baseline.declared} declared`);
-		expect(readme).toContain(`${baseline.mounted} mounted`);
-		expect(readme).toContain(`${baseline.refused} refused`);
+		expect(reference).toContain(`${baseline.declared} declared`);
+		expect(reference).toContain(`${baseline.mounted} mounted`);
+		expect(reference).toContain(`${baseline.refused} refused`);
 	});
 });
