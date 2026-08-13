@@ -21,9 +21,10 @@
 		"url": "git+https://github.com/bison-digital/typespec-hono.git"
 	},
 	"files": [
-		"lib/*.tsp",
+		"!dist/test/**",
 		"dist/**",
-		"!dist/test/**"
+		"lib/*.tsp",
+		"src/runtime.ts"
 	],
 	"type": "module",
 	"main": "dist/src/index.js",

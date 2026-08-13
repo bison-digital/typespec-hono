@@ -14,17 +14,12 @@ one file, so listing one emitter produces five artefacts.
 ## Install
 
 ```bash
-npm install typespec-hono
+npm install --save-dev typespec-hono
 ```
 
-Install it as a dependency, not a devDependency. The emitter runs at build time, but
-`typespec-hono/runtime` exports runtime values (`armFor`, and `selectContentType` where a route
-negotiates) that both the generated server and your own `deps` import. Under `--save-dev` the install,
-typecheck and `wrangler dev` all pass, and the production install then fails at deploy:
-
-```
-[ERROR] Could not resolve "typespec-hono/runtime"
-```
+A devDependency, like any TypeSpec emitter. The generated code imports no part of this package: the
+small runtime it needs is written beside it as `runtime.gen.ts`, so the only packages your server
+needs at run time are `hono`, `@hono/zod-validator` and `zod`, which you are installing anyway.
 
 Peer dependencies: `hono`, `@hono/zod-validator`, `zod`, `@typespec/compiler`.
 

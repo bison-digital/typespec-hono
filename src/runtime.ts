@@ -1,19 +1,37 @@
 import type { Context, Env, Input, MiddlewareHandler } from "hono";
-import type { ResponseArm } from "typespec-http-zod/runtime";
+import type { ZodType } from "zod";
 
 /**
- * **`ResponseArm` and `armFor` live in `typespec-http-zod` and are re-exported here.**
+ * One arm of an operation's declared response set, as the document publishes it.
  *
- * The library is what emits the response arms, `schemas.gen.ts` declares them and annotates them
- * with `satisfies readonly ResponseArm[]`, so the type belongs to the package that produces it, and
- * the rule for reading an array containing `4XX` and `default` belongs beside it. A consumer serving
- * those validators from Express needs both and should not depend on a Hono emitter to get them.
- *
- * Re-exported rather than merely available, so an application still has ONE runtime import and the
- * `runtime-module` substitution keeps working unchanged: a module an app points that option at has to
- * supply every name the generated files reference, and they reference these.
+ * Declared here rather than imported from `typespec-http-zod`, so that this module and the copy the
+ * emitter writes beside the generated code are both free of any package import at run time. The two
+ * declarations are structurally identical, which is all TypeScript requires, and
+ * `test/runtime-parity.test.ts` asserts that this `armFor` answers identically to the library's for
+ * every shape of arm list.
  */
-export { armFor, type ResponseArm } from "typespec-http-zod/runtime";
+export interface ResponseArm {
+	readonly status: number | "default" | `${1 | 2 | 3 | 4 | 5}XX`;
+	readonly schema: ZodType | undefined;
+	readonly when?: {
+		readonly property: string;
+		readonly value: boolean | string;
+	};
+}
+
+/**
+ * The arm that applies to a status, preferring an exact code, then its `NXX` range, then `default`.
+ *
+ * That order is the document's own: OpenAPI resolves a response the same way, so an application
+ * choosing an arm by hand would have to re-derive this and could get it wrong differently.
+ */
+export function armFor(arms: readonly ResponseArm[], status: number): ResponseArm | undefined {
+	return (
+		arms.find((arm) => arm.status === status) ??
+		arms.find((arm) => arm.status === `${Math.floor(status / 100) as 1 | 2 | 3 | 4 | 5}XX`) ??
+		arms.find((arm) => arm.status === "default")
+	);
+}
 
 /**
  * One acceptable combination of credentials, exactly as OpenAPI's `security` states it: scheme id to

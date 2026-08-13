@@ -175,13 +175,18 @@ describe("the emitter is written against the published API", () => {
 		expect(deepImport).toEqual([]);
 	});
 
-	it("emits one file, and delegates everything else", () => {
+	it("emits the server and its runtime, and delegates everything else", () => {
 		/**
 		 * Not a style rule. This package's whole claim is that it runs the library and adds a server;
-		 * an emitter that grew a second `emitFile` would be doing work the library should own, or
+		 * an emitter that grew further `emitFile` calls would be doing work the library should own, or
 		 * duplicating work it already does.
+		 *
+		 * Two, not one, and the second is deliberate: `runtime.gen.ts` is a copy of this package's own
+		 * runtime, written beside the generated code so that nothing emitted imports this package at
+		 * run time. That is what lets it be a devDependency. It is not library work being duplicated.
 		 */
-		expect([...source.matchAll(/emitFile\(/g)].length).toBe(1);
+		expect([...source.matchAll(/emitFile\(/g)].length).toBe(2);
+		expect(source).toContain("runtime.gen.ts");
 		/**
 		 * **The CLASS (one delegation, handed the emit context) not a literal call spelling.**
 		 *

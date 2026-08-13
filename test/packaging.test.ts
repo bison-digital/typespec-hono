@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { compileEmittedSet } from "./support/emitted-set.js";
+import { DEFAULT_RUNTIME_MODULE } from "../src/emitter.js";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 /**
@@ -285,27 +286,34 @@ describe("the package is publishable", () => {
 });
 
 describe("the install instruction matches what actually ships", () => {
-	it("tells adopters to install it as a dependency, because the runtime is a value", () => {
+	it("tells adopters to install it as a devDependency, because nothing it emits imports it", () => {
 		/**
-		 * **`--save-dev` was wrong and it fails only at DEPLOY.** `./runtime` exports runtime values
-		 * (`armFor`, and `selectContentType` where a route negotiates) which both the generated server and
-		 * the consumer's own `deps` import. Under a dev install everything passes: install, typecheck,
-		 * `wrangler dev`. The production install drops the package and the bundle fails:
-		 * `Could not resolve "typespec-hono/runtime"`. Measured with `pnpm install --prod` then
-		 * `wrangler deploy --dry-run`, exit 1.
+		 * **Derived from where the generated code points, not asserted as prose.** The rule is: if the
+		 * default runtime module is RELATIVE, the generated code resolves it beside itself and never
+		 * reaches for this package at run time, so a devDependency is correct. If it ever becomes a
+		 * bare specifier again, the package ships code into the consumer's bundle and the instruction
+		 * has to change with it. Neither can quietly contradict the other.
 		 *
-		 * **Derived, not asserted as prose.** The rule is "IF `./runtime` exports at least one value,
-		 * the README must not say `--save-dev`", so a future runtime that became types-only would relax
-		 * this automatically, and one that gains a value can never quietly contradict the instruction.
+		 * This package used to instruct `npm install typespec-hono`, because `./runtime` exported
+		 * values that both the generated server and the consumer's `deps` imported. Under a dev install
+		 * everything passed (install, typecheck, `wrangler dev`) and the production install then failed
+		 * at the bundle with `Could not resolve "typespec-hono/runtime"`. The runtime is emitted beside
+		 * the generated code now, so the failure mode and the warning it needed are both gone.
 		 */
-		const runtime = readFileSync(join(packageRoot, "src", "runtime.ts"), "utf8");
-		const valueExports = [...runtime.matchAll(/^export (?:async )?(?:function|const) (\w+)/gm)].map(
-			(match) => match[1] ?? "",
-		);
 		const readme = readFileSync(join(packageRoot, "README.md"), "utf8");
-		if (valueExports.length === 0) return;
-		expect(valueExports.length).toBeGreaterThanOrEqual(1);
-		expect(readme).not.toMatch(/npm install --save-dev typespec-hono/);
-		expect(readme).toMatch(/npm install typespec-hono/);
+		const relative = DEFAULT_RUNTIME_MODULE.startsWith(".");
+		expect(relative, `default runtime module is ${DEFAULT_RUNTIME_MODULE}`).toBe(true);
+		expect(readme).toMatch(/npm install --save-dev typespec-hono/);
+		expect(readme).not.toMatch(/npm install typespec-hono/);
+	});
+
+	it("emits that runtime, so the relative specifier resolves to something", () => {
+		/**
+		 * Non-vacuity for the arm above. A relative specifier pointing at a file the emitter never
+		 * writes would satisfy it while leaving every generated file unable to compile.
+		 */
+		const emitter = readFileSync(join(packageRoot, "src", "emitter.ts"), "utf8");
+		expect(emitter).toContain("runtime.gen.ts");
+		expect(DEFAULT_RUNTIME_MODULE).toBe("./runtime.gen.js");
 	});
 });
