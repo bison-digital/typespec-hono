@@ -247,14 +247,19 @@ function inputTypeOf(entry: AppRoute): string | undefined {
 	 * query parameter of that name.
 	 */
 	const bodyProperty = entry.route.bodyProperty;
+	/**
+	 * **The body validator is found by its SCHEMA, never by its target.** A JSON body validates under
+	 * `"json"` and a form body under `"form"`, so keying on the JSON target silently missed every
+	 * form - measured on a clean install, `@header contentType: "application/x-www-form-urlencoded"`
+	 * with a `Record` body still emitted the intersection and still did not compile. The schema
+	 * identifier is the same fact whichever parser reads it.
+	 */
+	const bodyName = entry.names.body;
 	const parts = entry.validators
-		.filter(([target]) => bodyProperty === undefined || target !== VALIDATOR_TARGET.body)
+		.filter(([, name]) => bodyProperty === undefined || name !== bodyName)
 		.map(([, name]) => `z.infer<typeof ${name}>`);
-	if (bodyProperty !== undefined) {
-		const bodySchema = entry.validators.find(([target]) => target === VALIDATOR_TARGET.body)?.[1];
-		if (bodySchema !== undefined) {
-			parts.push(`{ ${objectKey(bodyProperty)}: z.infer<typeof ${bodySchema}> }`);
-		}
+	if (bodyProperty !== undefined && bodyName !== undefined) {
+		parts.push(`{ ${objectKey(bodyProperty)}: z.infer<typeof ${bodyName}> }`);
 	}
 	if (entry.route.rawBodyProperty !== undefined) {
 		const reader = rawBodyReaderFor(entry.route.requestContentTypes);
@@ -613,12 +618,14 @@ export function renderApp(
 			}
 			// A dispatched body is in `validators` under the body target like any other, so there is
 			// nothing extra to spread: `byContentType` published it there whichever parser ran.
+			// Same rule as `inputTypeOf`: the body is identified by its schema, not by its target.
+			const bodyTarget = validators.find(([, name]) => name === entry.names.body)?.[0];
 			const pieces = validators.map(([target]) =>
 				/**
 				 * A named body is assigned rather than spread, matching the input type above and the
 				 * document, which states the parameters and the body as separate things.
 				 */
-				route.bodyProperty !== undefined && target === VALIDATOR_TARGET.body
+				route.bodyProperty !== undefined && target === bodyTarget
 					? `${objectKey(route.bodyProperty)}: c.req.valid(${JSON.stringify(target)})`
 					: `...c.req.valid(${JSON.stringify(target)})`,
 			);

@@ -10,7 +10,19 @@ consumer feels, and is treated as such here rather than as an implementation det
 
 ## [Unreleased]
 
-Nothing since `0.13.0`.
+Nothing since `0.13.1`.
+
+## [0.13.1] - 2026-08-14
+
+`0.13.0` fixed the `Record` body for a JSON body only. **A form body validates under the `"form"`
+target, not `"json"`**, and the fix keyed on the JSON target, so
+`@header contentType: "application/x-www-form-urlencoded"` with a `Record` body still emitted the
+intersection and still failed with `TS2345`.
+
+The body validator is identified by its SCHEMA now, which is the same fact whichever parser reads it.
+
+Found by compiling the reported spec from a clean install of `0.13.0`, not by the suite - the fixture
+declared a JSON body only, so the form path was ungraded. It is covered now.
 
 ## [0.13.0] - 2026-08-14
 

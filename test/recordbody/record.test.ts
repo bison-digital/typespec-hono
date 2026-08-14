@@ -38,6 +38,11 @@ describe("a request body with an indexer", () => {
 		expect(source).toContain('body: c.req.valid("json")');
 	});
 
+	it("names a FORM body too, whose validator target is not the JSON one", () => {
+		expect(source).toMatch(/z\(ctx: Ctx, input: [^)]*\{ body: z\.infer<typeof zBody> \}/);
+		expect(source).toContain('body: c.req.valid("form")');
+	});
+
 	it("still spreads an ordinary model body, so nothing else moved", () => {
 		// A named model body reuses its own schema, so the name is `thingSchema` rather than `yBody`.
 		expect(source).toMatch(
