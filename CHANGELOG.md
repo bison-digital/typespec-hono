@@ -10,7 +10,14 @@ consumer feels, and is treated as such here rather than as an implementation det
 
 ## [Unreleased]
 
-Nothing since `0.13.1`.
+Nothing since `0.14.0`.
+
+## [0.14.0] - 2026-08-14
+
+Requires `typespec-http-zod@^0.16.0`, where two constructs made the emitter's own assertion fail on
+its own output: a `@multipartBody` never reached the request type, and an open model's type lacked
+the catchall its `.loose()` schema infers. Both emitted a `wire-contract.gen.ts` that does not
+compile.
 
 ## [0.13.1] - 2026-08-14
 
