@@ -10,7 +10,20 @@ consumer feels, and is treated as such here rather than as an implementation det
 
 ## [Unreleased]
 
-Nothing since `0.10.0`.
+Nothing since `0.10.1`.
+
+## [0.10.1] - 2026-08-14
+
+A patch: `regenerate-hint` reached three generated files out of five.
+
+The option is the library's and its files honoured it, while `app.gen.ts` and `runtime.gen.ts` are
+written here and carried their own banner. A consumer set one option and got it on the two files a
+reader opens last, which is worse than not offering it.
+
+Also carries `typespec-http-zod@0.12.1`, where a redirect emitted a duplicate response arm.
+
+Both were found by compiling a spec from a clean install of the published packages, not by either
+suite. Both suites were green over them.
 
 ## [0.10.0] - 2026-08-14
 

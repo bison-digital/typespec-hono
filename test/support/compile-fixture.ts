@@ -107,7 +107,7 @@ export async function compileFixture(
 			"@typespec/openapi3": { "emitter-output-dir": join(outDir, "openapi"), "file-type": "json" },
 			"typespec-hono":
 				options.bare === true
-					? { "emitter-output-dir": outDir }
+					? { "emitter-output-dir": outDir, ...(options.extraOptions ?? {}) }
 					: {
 							"emitter-output-dir": outDir,
 							"contracts-output-dir": outDir,
