@@ -4,7 +4,11 @@
 
 Every option `typespec-http-zod` accepts is forwarded, and the schema is derived from that package's
 rather than restated. See its README for `seal-object-schemas`, `contracts-output-dir`,
-`contracts-package`, `key-vocabularies`, `runtime-module` and `services`.
+`contracts-package`, `key-vocabularies`, `runtime-module`, `regenerate-hint` and `services`.
+
+`regenerate-hint` is worth setting on day one: it writes your project's own regeneration command into
+every generated banner, so a reader who opens one is told what to run rather than only what not to
+edit.
 
 `runtime-module` is the one to reach for when the identity defaults are not enough. Point it at a
 module of your own that re-declares `Result`, `Ctx`, `AppEnv` and `RouteDeps`, and every generated
@@ -93,3 +97,20 @@ against.
 
 **Two parameters in one route are independent.** `@route("/repo/{owner}/{+ref}")` mounts
 `/repo/:owner/:ref{.+}`: `owner` still matches one segment.
+
+## Not serving a service you compile
+
+An internal surface and a public one belong in one `tsp compile`, which is what makes a shared
+vocabulary shared. A project that does not serve one of them yet still wants its types and its
+validators, and used to get a server as well:
+
+```yaml
+options:
+  typespec-hono:
+    services:
+      Unserved:
+        emit-server: false
+```
+
+Only `app.gen.ts` is withheld. Everything the library emits for that service is untouched, because
+those are the reason it is in the program.

@@ -72,6 +72,8 @@ export interface FixtureOptions {
 	 * asserted while reading only the server.
 	 */
 	readonly withDocument?: boolean;
+	/** Anything else the emitter accepts, for an option a single suite exercises. */
+	readonly extraOptions?: Readonly<Record<string, unknown>>;
 }
 
 export async function compileFixture(
@@ -112,6 +114,7 @@ export async function compileFixture(
 							"contracts-package": `./${CONTRACTS_BARREL}.js`,
 							"seal-object-schemas": true,
 							"runtime-module": options.runtimeModule ?? runtimeFixtureModule(outDir),
+							...(options.extraOptions ?? {}),
 						},
 		},
 	});

@@ -10,7 +10,35 @@ consumer feels, and is treated as such here rather than as an implementation det
 
 ## [Unreleased]
 
-Nothing since `0.9.1`.
+Nothing since `0.10.0`.
+
+## [0.10.0] - 2026-08-14
+
+Requires `typespec-http-zod@^0.12.0`.
+
+A minor: the emitted type of every optional property changes, from the library.
+
+### Added
+
+- **`services.<name>.emit-server: false`**, so a service a project compiles but does not serve gets
+  its types and validators without a server. An internal surface and a public one belong in one
+  compile, which is what makes a shared vocabulary shared; a project not yet serving one of them used
+  to get an `app.gen.ts` it kept honest with probe tests and never mounted. Only that file is withheld.
+- `regenerate-hint`, forwarded from the library, writes your own regeneration command into every
+  banner. Worth setting on day one: a reader who opens a generated file is then told what to run
+  rather than only what not to edit.
+
+### Fixed
+
+- **The compile arm had never seen multi-service output.** It included `./*.gen.ts`, and a program
+  declaring several services writes one directory per service, so `tsc` answered `TS18003` on the
+  first such fixture rather than compiling anything. Recursive now, and the construct sweep beside it
+  walks for `app.gen.ts` at any depth instead of reading only the top level.
+
+### From the library
+
+- An optional property is no longer typed as admitting an explicit `undefined`. JSON cannot carry
+  one, and the document says so by leaving the property out of `required`.
 
 ## [0.9.1] - 2026-08-14
 

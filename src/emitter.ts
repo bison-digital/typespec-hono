@@ -115,6 +115,19 @@ export async function $onEmit(context: EmitContext): Promise<void> {
 		 * its server, so `@server("/api/v1")` plus `/accounts` publishes `/api/v1/accounts`. Mounting at
 		 * the root made every client generated from the document 404.
 		 */
+		/**
+		 * **A service this project does not serve still belongs in the program.**
+		 *
+		 * One compile is what makes a shared vocabulary shared, so a surface not yet served is in the
+		 * spec for its types and its validators. Its server is not wanted, and without a way to say so
+		 * the emitter wrote an `app.gen.ts` the project had to keep honest with probe tests and never
+		 * mounted.
+		 *
+		 * Only this file is withheld. Everything the library emits for that service is untouched,
+		 * because those are the reason it is in the program at all.
+		 */
+		const serviceName = emitted.service.namespace.name;
+		if (context.options.services?.[serviceName]?.["emit-server"] === false) continue;
 		const base = resolveBasePath(context.program, emitted.service.namespace);
 		await emitFile(context.program, {
 			path: resolvePath(emitted.outputDir, "app.gen.ts"),

@@ -31,7 +31,15 @@ import {
  * because it carries anything today. The moment a Hono-only option appears it goes here, and the
  * derivation keeps the rest honest.
  */
-export type EmitterOptions = HttpZodOptions;
+export type EmitterOptions = HttpZodOptions & {
+	/**
+	 * Per-service overrides this emitter adds on top of the library's.
+	 *
+	 * **The library's own `services` map is preserved**, because the type is an intersection: an
+	 * option added there still arrives here, and this only widens what each entry may carry.
+	 */
+	services?: Record<string, { "emit-server"?: boolean }>;
+};
 
 /**
  * **A spread of the published schema, so a new key arrives for free.**
@@ -42,7 +50,29 @@ export type EmitterOptions = HttpZodOptions;
  */
 const EmitterOptionsSchema: JSONSchemaType<EmitterOptions> = {
 	...httpZodOptions,
-	properties: { ...httpZodOptions.properties },
+	properties: {
+		...httpZodOptions.properties,
+		/**
+		 * **Spread from the library's own entry rather than restated**, so a per-service option added
+		 * there still validates here. Only `emit-server` is added.
+		 */
+		services: {
+			...(httpZodOptions.properties as { services: Record<string, unknown> }).services,
+			additionalProperties: {
+				type: "object",
+				additionalProperties: false,
+				properties: {
+					...(
+						httpZodOptions.properties as {
+							services: { additionalProperties: { properties: Record<string, unknown> } };
+						}
+					).services.additionalProperties.properties,
+					"emit-server": { type: "boolean", nullable: true },
+				},
+				required: [],
+			},
+		},
+	},
 };
 
 /**

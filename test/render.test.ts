@@ -82,6 +82,7 @@ function serviceWith(
 			sealObjectSchemas: false,
 			keyVocabularies: [],
 			runtimeModule: "typespec-hono/runtime",
+			regenerateHint: undefined,
 		},
 	};
 }

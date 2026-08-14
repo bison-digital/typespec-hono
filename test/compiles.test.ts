@@ -94,7 +94,12 @@ function typecheck(outDir: string): string {
 				skipLibCheck: true,
 				types: [],
 			},
-			include: ["./*.gen.ts"],
+			/**
+			 * **Recursive, because a program declaring several services writes one directory each.**
+			 * A flat include found nothing for such a fixture and `tsc` answered `TS18003`, so
+			 * multi-service output had never been through a compiler at all.
+			 */
+			include: ["./**/*.gen.ts"],
 		}),
 	);
 	try {
@@ -139,9 +144,23 @@ describe("every generated server compiles", () => {
 	 * registered under `GET`, a negotiated response, a raw binary read.
 	 */
 	it("the compiled set actually contains the constructs worth compiling", () => {
-		const sources = [...compiled.values()].map((outDir) =>
-			readFileSync(join(outDir, "app.gen.ts"), "utf8"),
-		);
+		/**
+		 * Every emitted server, at whatever depth: a multi-service program writes one per service in a
+		 * directory of its own, and reading only the top level silently skipped those.
+		 */
+		const servers = (root: string): string[] => {
+			const found: string[] = [];
+			const walk = (dir: string): void => {
+				for (const entry of readdirSync(dir)) {
+					const full = join(dir, entry);
+					if (statSync(full).isDirectory()) walk(full);
+					else if (entry === "app.gen.ts") found.push(readFileSync(full, "utf8"));
+				}
+			};
+			walk(root);
+			return found;
+		};
+		const sources = [...compiled.values()].flatMap(servers);
 		const emitted = (token: string): number =>
 			sources.filter((source) => source.includes(token)).length;
 		expect(emitted("byContentType("), "no fixture emits a dispatched request body").toBeGreaterThan(
