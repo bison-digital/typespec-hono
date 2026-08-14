@@ -10,7 +10,24 @@ consumer feels, and is treated as such here rather than as an implementation det
 
 ## [Unreleased]
 
-Nothing since `0.8.0`.
+Nothing since `0.9.0`.
+
+## [0.9.0] - 2026-08-14
+
+Requires `typespec-http-zod@^0.11.0`.
+
+A minor, and everything in it comes from the library: a response arm now carries the headers and the
+media types the document declares for it, and an operation whose only response is a redirect is
+emitted rather than silently dropped.
+
+`ResponseArm` in the emitted runtime gains `headers` and `contentTypes` to match, so `deps.respond`
+can set a `Location` on a 302 and can tell which media type it is answering with. Both are absent
+where the document declares nothing, so "none declared" and "none carried" are one state rather than
+two.
+
+**If you have copied `runtime.gen.ts` to substitute your own types, take the new one.** The
+declaration is structural and `test/runtime-parity.test.ts` compares this copy against the library's,
+so a stale copy is a silent disagreement about what an arm carries.
 
 ## [0.8.0] - 2026-08-14
 

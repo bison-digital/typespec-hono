@@ -14,6 +14,25 @@ import type { input, output, ZodType } from "zod";
 export interface ResponseArm {
 	readonly status: number | "default" | `${1 | 2 | 3 | 4 | 5}XX`;
 	readonly schema: ZodType | undefined;
+	/**
+	 * The media types this response offers, where the document names MORE than one.
+	 *
+	 * Absent where it names one, which is what an application already assumes, so "one type" and
+	 * "not carried" are the same state rather than two to tell apart. Present, it is the set to
+	 * negotiate against: `selectContentType` takes the caller's `Accept` and these.
+	 */
+	readonly contentTypes?: readonly string[];
+	/**
+	 * The headers this response declares, as the document publishes them.
+	 *
+	 * **Two names, because two different things need them.** `name` is the WIRE name, which is what
+	 * the response sets; `property` is the name on the value the handler returned, which is where the
+	 * value is read from. `@header("x-correlation-id") correlationId: string` is `x-correlation-id`
+	 * on the wire and `correlationId` in the result, and they differ for any header with a hyphen.
+	 *
+	 * Absent where the response declares none.
+	 */
+	readonly headers?: readonly { readonly name: string; readonly property: string }[];
 	readonly when?: {
 		readonly property: string;
 		readonly value: boolean | string;
