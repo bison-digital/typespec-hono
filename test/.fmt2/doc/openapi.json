@@ -1,0 +1,64 @@
+{
+	"openapi": "3.0.0",
+	"info": {
+		"title": "F",
+		"version": "0.0.0"
+	},
+	"tags": [],
+	"paths": {
+		"/t": {
+			"post": {
+				"operationId": "t",
+				"parameters": [],
+				"responses": {
+					"200": {
+						"description": "The request has succeeded.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Thing"
+								}
+							}
+						}
+					}
+				},
+				"requestBody": {
+					"required": true,
+					"content": {
+						"application/json": {
+							"schema": {
+								"$ref": "#/components/schemas/Thing"
+							}
+						}
+					}
+				},
+				"security": [{}]
+			}
+		}
+	},
+	"components": {
+		"schemas": {
+			"Thing": {
+				"type": "object",
+				"required": ["when", "link", "plain", "id"],
+				"properties": {
+					"when": {
+						"type": "string",
+						"format": "date-time"
+					},
+					"link": {
+						"type": "string",
+						"format": "uri"
+					},
+					"plain": {
+						"type": "string"
+					},
+					"id": {
+						"type": "string",
+						"format": "uuid"
+					}
+				}
+			}
+		}
+	}
+}

@@ -1,0 +1,7 @@
+emit: [typespec-hono, "@typespec/openapi3"]
+options:
+  typespec-hono:
+    emitter-output-dir: "{project-root}/server"
+  "@typespec/openapi3":
+    emitter-output-dir: "{project-root}/doc"
+    file-type: json

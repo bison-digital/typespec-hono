@@ -10,7 +10,18 @@ consumer feels, and is treated as such here rather than as an implementation det
 
 ## [Unreleased]
 
-Nothing since `0.10.1`.
+Nothing since `0.11.0`.
+
+## [0.11.0] - 2026-08-14
+
+Requires `typespec-http-zod@^0.13.0`.
+
+A minor, from the library: a scalar the spec declares is now checked rather than validated as a bare
+string. `utcDateTime` emits `z.iso.datetime({ offset: true })`, `url` emits `z.url()`, and the
+`plainDate`, `plainTime` and `duration` scalars likewise.
+
+A service promising a timestamp accepted `banana` before this. `@format("...")` on a plain string
+stays unenforced, because a type is a claim about the value and an annotation is a hint about it.
 
 ## [0.10.1] - 2026-08-14
 
