@@ -36,6 +36,8 @@ function serviceWith(
 ): EmittedService {
 	const full = {
 		reservedPathParameters: [],
+		responseHeaders: [],
+		responseMediaTypes: [],
 		statusCode: 200,
 		statusCodes: [200],
 		responseContentTypes: ["application/json"],

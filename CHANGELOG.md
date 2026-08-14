@@ -10,7 +10,16 @@ consumer feels, and is treated as such here rather than as an implementation det
 
 ## [Unreleased]
 
-Nothing since `0.9.0`.
+Nothing since `0.9.1`.
+
+## [0.9.1] - 2026-08-14
+
+`0.9.0` was tagged and never published: a test fixture constructing an `EmittedRoute` by hand had not
+been given the library's two new fields, so `typecheck` failed and the release workflow stopped. The
+mistake that let it be tagged was piping `pnpm typecheck` into `tail`, which reports the exit status
+of `tail` rather than of the compiler, so the gate chain continued past a failure.
+
+Nothing else differs from `0.9.0`.
 
 ## [0.9.0] - 2026-08-14
 
