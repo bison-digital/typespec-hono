@@ -45,6 +45,20 @@ const DELIMITER_SPLIT =
 	/z\.preprocess\(\(raw\) => \(typeof raw === "string" \? raw\.split\("(?:[^"\\]|\\.)*"\) : raw\), /g;
 
 /**
+ * One occurrence of an exploded list, boxed into the list the document describes.
+ *
+ * `style: form, explode: true` is OpenAPI's DEFAULT for a query parameter, so `?topics=a` is a valid
+ * one-element array and the document says so by omitting `explode` rather than by stating it.
+ * `zValidator` delivers a bare string for one occurrence and an array for several, so the emitted
+ * `z.array()` accepted `?topics=a&topics=b` and refused `?topics=a`: the same list decided by its
+ * length, which no document describes.
+ *
+ * Admitted on the same terms as the split below it. It reshapes the wire into what the document
+ * already describes and runs every constraint afterwards, rather than relaxing one.
+ */
+const EXPLODED_BOX = /z\.preprocess\(\(raw\) => \(typeof raw === "string" \? \[raw\] : raw\), /g;
+
+/**
  * A path, query or header scalar decoded from the only thing HTTP can carry: text.
  *
  * **`type: integer` on a query parameter describes the DECODED value, not the wire.** Without this
@@ -132,7 +146,7 @@ describe("the generated validator says only what the document can say", () => {
 		 * its own `app.gen.ts` sits beside them and could acquire a non-derivable call of its own.
 		 * Copying the shapes rather than loosening the arm is what keeps the two in step.
 		 */
-		const permitted = [DELIMITER_SPLIT, ...SCALAR_DECODE, ...MEDIA_TYPE_DECODE];
+		const permitted = [DELIMITER_SPLIT, EXPLODED_BOX, ...SCALAR_DECODE, ...MEDIA_TYPE_DECODE];
 		for (const file of files) {
 			const source = readFileSync(file, "utf8");
 			const all = (source.match(/z\.preprocess\(/g) ?? []).length;

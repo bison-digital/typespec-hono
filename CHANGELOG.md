@@ -10,7 +10,23 @@ consumer feels, and is treated as such here rather than as an implementation det
 
 ## [Unreleased]
 
-Nothing since `0.3.2`.
+Nothing since `0.4.0`.
+
+## [0.4.0] - 2026-08-14
+
+Requires `typespec-http-zod@^0.4.0`.
+
+A minor because the library changes the shape of an emitted query validator: one
+occurrence of an exploded list is boxed into the list the document describes.
+`zValidator` delivers a bare string for a single occurrence and an array for
+several, so `?topics=a` was refused while `?topics=a&topics=b` was accepted, the
+same list decided by its length.
+
+`style: form, explode: true` is OpenAPI's default for query parameters, so a
+single occurrence IS a one-element array and the document said so all along. The
+vocabulary guard admits the boxing on the same terms as the delimiter split: it
+reshapes the wire into what the document already describes and runs every
+constraint afterwards.
 
 ## [0.3.2] - 2026-08-13
 
