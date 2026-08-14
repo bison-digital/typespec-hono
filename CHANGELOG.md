@@ -10,7 +10,46 @@ consumer feels, and is treated as such here rather than as an implementation det
 
 ## [Unreleased]
 
-Nothing since `0.4.0`.
+Nothing since `0.5.0`.
+
+## [0.5.0] - 2026-08-14
+
+Requires `typespec-http-zod@^0.5.0`.
+
+A minor because it changes emitted output, and because `byContentType`'s
+signature in the emitted runtime has changed. If you have copied
+`runtime.gen.ts` to substitute your own types, take the new one: regenerated
+output calls the new signature.
+
+### An operation accepting several request media types now emits a server that compiles
+
+Declaring both a JSON and a form-encoded body on one operation emitted an
+`app.gen.ts` that `tsc` rejected:
+
+```
+app.gen.ts(202,22): error TS2345: Argument of type '"json"' is not assignable
+to parameter of type '"header"'.
+```
+
+`byContentType` was a plain middleware wrapping pre-built validators, so it
+contributed nothing to Hono's chain and the handler's `c.req.valid("json")`
+named a target the types did not carry. The same cause left the request body out
+of the handler's declared input type on those routes, so the body arrived at run
+time and was invisible to the compiler.
+
+It now takes the body's schema, chooses the reader from the request's
+`Content-Type`, and publishes what it validated under the body target whichever
+reader ran. The emitted registration is the ordinary shape: one body middleware,
+one `c.req.valid` spread, the body in the input type. The readers are Hono's
+own, and a malformed JSON body raises the exception `zValidator` raises.
+
+Only operations declaring request media types that need different parsers are
+affected. Everything else emits exactly as before.
+
+### A `HEAD` alone on its path
+
+No behaviour change; the guard was correct and is now exercised by a fixture that
+is compiled and requested, rather than only by corpus output that was neither.
 
 ## [0.4.0] - 2026-08-14
 
