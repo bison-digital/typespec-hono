@@ -35,6 +35,7 @@ function serviceWith(
 	route: Partial<EmittedRoute> & { operationId: string; verb: string },
 ): EmittedService {
 	const full = {
+		reservedPathParameters: [],
 		statusCode: 200,
 		statusCodes: [200],
 		responseContentTypes: ["application/json"],

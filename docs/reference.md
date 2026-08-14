@@ -64,3 +64,32 @@ Graded against 62 scenarios of [`@typespec/http-specs`](https://github.com/micro
 corpus this project did not write, with route counts read from `app.routes` after mounting the real
 server rather than from the emitted text: 635 declared, 635 mounted, 0 refused, 27 partially
 validated.
+
+## Path parameters that carry slashes
+
+A hierarchical identifier is one value, not several segments: an Obsidian note is `areas/health.md`,
+and an S3 key or a GitHub file path is the same shape. Declare it with RFC 6570 reserved expansion in
+the route template:
+
+```tsp
+@route("/vault/{+path}")
+@get
+op readNote(@path path: string): Note;
+```
+
+The route is mounted as `/vault/:path{.+}`, so the whole remainder reaches the handler. A parameter
+without the marker is unchanged and still matches a single segment.
+
+**The published document says `/vault/{path}`, and that is a divergence we accept deliberately.**
+OpenAPI cannot express reserved expansion at any version, including 3.2, so `@typespec/openapi3`
+strips the operator and raises `path-reserved-expansion` as a warning. Suppress it per operation if
+you do not want it in your build output.
+
+The divergence is a **superset rather than a contradiction**, which is what makes it safe: a client
+generated from the document percent-encodes a path parameter and sends `/vault/areas%2Fhealth.md`,
+and the greedy route answers that too, with the same value. Measured both ways in `test/wire/`, which
+is the only oracle available here, since the document deliberately disagrees and cannot be compared
+against.
+
+**Two parameters in one route are independent.** `@route("/repo/{owner}/{+ref}")` mounts
+`/repo/:owner/:ref{.+}`: `owner` still matches one segment.

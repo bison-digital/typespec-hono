@@ -10,7 +10,48 @@ consumer feels, and is treated as such here rather than as an implementation det
 
 ## [Unreleased]
 
-Nothing since `0.7.0`.
+Nothing since `0.8.0`.
+
+## [0.8.0] - 2026-08-14
+
+Requires `typespec-http-zod@^0.10.0`.
+
+A minor: a spec declaring reserved path expansion mounts a different route than it did.
+
+### A path parameter can carry slashes
+
+A hierarchical identifier is one value, not several segments. Declare it with RFC 6570 reserved
+expansion in the route template and the whole remainder reaches the handler:
+
+```tsp
+@route("/vault/{+path}")
+@get
+op readNote(@path path: string): Note;
+```
+
+mounts `/vault/:path{.+}`, so `GET /vault/areas/health.md` delivers `areas/health.md` rather than
+`areas`. A parameter without the marker is unchanged and still matches a single segment.
+
+**The document says `/vault/{path}` and that divergence is deliberate.** OpenAPI cannot express
+reserved expansion at any version including 3.2, so `@typespec/openapi3` strips the operator and warns.
+It is a superset rather than a contradiction, which is what makes it safe: a client generated from the
+document percent-encodes the parameter and sends `/vault/areas%2Fhealth.md`, and the greedy route
+answers that too with the same value. Both are asserted by request in `test/wire/`, which is the only
+oracle available where the document deliberately disagrees.
+
+The refusal on a parameter NAME is unchanged and still comes first: a name carrying a space, `+` or
+`!` is refused whether or not it is reserved.
+
+### Fixed
+
+- **A comparator rejected a legal route.** The arm asserting no route is mounted at an unconverted
+  template matched any registered path containing `{`, and Hono's greedy form `:name{.+}` contains one.
+  It had never fired only because the corpus scenario that would reach it is skipped for an unrelated
+  reason. It is about unconverted templates now rather than about braces, with its own control proving
+  it still catches a real `/things/{thing-id}`.
+- **The security comparator passed over zero comparisons.** It collects divergences and asserts the
+  list is empty, and finding none is what happens when it reads nothing at all. Floored on both sides
+  of the read, documents found and operations compared.
 
 ## [0.7.0] - 2026-08-14
 

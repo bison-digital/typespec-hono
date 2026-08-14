@@ -41,11 +41,32 @@ const PLAIN_PATH_PARAMETER = /^[A-Za-z0-9_.~-]+$/;
 export function toHonoPath(
 	template: string,
 	refuse: (template: string, name: string) => void,
+	/**
+	 * Wire names the document says carry RFC 6570 reserved expansion, so their value may contain `/`.
+	 *
+	 * **A hierarchical identifier is ONE value, not several segments.** An Obsidian note is
+	 * `areas/health.md`; an S3 key and a GitHub file path are the same shape. A router that stops at
+	 * the first `/` binds `areas` and 404s the rest. Hono spells the greedy form `:name{.+}`.
+	 *
+	 * Read from `EmittedRoute.reservedPathParameters`, which the library resolves from `allowReserved`
+	 * on the parameter. **Never from the template**: the operator does not survive to `route.path`,
+	 * `@typespec/http` strips it, and it can also be set with no operator in the template at all, so
+	 * the template is a derived artefact rather than the source of truth.
+	 */
+	reserved: ReadonlySet<string> = new Set(),
 ): string {
 	return template.replace(/\{([^}]+)\}/g, (match, name: string) => {
-		if (PLAIN_PATH_PARAMETER.test(name)) return `:${name}`;
-		refuse(template, name);
-		return match;
+		/**
+		 * **The name check comes FIRST and is unconditional.** A name Hono cannot carry is refused
+		 * whether or not it is reserved: greedy matching does not make a space or a `+` in a parameter
+		 * name expressible, and letting one through because another flag was set would mount a route
+		 * matching the wrong requests rather than one that fails.
+		 */
+		if (!PLAIN_PATH_PARAMETER.test(name)) {
+			refuse(template, name);
+			return match;
+		}
+		return reserved.has(name) ? `:${name}{.+}` : `:${name}`;
 	});
 }
 
@@ -448,8 +469,10 @@ export function renderApp(
 			/** A HEAD with no GET beside it: registered under GET, and guarded so only a HEAD reaches it. */
 			const headOnly = plainGroups.length === 0 && headGroups.length > 0;
 			const method = HONO_METHOD[registrationVerbOf(route.verb)] ?? "on";
-			const path = toHonoPath(route.path, (template, name) =>
-				refuse.unsupportedPathTemplate(route, template, name),
+			const path = toHonoPath(
+				route.path,
+				(template, name) => refuse.unsupportedPathTemplate(route, template, name),
+				new Set(route.reservedPathParameters),
 			);
 			/**
 			 * A route inside a sub-app is registered RELATIVE to the prefix it is mounted at.

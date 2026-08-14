@@ -289,6 +289,28 @@ describe("the generated server mounts what the document declares", () => {
 		expect(unreachable.toSorted()).toEqual([]);
 	});
 
+	/**
+	 * A registered path with the LEGAL greedy form erased, so what remains is only an unconverted
+	 * template.
+	 *
+	 * **`:name{.+}` is valid Hono and contains a brace**, so an arm scanning for `{` rejects it. That
+	 * form is how a path parameter declared with RFC 6570 reserved expansion is mounted, and it became
+	 * legal the day this emitter started rendering it. Erasing it first is what keeps the arm about
+	 * unconverted templates rather than about braces.
+	 */
+	function withoutGreedy(path: string): string {
+		return path.replaceAll(/:[A-Za-z0-9_.~-]+\{\.\+\}/g, ":x");
+	}
+
+	it("tells the legal greedy form from an unconverted template", () => {
+		// Its own control, because the arm below passes when it finds nothing and erasing too much is
+		// exactly how it would find nothing.
+		expect(withoutGreedy("/vault/:path{.+}")).not.toContain("{");
+		expect(withoutGreedy("/vault/:path{.+}/move")).not.toContain("{");
+		expect(withoutGreedy("/things/{thing-id}")).toContain("{");
+		expect(withoutGreedy("/repo/:owner/:ref{.+}")).not.toContain("{");
+	});
+
 	it("mounts no route still carrying a path template", () => {
 		/**
 		 * **A route mounted at the literal `/things/{thing-id}` is reachable by nobody**, and every
@@ -298,8 +320,10 @@ describe("the generated server mounts what the document declares", () => {
 		for (const compiled of sources) {
 			if (compiled.failure !== undefined) continue;
 			const source = readFileSync(join(compiled.serverDir, "app.gen.ts"), "utf8");
-			for (const match of source.matchAll(/^\t\t"([^"]*\{[^"]*)",$/gm)) {
-				literal.push(`${compiled.scenario.name}: ${match[1]}`);
+			for (const match of source.matchAll(/^\t\t"([^"]*)",$/gm)) {
+				if (withoutGreedy(match[1] ?? "").includes("{")) {
+					literal.push(`${compiled.scenario.name}: ${match[1]}`);
+				}
 			}
 		}
 		expect(literal.toSorted()).toEqual([]);
