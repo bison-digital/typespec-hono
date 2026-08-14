@@ -96,6 +96,22 @@ describe("the generated server accepts what the wire actually carries", () => {
 		expect(received["readItem"]).toMatchObject({ limit: 5, ratio: 0.5, expand: true });
 	});
 
+	it("accepts a numeric query parameter whose type is a union of literals", async () => {
+		/**
+		 * **The shape that emits `z.union([z.literal(10), ...])` rather than `z.number()`.** The
+		 * library chose whether to decode by reading the emitted expression, so this parameter got
+		 * none and answered 400 to every conformant caller. Fixed in `typespec-http-zod@0.6.0`; this
+		 * arm is what proves the fix reaches a request rather than only the validator.
+		 */
+		const response = await app.request("/paged?size=25");
+		expect(response.status).toBe(200);
+		expect(received["listPaged"]).toMatchObject({ size: 25 });
+	});
+
+	it("still refuses a value the union does not permit, so nothing was loosened", async () => {
+		expect((await app.request("/paged?size=99")).status).toBe(400);
+	});
+
 	it("accepts a content-type carrying the parameters a media type is allowed to carry", async () => {
 		/**
 		 * **`z.literal("application/json")` refuses `application/json; charset=utf-8`**, which is

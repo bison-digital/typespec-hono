@@ -10,7 +10,41 @@ consumer feels, and is treated as such here rather than as an implementation det
 
 ## [Unreleased]
 
-Nothing since `0.5.0`.
+Nothing since `0.6.0`.
+
+## [0.6.0] - 2026-08-14
+
+Requires `typespec-http-zod@^0.6.0`.
+
+A minor because the library gains a wire decoder a parameter did not have, so a
+consumer regenerating gets different output.
+
+### A name containing `$` no longer emits a file that cannot compile
+
+TypeSpec permits `$` in a model or operation name. The check deciding which
+validator identifiers to import built a regular expression per name, and `$`
+anchors the end of a pattern, so `\blist$ItemsQuery\b` never matched. Escaping
+alone would not have fixed it either: `\b` is a word boundary and `$` is not a
+word character.
+
+Measured on `op list$Items(@query $select?: string): Item$Ref[]`, the whole
+`./schemas.gen.js` import was dropped and the emitted file failed with four
+`TS2304: Cannot find name`, while `tsp compile` reported success. The rendered
+text is tokenised and compared by equality now.
+
+### From the library, via `^0.6.0`
+
+A query or path parameter typed as a union of literals, such as
+`@query size: 10 | 25 | 50`, now decodes the value the wire carries. It
+previously answered 400 to every conformant caller. `test/wire/` asserts it
+through a real request as well, because a correct validator can still be reached
+by nothing.
+
+### Internal
+
+The `headOnly` import is decided from the registration rather than by matching
+generated text, the same latent failure as the `byContentType` one fixed in
+0.5.0. Emitted output is unchanged by that.
 
 ## [0.5.0] - 2026-08-14
 

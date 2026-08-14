@@ -60,6 +60,23 @@ op readItem(
   @header("x-max-age") maxAge?: int32,
 ): Item;
 
+/**
+ * **A numeric parameter whose type is a UNION OF LITERALS, which is a different emitted shape.**
+ *
+ * `size` is a number with three permitted values, so the wire carries `?size=25` and the document
+ * describes `25`. The library decided whether to decode by reading the emitted expression, and this
+ * shape emits `z.union([z.literal(10), ...])`, which begins with neither prefix it looked for. Every
+ * conformant caller got a 400 on a parameter the document plainly describes, fixed in
+ * `typespec-http-zod@0.6.0`.
+ *
+ * It is asserted HERE as well as there because the two suites answer different questions: theirs
+ * grades the validator it emits, this one sends a real request through a real router to a real
+ * handler. A validator can be right and still be reached by nothing.
+ */
+@route("/paged")
+@get
+op listPaged(@query size?: 10 | 25 | 50): Item[];
+
 // --- A collection whose ELEMENTS need decoding after the split -------------------------------
 
 @route("/items")
