@@ -98,6 +98,29 @@ op createFromAny(
   @body body: Item,
 ): Item;
 
+/**
+ * **Two declared media types needing DIFFERENT parsers on ONE operation.**
+ *
+ * `zValidator`'s target is fixed when the file is generated; which parser applies is decided by the
+ * caller's `Content-Type` at request time. Where those two disagree the emitter dispatches on the
+ * header instead, which is what `byContentType` is for.
+ *
+ * **Nothing in this package emitted that path.** Measured across 356 generated `app.gen.ts` files,
+ * the whole conformance corpus and every fixture: `byContentType(` appeared **zero** times, so the
+ * dispatch shipped in 0.4.0 was graded by nothing, and truncating it in `src/` left the entire suite
+ * green. `createFromAny` above looks like this case and is not: `application/xml` has no parser, so
+ * one target survives and a single `zValidator` is correct there.
+ *
+ * This is the Swagger Petstore's `addPet` shape, where 11 of 17 request bodies are not JSON.
+ */
+@route("/items/either")
+@post
+op createFromEither(
+  @header contentType: "application/json" | "application/x-www-form-urlencoded",
+
+  @body body: Item,
+): Item;
+
 model UploadParts {
   file: HttpPart<File>;
   caption: HttpPart<string>;

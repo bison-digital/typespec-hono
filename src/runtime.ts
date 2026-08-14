@@ -1,5 +1,6 @@
+import { HTTPException } from "hono/http-exception";
 import type { Context, Env, Input, MiddlewareHandler } from "hono";
-import type { ZodType } from "zod";
+import type { input, output, ZodType } from "zod";
 
 /**
  * One arm of an operation's declared response set, as the document publishes it.
@@ -165,6 +166,37 @@ export const headOnly: MiddlewareHandler = async (c, next) =>
 	c.req.method === "HEAD" ? next() : c.notFound();
 
 /**
+ * The `zValidator` targets a request BODY can be read from. Hono extracts `"json"` with
+ * `c.req.json()` and `"form"` with `c.req.parseBody()`, and those are the only two that read a body.
+ */
+export type BodyTarget = "json" | "form";
+
+/**
+ * The request body, read the way the target says to read it.
+ *
+ * The same two readers Hono's own `validator` uses, and the same rejection for a body that is not
+ * the JSON it claims to be. `parseBody({ all: true })` builds the object Hono's `"form"` target
+ * builds: a repeated key and a `key[]` name both become an array, everything else stays a string.
+ */
+async function readBody(c: Context, target: BodyTarget): Promise<unknown> {
+	if (target === "form") return c.req.parseBody({ all: true });
+	try {
+		return await c.req.json();
+	} catch {
+		throw new HTTPException(400, { message: "Malformed JSON in request body" });
+	}
+}
+
+/**
+ * The slot a validated request body is published under, whichever parser produced it.
+ *
+ * `ValidationTargets` is a closed union in Hono, so a body cannot be given a name of its own. This
+ * is the slot the generated code already reads a body from when one media type is declared, so using
+ * it for a dispatched body is what keeps the two cases identical downstream.
+ */
+const BODY_TARGET = "json";
+
+/**
  * Apply the validator that parses the media type the request actually carries.
  *
  * A route may declare several request media types needing different parsers -- `addPet` in the
@@ -182,19 +214,63 @@ export const headOnly: MiddlewareHandler = async (c, next) =>
  * A `Content-Type` matching nothing declared falls through to the first validator, which reproduces
  * the previous behaviour exactly for that case: the body fails to parse and `deps.invalid` answers.
  * No status is invented here that the document does not describe.
+ *
+ * **The validated body is published under `"json"` whichever parser produced it**, and that is what
+ * makes a dispatched route the same shape as every other one downstream. `ValidationTargets` is a
+ * closed union in Hono, so there is no seventh name to coin for "the body"; `"json"` is already the
+ * slot this emitter reads a body from, and using it here means the handler spreads one
+ * `c.req.valid("json")` exactly as it does for a route declaring a single media type.
+ *
+ * **The alternative was a middleware that publishes under whichever target ran**, and it was worse
+ * in two ways that both shipped. `byContentType` was a bare `MiddlewareHandler`, which contributes no
+ * `Input` to the chain, so the generated `c.req.valid("json")` did not compile at all
+ * (`TS2345: Argument of type '"json"' is not assignable to parameter of type '"header"'`), and the
+ * handler's declared input type omitted the body entirely because the body was not among the route's
+ * ordinary validators. Publishing to one known slot removes both, rather than typing around them.
  */
-export function byContentType<E extends Env>(
-	validators: readonly (readonly [
-		mediaType: string,
-		target: string,
-		validator: MiddlewareHandler<E>,
-	])[],
-): MiddlewareHandler<E> {
+export function byContentType<E extends Env, S extends ZodType>(
+	schema: S,
+	invalid: <P extends string, I extends Input>(
+		result: { readonly success: boolean },
+		c: Context<E, P, I>,
+	) => Response | undefined,
+	branches: readonly (readonly [mediaType: string, target: BodyTarget])[],
+): MiddlewareHandler<E, string, { in: { json: input<S> }; out: { json: output<S> } }> {
 	return async (c, next) => {
 		const declared = (c.req.header("content-type") ?? "").split(";")[0]?.trim().toLowerCase() ?? "";
-		const matched = validators.find(([mediaType]) => mediaType.toLowerCase() === declared);
-		const [, , validator] = matched ?? (validators[0] as (typeof validators)[number]);
-		return validator(c, next);
+		const matched = branches.find(([mediaType]) => mediaType.toLowerCase() === declared);
+		const [, target] = matched ?? (branches[0] as (typeof branches)[number]);
+		/**
+		 * **Registered against the body slot whichever parser runs**, so the validated body is
+		 * published under one target and the handler reads it exactly as it reads a single-media-type
+		 * one. Hono's `validator` is what `@hono/zod-validator` is built on, so this is the same
+		 * extraction, the same `HTTPException` on malformed JSON, and the same default rejection.
+		 *
+		 * `validator("json", ...)` hands over `{}` rather than throwing when the request is not JSON,
+		 * because it checks the `Content-Type` before reading. That is what leaves room for the form
+		 * branch to read the body itself with `c.req.parseBody({ all: true })`, which builds the same
+		 * object hono's own `"form"` target builds: a repeated key and a `key[]` name both become an
+		 * array, everything else stays a string.
+		 *
+		 * Annotated rather than inlined because `Context` is invariant in its environment and in its
+		 * `Input`, and `validator` infers the first as `any`. Same reason `RouteDeps` is parameterised.
+		 */
+		const parse: MiddlewareHandler<
+			E,
+			string,
+			{ in: { json: input<S> }; out: { json: output<S> } }
+		> = async (ctx, proceed) => {
+			const result = await schema.safeParseAsync(await readBody(ctx, target));
+			const response = invalid(result, ctx);
+			if (response !== undefined) return response;
+			// `zValidator`'s own answer when a hook declines to, kept identical so a dispatched route
+			// and a single-media-type one reject a bad body the same way.
+			if (!result.success) return ctx.json(result, 400);
+			ctx.req.addValidatedData(BODY_TARGET, result.data ?? {});
+			await proceed();
+			return undefined;
+		};
+		return parse(c, next);
 	};
 }
 

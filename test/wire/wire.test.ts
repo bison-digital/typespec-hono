@@ -119,6 +119,45 @@ describe("the generated server accepts what the wire actually carries", () => {
 		expect(response.status).toBe(400);
 	});
 
+	/**
+	 * **The two arms below are the only thing that proves a dispatched body is served.**
+	 *
+	 * An operation declaring both a JSON and a form-encoded body needs a different parser per request,
+	 * and `zValidator`'s target is fixed when the file is generated. Before this fixture existed,
+	 * `byContentType(` occurred **zero** times across 356 generated `app.gen.ts` files, so truncating
+	 * the dispatch in `src/` left the entire suite green. Asserting the emitted text would not have
+	 * been enough either: the emitted code did not compile, and would still have contained the call.
+	 */
+	it("accepts a JSON body on an operation that also accepts a form", async () => {
+		const response = await app.request("/items/either", {
+			method: "POST",
+			headers: { "content-type": "application/json" },
+			body: JSON.stringify({ id: "1", label: "from json" }),
+		});
+		expect(response.status).toBe(200);
+		expect(received["createFromEither"]).toMatchObject({ id: "1", label: "from json" });
+	});
+
+	it("accepts a form-encoded body on the same operation, which is the dispatch", async () => {
+		const response = await app.request("/items/either", {
+			method: "POST",
+			headers: { "content-type": "application/x-www-form-urlencoded" },
+			body: new URLSearchParams({ id: "2", label: "from form" }),
+		});
+		expect(response.status).toBe(200);
+		// Decoded, not merely accepted: a 200 with an empty body would mean the parser never ran.
+		expect(received["createFromEither"]).toMatchObject({ id: "2", label: "from form" });
+	});
+
+	it("still refuses a body whose media type the operation does not declare", async () => {
+		const response = await app.request("/items/either", {
+			method: "POST",
+			headers: { "content-type": "text/plain" },
+			body: "id=3&label=nope",
+		});
+		expect(response.status).toBe(400);
+	});
+
 	it("accepts a real multipart upload, boundary and all", async () => {
 		const form = new FormData();
 		form.set("file", new Blob([BINARY], { type: "image/png" }), "p.png");

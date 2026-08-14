@@ -330,6 +330,14 @@ export function renderApp(
 				validators.push([targets[0] as string, identifier]);
 				continue;
 			}
+			/**
+			 * **Recorded as an ordinary body validator as well**, because `byContentType` publishes what
+			 * it validated under the body target whichever parser produced it. So a dispatched route is
+			 * the same shape as every other one downstream: the handler's input type includes the body,
+			 * and the handler reads it with one `c.req.valid` like anywhere else. What differs is only
+			 * which middleware is emitted, below.
+			 */
+			validators.push([VALIDATOR_TARGET.body, identifier]);
 			dispatched = { byType: body.byType, identifier };
 		}
 		return [{ route, names, validators, dispatched }];
@@ -481,27 +489,38 @@ export function renderApp(
 			 * from that type -- measured, `hc<typeof app>` resolved the wrapped route's body to `unknown`.
 			 */
 			/**
-			 * Where the document declares request media types needing different parsers, the validator
-			 * is chosen from the request's `Content-Type`. `byContentType` is a plain middleware, so the
-			 * final handler is untouched and Hono's RPC client still derives its surface from it.
+			 * Where the document declares request media types needing different parsers, the parser is
+			 * chosen from the request's `Content-Type`. `byContentType` takes the body's schema and
+			 * `deps.invalid` and validates with them, so it stands in for that target's `zValidator`
+			 * rather than wrapping one, and publishes under the body target either way.
+			 *
+			 * **It used to wrap pre-built `zValidator`s and publish under whichever one ran, and that
+			 * emitted code a consumer could not compile.** A plain `MiddlewareHandler` contributes no
+			 * `Input` to Hono's chain, so `c.req.valid("json")` in the handler below was
+			 * `TS2345: Argument of type '"json"' is not assignable to parameter of type '"header"'`, and
+			 * the handler's declared input type omitted the body entirely because the body was not among
+			 * the route's validators. One published slot removes both.
 			 */
 			const dispatch =
 				entry.dispatched === undefined
 					? []
 					: [
-							"\t\tbyContentType([",
+							`\t\tbyContentType(${identifierOf(entry)}, deps.invalid, [`,
 							...entry.dispatched.byType.map(
-								([type, target]) =>
-									`\t\t\t[${JSON.stringify(type)}, ${JSON.stringify(target)}, zValidator(${JSON.stringify(target)}, ${identifierOf(entry)}, deps.invalid)],`,
+								([type, target]) => `\t\t\t[${JSON.stringify(type)}, ${JSON.stringify(target)}],`,
 							),
 							"\t\t]),",
 						];
 			const middleware = [
 				...(headOnly ? ["\t\theadOnly,"] : []),
 				...gate,
-				...validators.map(
-					([target, name]) => `\t\tzValidator(${JSON.stringify(target)}, ${name}, deps.invalid),`,
-				),
+				...validators
+					// The dispatched body's own `zValidator` is `byContentType`; emitting both would parse
+					// the body twice and reject every media type but one.
+					.filter(([target]) => entry.dispatched === undefined || target !== VALIDATOR_TARGET.body)
+					.map(
+						([target, name]) => `\t\tzValidator(${JSON.stringify(target)}, ${name}, deps.invalid),`,
+					),
 				...dispatch,
 			];
 			/**
@@ -537,15 +556,9 @@ export function renderApp(
 				body.push(`\t\t\tconst ctx = deps.context(c, "none");`);
 				body.push("\t\t\tif (ctx === null) return deps.noContext(c);");
 			}
+			// A dispatched body is in `validators` under the body target like any other, so there is
+			// nothing extra to spread: `byContentType` published it there whichever parser ran.
 			const pieces = validators.map(([target]) => `...c.req.valid(${JSON.stringify(target)})`);
-			/**
-			 * Only one dispatched branch runs, and `zValidator` writes under its own target. Spreading every
-			 * possible target is how the handler reads whichever one it was: an unset target reads
-			 * `undefined`, and spreading `undefined` into an object literal contributes nothing.
-			 */
-			for (const target of new Set((entry.dispatched?.byType ?? []).map(([, name]) => name))) {
-				pieces.push(`...c.req.valid(${JSON.stringify(target)})`);
-			}
 			if (route.rawBodyProperty !== undefined) {
 				// The bytes ARE the contract: a signature covers exactly what arrived, so parsing and
 				// re-serialising would verify a different string than the sender signed. WHICH reader
@@ -749,7 +762,16 @@ export function renderApp(
 	const negotiates = [...grouped.values()].some((group) => group.length > 1);
 	// Same rule: imported only where a HEAD operation stands alone on its path.
 	const guardsHead = registrations.some((registration) => registration.text.includes("headOnly,"));
-	const dispatchesBody = registrations.some((r) => r.text.includes("byContentType(["));
+	/**
+	 * Read from the entries rather than from the rendered text, which the two lines above still do.
+	 *
+	 * **Matching a substring of generated output is how this import went missing once already.** It
+	 * tested for `byContentType([`, the emitted call gained arguments before its bracket, the substring
+	 * stopped matching, the import stopped being written, and the emitted module threw
+	 * `ReferenceError: byContentType is not defined` at registration. Nothing in the emitter objected,
+	 * because the check was a string about a string.
+	 */
+	const dispatchesBody = entries.some((entry) => entry.dispatched !== undefined);
 	const runtimeModule = JSON.stringify(emitted.options.runtimeModule);
 
 	/**
