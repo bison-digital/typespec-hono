@@ -686,8 +686,21 @@ export function renderApp(
 	 * **Derived from what the rendered text actually references, not from what was available.** An
 	 * unused import fails the lint a generated file has to pass like any other, and a missing one is a
 	 * file that does not compile. Both have happened.
+	 *
+	 * **The text is TOKENISED and compared by equality, never matched name by name.** It used to build
+	 * `new RegExp("\\b" + identifier + "\\b")` per name, and that was wrong twice over for any
+	 * identifier containing a `$`, which TypeSpec permits in a model or operation name: `$` is an
+	 * anchor in a regular expression, and escaping it alone does not help because `\b` is a WORD
+	 * boundary and `$` is not a word character, so `\b\$select\b` cannot match either. Measured on
+	 * `op list$Items(...): Item$Ref[]`, every identifier reported ABSENT, the whole
+	 * `./schemas.gen.js` import was dropped, and the emitted file failed with four
+	 * `TS2304: Cannot find name`. No diagnostic anywhere.
+	 *
+	 * Splitting on the language's own identifier rule and testing membership has neither failure: no
+	 * metacharacter can be misread, and `Foo` cannot match `FooExtra`.
 	 */
 	const rendered = [...registrations.map((r) => r.text), ...methods, ...aliases].join("\n");
+	const mentioned = new Set(rendered.match(/[A-Za-z_$][A-Za-z0-9_$]*/g) ?? []);
 	const referenced = [
 		...new Set(
 			entries.flatMap((entry) =>
@@ -702,7 +715,7 @@ export function renderApp(
 			),
 		),
 	]
-		.filter((identifier) => new RegExp(`\\b${identifier}\\b`).test(rendered))
+		.filter((identifier) => mentioned.has(identifier))
 		.toSorted();
 	const imports =
 		referenced.length === 0
