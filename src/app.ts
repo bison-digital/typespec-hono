@@ -236,7 +236,26 @@ function rawBodyReaderFor(contentTypes: readonly string[]): {
  * interface would be a second source of truth that drifts.
  */
 function inputTypeOf(entry: AppRoute): string | undefined {
-	const parts = entry.validators.map(([, name]) => `z.infer<typeof ${name}>`);
+	/**
+	 * **A body the document says must not be flattened is NAMED, not intersected.**
+	 *
+	 * `EmittedRoute.bodyProperty` is set for a body with an indexer. Intersected, its index signature
+	 * is imposed on every sibling, so an optional `@query q?: string` beside a `Record<string>` body
+	 * failed with `TS2345: 'q' is incompatible with index signature` and the generated server did not
+	 * compile at all. It was wrong before it failed to compile, too: the document states the
+	 * parameters and the body separately, and merged, a body key named `q` silently overwrites the
+	 * query parameter of that name.
+	 */
+	const bodyProperty = entry.route.bodyProperty;
+	const parts = entry.validators
+		.filter(([target]) => bodyProperty === undefined || target !== VALIDATOR_TARGET.body)
+		.map(([, name]) => `z.infer<typeof ${name}>`);
+	if (bodyProperty !== undefined) {
+		const bodySchema = entry.validators.find(([target]) => target === VALIDATOR_TARGET.body)?.[1];
+		if (bodySchema !== undefined) {
+			parts.push(`{ ${objectKey(bodyProperty)}: z.infer<typeof ${bodySchema}> }`);
+		}
+	}
 	if (entry.route.rawBodyProperty !== undefined) {
 		const reader = rawBodyReaderFor(entry.route.requestContentTypes);
 		parts.push(`{ ${objectKey(entry.route.rawBodyProperty)}: ${reader.type} }`);
@@ -594,7 +613,15 @@ export function renderApp(
 			}
 			// A dispatched body is in `validators` under the body target like any other, so there is
 			// nothing extra to spread: `byContentType` published it there whichever parser ran.
-			const pieces = validators.map(([target]) => `...c.req.valid(${JSON.stringify(target)})`);
+			const pieces = validators.map(([target]) =>
+				/**
+				 * A named body is assigned rather than spread, matching the input type above and the
+				 * document, which states the parameters and the body as separate things.
+				 */
+				route.bodyProperty !== undefined && target === VALIDATOR_TARGET.body
+					? `${objectKey(route.bodyProperty)}: c.req.valid(${JSON.stringify(target)})`
+					: `...c.req.valid(${JSON.stringify(target)})`,
+			);
 			if (route.rawBodyProperty !== undefined) {
 				// The bytes ARE the contract: a signature covers exactly what arrived, so parsing and
 				// re-serialising would verify a different string than the sender signed. WHICH reader

@@ -10,7 +10,24 @@ consumer feels, and is treated as such here rather than as an implementation det
 
 ## [Unreleased]
 
-Nothing since `0.12.0`.
+Nothing since `0.13.0`.
+
+## [0.13.0] - 2026-08-14
+
+Requires `typespec-http-zod@^0.15.0`.
+
+A minor: a request body with an indexer is named in the handler's input rather than spread into it.
+
+**A `Record` body beside any other parameter emitted a server that does not compile.** Intersected,
+the body's index signature is imposed on every sibling, so
+`op x(@query q?: string, @body body: Record<string>)` failed with
+`TS2345: 'q' is incompatible with index signature`. The handler now receives
+`{ q?: string } & { body: Record<string, string> }`, and the call site assigns the body rather than
+spreading it.
+
+**It was wrong before it failed to compile.** The document states the parameters and the body as
+separate things; merged, a body key named `q` silently overwrote the query parameter of that name.
+An ordinary model body is spread exactly as before.
 
 ## [0.12.0] - 2026-08-14
 

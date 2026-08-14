@@ -35,6 +35,7 @@ function serviceWith(
 	route: Partial<EmittedRoute> & { operationId: string; verb: string },
 ): EmittedService {
 	const full = {
+		bodyProperty: undefined,
 		reservedPathParameters: [],
 		responseHeaders: [],
 		responseMediaTypes: [],
