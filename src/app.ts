@@ -429,7 +429,7 @@ export function renderApp(
 	}
 
 	const registrations = [...slots.values()].map(
-		(groupsInSlot): { target: string; text: string } => {
+		(groupsInSlot): { target: string; text: string; headOnly: boolean } => {
 			const headGroups = groupsInSlot.filter((g) => (g[0] as AppRoute).route.verb === "HEAD");
 			const plainGroups = groupsInSlot.filter((g) => (g[0] as AppRoute).route.verb !== "HEAD");
 			/**
@@ -676,7 +676,7 @@ export function renderApp(
 				"\t\t\t},",
 				"\t\t)",
 			].join("\n");
-			return { target, text };
+			return { target, text, headOnly };
 		},
 	);
 
@@ -761,15 +761,24 @@ export function renderApp(
 	// Imported only where a route actually negotiates: an unused import fails the repo's own lint.
 	const negotiates = [...grouped.values()].some((group) => group.length > 1);
 	// Same rule: imported only where a HEAD operation stands alone on its path.
-	const guardsHead = registrations.some((registration) => registration.text.includes("headOnly,"));
+	const guardsHead = registrations.some((registration) => registration.headOnly);
 	/**
-	 * Read from the entries rather than from the rendered text, which the two lines above still do.
+	 * **Which runtime imports to write is read from the DATA, never from the rendered text.**
 	 *
-	 * **Matching a substring of generated output is how this import went missing once already.** It
-	 * tested for `byContentType([`, the emitted call gained arguments before its bracket, the substring
-	 * stopped matching, the import stopped being written, and the emitted module threw
+	 * Matching a substring of generated output is how one of these went missing already: it tested for
+	 * `byContentType([`, the emitted call gained arguments before its bracket, the substring stopped
+	 * matching, the import stopped being written, and the emitted module threw
 	 * `ReferenceError: byContentType is not defined` at registration. Nothing in the emitter objected,
 	 * because the check was a string about a string.
+	 *
+	 * `guardsHead` above had the same shape, and the sibling library had it in a worse place, deciding
+	 * whether a parameter gets a wire decoder by `declared.startsWith("z.number()")`. A literal union
+	 * (`@query size: 10 | 25 | 50`) begins with neither prefix, so every conformant caller of that
+	 * parameter got a 400 that no document comparison could see.
+	 *
+	 * The rendered text is still read to decide which VALIDATOR identifiers to import, and that one is
+	 * safe in a way these are not: an identifier absent from the text is genuinely not needed, so the
+	 * check cannot be wrong in the direction that breaks a build.
 	 */
 	const dispatchesBody = entries.some((entry) => entry.dispatched !== undefined);
 	const runtimeModule = JSON.stringify(emitted.options.runtimeModule);
