@@ -1,4 +1,4 @@
-import { writeFileSync } from "node:fs";
+import { rmSync, writeFileSync } from "node:fs";
 import { join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 import { compile, NodeHost } from "@typespec/compiler";
@@ -84,6 +84,19 @@ export async function compileFixture(
 	 * defect that made it necessary: three oracles graded whatever the previous run had left behind.
 	 */
 	const outDir = options.outDir ?? join(dir, ".out", options.outName ?? name);
+	/**
+	 * **Emptied first, so an assertion cannot be answered by the previous run.**
+	 *
+	 * An emitter that stops writing a file leaves the last one on disk, and every oracle reading that
+	 * directory keeps passing. Measured in the sibling library: a control that deleted a fix from
+	 * `src/` passed green, because the assertions found yesterday's output. Nothing about that looks
+	 * wrong from the outside, which is what makes it worth deleting the directory rather than trusting
+	 * that each compile overwrites what the last one wrote.
+	 *
+	 * Deleting rather than overwriting is also the only way an arm can assert a file is ABSENT, which
+	 * a refusal has to be able to prove.
+	 */
+	rmSync(outDir, { recursive: true, force: true });
 	const program = await compile(NodeHost, join(dir, `${name}.tsp`), {
 		outputDir: outDir,
 		emit:
