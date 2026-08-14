@@ -10,7 +10,34 @@ consumer feels, and is treated as such here rather than as an implementation det
 
 ## [Unreleased]
 
-Nothing since `0.14.0`.
+Nothing since `0.15.0`.
+
+## [0.15.0] - 2026-08-15
+
+Requires `typespec-http-zod@^0.17.0`, which takes the index signature off an open model's contract
+type. **That fix did not reach this package on its own**, and the arm below is why we know.
+
+### Fixed
+
+- **A handler could not return a value the application already held.** The generated signature is
+  `Awaitable<Result<z.infer<typeof xSchema>>>` - derived from the validator, not from the contract
+  types - so for an open model it carried `[key: string]: unknown` at every level of the tree.
+  TypeScript gives an `interface` no implicit index signature, so returning one meant spreading every
+  level; on one real service that was a structural deep copy per response. The return type now drops
+  index signatures at every depth.
+
+  **The input type deliberately still carries them.** A handler RECEIVES whatever the validator let
+  through, and a loose model really does pass unknown keys along, so saying so describes the value in
+  hand. Producing and receiving are different directions and the two types now say different things,
+  which is the point.
+
+### Added
+
+- `test/openmodel/` compiles a hand-written handler against the generated `Operations` interface and
+  requires a plain nested `interface` to be returnable **with no spread at any level**, plus its
+  mirror: that an open input is still typed as carrying unknown keys. Nothing here previously asked
+  whether a handler could satisfy the signature it is written against, which is how a library-side
+  fix could have been reported as complete while this boundary was still broken.
 
 ## [0.14.0] - 2026-08-14
 

@@ -433,11 +433,70 @@ export function renderApp(
 				: validated === undefined
 					? negotiated
 					: `${validated} & ${negotiated}`;
-		const output = names.response === undefined ? "void" : `z.infer<typeof ${names.response}>`;
+		/**
+		 * **The RETURN type drops index signatures; the input type keeps them.**
+		 *
+		 * A handler receives whatever the validator let through, and an open model's validator really
+		 * does pass unknown keys along - so the input saying `[key: string]: unknown` describes the
+		 * value in hand. Returning is the opposite direction: the handler supplies a value the
+		 * application already holds, and an index signature there is an obligation rather than a
+		 * description. TypeScript gives an interface no implicit index signature, so a domain type
+		 * could not satisfy it without a spread at every level of the tree.
+		 *
+		 * `typespec-http-zod@0.17.0` took the catchall off the contract types for this reason. It did
+		 * not reach here, because this signature is derived from `z.infer` rather than from those
+		 * types - which is exactly the half-fix `test/openmodel/` now guards against.
+		 */
+		const output =
+			names.response === undefined ? "void" : `Declared<z.infer<typeof ${names.response}>>`;
 		const signature = input === undefined ? "ctx: Ctx" : `ctx: Ctx, input: ${input}`;
 		const doc = route.summary === undefined ? "" : `\t/** ${route.summary} */\n`;
 		return `${doc}\t${route.operationId}(${signature}): Awaitable<Result<${output}>>;`;
 	});
+
+	/**
+	 * Emitted only when an operation actually returns something, because a generated file has to pass
+	 * `noUnusedLocals` like any other - the lint that has already failed this emitter twice over an
+	 * import written for a construct the service did not use.
+	 *
+	 * **Decided from the routes, not by searching the rendered text.** Asking whether the output
+	 * mentions a name is how this package lost the `byContentType` import: the call gained an argument
+	 * and the substring stopped matching, so a module referenced a function it no longer imported.
+	 */
+	const returnsAnything = entries.some((entry) => entry.names.response !== undefined);
+	const declaredHelper = returnsAnything
+		? `/**
+ * A shape with its index signatures removed, at every depth.
+ *
+ * An open model - one declared with \`...Record<T>\` - infers \`[key: string]: unknown\`, because its
+ * validator really does pass unknown keys through. That is true of what a handler RECEIVES, so the
+ * input types above keep it. It is not true of what a handler must SUPPLY: TypeScript gives an
+ * interface no implicit index signature, so a domain type could not be returned without spreading
+ * every level of the tree, which on one real service meant a structural deep copy per response.
+ *
+ * Returning extra properties still works - excess-property checks apply to object literals, not to
+ * a value the application already holds.
+ */
+type Declared<T> = T extends (...args: never[]) => unknown
+	? T
+	: T extends readonly (infer Element)[]
+		? T extends Element[]
+			? Declared<Element>[]
+			: readonly Declared<Element>[]
+		: T extends object
+			? {
+					[K in keyof T as string extends K
+						? never
+						: number extends K
+							? never
+							: symbol extends K
+								? never
+								: K]: Declared<T[K]>;
+				}
+			: T;
+
+`
+		: "";
 
 	const aliases = entries.map(
 		(entry) =>
@@ -914,7 +973,7 @@ ${imports}
  * There is no cast anywhere in this file, and no dynamic lookup: the generated call sites name the
  * method, so an implementation whose input or output does not match the contract fails to compile.
  */
-export interface Operations {
+${declaredHelper}export interface Operations {
 ${methods.join("\n")}
 }
 
