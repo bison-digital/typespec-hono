@@ -409,11 +409,24 @@ describe("the emitted server agrees with the emitted document", () => {
 
 	it("gates exactly the operations the document secures, with the same schemes", () => {
 		const divergences: Divergence[] = [];
+		/**
+		 * **Counted, because an arm that collects divergences passes by finding none, and finding none
+		 * is exactly what happens when it reads nothing at all.**
+		 *
+		 * Measured: making the document lookup match no file left this arm green over ZERO comparisons.
+		 * That is not hypothetical. `@typespec/openapi3` writes `<outDir>/openapi.json` for one version
+		 * and `<outDir>/<version>/openapi.json` for more than one, so the day this corpus grades a second
+		 * OpenAPI version, a flat scan finds nothing and every scenario is skipped by the line below.
+		 * The arm would report success having compared no operation in any scenario.
+		 */
+		let compared = 0;
+		let documentsRead = 0;
 		for (const compiled of sources) {
 			if (compiled.failure !== undefined) continue;
 			const documents = readdirSync(compiled.openapiDir).filter((n) => n.endsWith(".json"));
 			const chosen = documents.toSorted().at(-1);
 			if (chosen === undefined) continue;
+			documentsRead += 1;
 			const document = JSON.parse(
 				readFileSync(join(compiled.openapiDir, chosen), "utf8"),
 			) as OpenApiDocument;
@@ -428,6 +441,7 @@ describe("the emitted server agrees with the emitted document", () => {
 					const operationId = operation.operationId;
 					if (operationId === undefined) continue;
 					const gate = gateFor(source, operationId);
+					compared += 1;
 					const expected = secured.flatMap((one) => Object.keys(one)).toSorted();
 					const actual = gate === undefined ? [] : schemesOf(gate);
 					if (JSON.stringify(expected) !== JSON.stringify(actual)) {
@@ -444,6 +458,13 @@ describe("the emitted server agrees with the emitted document", () => {
 		expect(
 			divergences.map((d) => `${d.scenario} ${d.what}: document ${d.document}, server ${d.server}`),
 		).toEqual([]);
+		// Floors on BOTH sides of the read: a document found but no operation compared is the same
+		// vacuum as no document at all, and only one of the two is visible from the other's count.
+		expect(
+			documentsRead,
+			"no scenario yielded a document to compare against",
+		).toBeGreaterThanOrEqual(40);
+		expect(compared, "no operation had its gate compared").toBeGreaterThanOrEqual(300);
 	});
 });
 
