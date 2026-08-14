@@ -301,7 +301,7 @@ export function renderApp(
 	 */
 	securityFor?: (verb: string, path: string) => readonly SecurityRequirement[],
 ): string {
-	const entries: AppRoute[] = emitted.routes.flatMap((route) => {
+	const mounted: AppRoute[] = emitted.routes.flatMap((route) => {
 		let dispatched:
 			| { byType: readonly (readonly [string, string])[]; identifier: string }
 			| undefined;
@@ -342,6 +342,8 @@ export function renderApp(
 		}
 		return [{ route, names, validators, dispatched }];
 	});
+
+	const entries = mounted;
 
 	/**
 	 * **One registration per verb+path, not per operation.**
@@ -794,6 +796,34 @@ export function renderApp(
 	 * check cannot be wrong in the direction that breaks a build.
 	 */
 	const dispatchesBody = entries.some((entry) => entry.dispatched !== undefined);
+	/**
+	 * **Imported only where a route actually validates something, like every other value import here.**
+	 *
+	 * This one was unconditional while the three around it were not, and the comment above them stated
+	 * the rule it was breaking. A service whose operations declare no parameters at all -- two bare
+	 * `GET`s, which is where a health check starts and therefore where a new consumer starts -- emitted
+	 * an import nothing used, and `tsp compile` reported success:
+	 * `TS6133: 'zValidator' is declared but its value is never read`.
+	 *
+	 * Counted from the same filtered list the middleware is rendered from, so it cannot disagree with
+	 * what was emitted: a dispatched body's validator is `byContentType`, not a `zValidator`.
+	 */
+	/**
+	 * **`z` is only ever reached through `z.infer`**, which appears where an operation has an input
+	 * type or a response body. A service whose every operation takes nothing and returns `void` names
+	 * neither, so the import was written and never used:
+	 * `TS6133: 'z' is declared but its value is never read`. Same shape as the `zValidator` one above,
+	 * one step further along.
+	 */
+	const usesZod = entries.some(
+		(entry) => inputTypeOf(entry) !== undefined || entry.names.response !== undefined,
+	);
+	const validates = entries.some(
+		(entry) =>
+			entry.validators.filter(
+				([target]) => entry.dispatched === undefined || target !== VALIDATOR_TARGET.body,
+			).length > 0,
+	);
 	const runtimeModule = JSON.stringify(emitted.options.runtimeModule);
 
 	/**
@@ -807,10 +837,8 @@ export function renderApp(
 	const needsHonoValue = subApps.size > 0 || usesBasePath;
 
 	return `${GENERATED_BANNER}
-import { zValidator } from "@hono/zod-validator";
-${needsHonoValue ? 'import { Hono } from "hono";\nimport type { Context, Input } from "hono";' : 'import type { Context, Hono, Input } from "hono";'}
-import { z } from "zod";
-import type { AppEnv, Awaitable, Ctx, Result, RouteDeps } from ${runtimeModule};${negotiates ? `\nimport { selectContentType } from ${runtimeModule};` : ""}${guardsHead ? `\nimport { headOnly } from ${runtimeModule};` : ""}${dispatchesBody ? `\nimport { byContentType } from ${runtimeModule};` : ""}
+${validates ? 'import { zValidator } from "@hono/zod-validator";\n' : ""}${needsHonoValue ? 'import { Hono } from "hono";\nimport type { Context, Input } from "hono";' : 'import type { Context, Hono, Input } from "hono";'}
+${usesZod ? 'import { z } from "zod";\n' : ""}import type { AppEnv, Awaitable, Ctx, Result, RouteDeps } from ${runtimeModule};${negotiates ? `\nimport { selectContentType } from ${runtimeModule};` : ""}${guardsHead ? `\nimport { headOnly } from ${runtimeModule};` : ""}${dispatchesBody ? `\nimport { byContentType } from ${runtimeModule};` : ""}
 ${imports}
 /**
  * One method per operation, each concretely typed from the schemas it validates against.

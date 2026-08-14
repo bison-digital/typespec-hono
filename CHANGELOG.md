@@ -10,7 +10,42 @@ consumer feels, and is treated as such here rather than as an implementation det
 
 ## [Unreleased]
 
-Nothing since `0.6.0`.
+Nothing since `0.7.0`.
+
+## [0.7.0] - 2026-08-14
+
+Requires `typespec-http-zod@^0.9.0`.
+
+A minor because emitted output changes: a file that needs no validator no longer imports one.
+
+Every fix here was found by compiling generated output or by reading every generated file for a name
+declared twice. None was visible to a comparison against the document, because in each case the
+document was right and the emitted file was what did not build.
+
+### Fixed
+
+- **A service declaring no parameters emitted an import nothing used.**
+  `import { zValidator } from "@hono/zod-validator"` was written unconditionally while the three
+  imports beside it were already conditional, and the comment above them stated the rule this one
+  broke. Two bare `GET`s, which is where a health check starts and therefore where a new consumer
+  starts, failed with `TS6133: 'zValidator' is declared but its value is never read`. Reported by the
+  copal-gateway migration.
+- **A service whose every operation returns `void` did the same with `import { z } from "zod"`.**
+  Reported in the same message as an untested hypothesis, and confirmed by measurement.
+- **Operations resolving to one operation id no longer collide.** Two interfaces of the same name in
+  different namespaces both resolved to `Standard_primitive`, and every declaration keyed on the id
+  was emitted twice: 36 `TS2300`s on one conformance scenario. The library now deduplicates exactly as
+  `@typespec/openapi3` does, so this emitter receives distinct ids.
+
+### Added
+
+- **`compiles.test.ts` compiles every fixture's generated output**, discovered rather than listed,
+  with `noUnusedLocals` and `noUnusedParameters` on. Only one shape of `app.gen.ts` had ever been
+  through a compiler, so an emitter that succeeds and emits something unbuildable was invisible.
+- **`uniqueness.test.ts` reads every generated file** across every fixture and the whole conformance
+  corpus for a name declared twice. It found a second collision class on its first run.
+- Fixtures for the shapes those arms needed: a dispatched request body, a `HEAD` alone on its path,
+  identifiers containing `$`, a service with no parameters, and one returning only `void`.
 
 ## [0.6.0] - 2026-08-14
 

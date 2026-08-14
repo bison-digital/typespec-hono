@@ -74,6 +74,22 @@ function typecheck(outDir: string): string {
 				module: "nodenext",
 				moduleResolution: "nodenext",
 				strict: true,
+				/**
+				 * **Unused code is an ERROR here, and that is the point rather than tidiness.**
+				 *
+				 * A generated file has to pass the lint of whatever project it lands in, and an import
+				 * written for a construct the service does not use fails it on day one. Two shipped:
+				 * `zValidator` was imported unconditionally, so a service declaring no parameters at all
+				 * (two bare `GET`s, which is where a health check starts) failed with
+				 * `TS6133: 'zValidator' is declared but its value is never read`; and `z` was imported
+				 * unconditionally, so a service whose every operation returns `void` failed the same way.
+				 * Both from compiles that reported success.
+				 *
+				 * Without this flag `tsc` says nothing about either, which is why the arm was green while
+				 * a consumer's first build was not.
+				 */
+				noUnusedLocals: true,
+				noUnusedParameters: true,
 				noEmit: true,
 				skipLibCheck: true,
 				types: [],

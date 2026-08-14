@@ -43,8 +43,21 @@ function testFiles(dir: string): string[] {
  * in, `outName` when given, the fixture's own name otherwise, mirroring `compileFixture` itself.
  */
 function destinationsIn(source: string): string[] {
+	/**
+	 * **The first argument may itself contain a comma**, and it usually does: every call site writes
+	 * `compileFixture(join(here, "reference"), "name", ...)`. Matching it as `[^,]+` stopped at the
+	 * comma INSIDE `join(...)` and captured `"reference"` as the fixture name, so two suites using that
+	 * shape were reported as sharing a destination they do not share, and a legitimate test could not
+	 * be added. A false positive rather than a false negative, so it failed loudly, but it is the same
+	 * mistake as the others found today: a decision made by pattern-matching source text.
+	 *
+	 * One level of nesting is enough for every call this package makes, and a second would want a
+	 * parser rather than a longer pattern.
+	 */
 	const calls = [
-		...source.matchAll(/compileFixture\(\s*[^,]+,\s*"([^"]+)"\s*(?:,\s*\{([^}]*)\})?/gs),
+		...source.matchAll(
+			/compileFixture\(\s*(?:[^,()]|\([^()]*\))+,\s*"([^"]+)"\s*(?:,\s*\{([^}]*)\})?/gs,
+		),
 	];
 	return calls.map((call) => {
 		const name = call[1] ?? "";
