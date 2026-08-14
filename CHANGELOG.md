@@ -10,7 +10,13 @@ consumer feels, and is treated as such here rather than as an implementation det
 
 ## [Unreleased]
 
-Nothing since `0.11.0`.
+Nothing since `0.12.0`.
+
+## [0.12.0] - 2026-08-14
+
+Requires `typespec-http-zod@^0.14.0`, where every response arm now carries its media types including
+where a status offers only one. A `text/plain` arm and a JSON arm were previously indistinguishable
+to a generic `deps.respond`.
 
 ## [0.11.0] - 2026-08-14
 
