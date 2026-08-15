@@ -10,7 +10,16 @@ consumer feels, and is treated as such here rather than as an implementation det
 
 ## [Unreleased]
 
-Nothing since `0.19.0`.
+Nothing since `0.19.1`.
+
+## [0.19.1] - 2026-08-15
+
+Requires `typespec-http-zod@^0.21.0`, which stops writing an unused `Simplify<T>` into the contract
+types of a service that has nothing to flatten - `TS6196` under `noUnusedLocals`, on the two
+parameterless `GET`s every new consumer starts with.
+
+**A dependency bump on its own, because a caret on a `0.x` version pins the minor**: without this
+release the library fix cannot reach anyone using this package.
 
 ## [0.19.0] - 2026-08-15
 
