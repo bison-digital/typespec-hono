@@ -120,12 +120,22 @@ export type Awaitable<T> = T | Promise<T>;
  *
  * The rules that matter, and that a naive `includes()` gets wrong:
  * - **absent or empty `Accept` means anything is acceptable**, serve the first offer;
- * - **`q=0` is a REFUSAL**, not a weak preference, so a range scoring zero can never be chosen;
- * - **specificity breaks ties before quality does**: an exact type beats a subtype wildcard
- *   (`text/*`), which beats the fully wildcard range, at equal `q`. That is why the score is a
- *   pair rather than a number. The fully wildcard range is not written literally here because it
- *   would close this comment;
+ * - **specificity SELECTS which rule applies, before quality is read at all.** For each offered
+ *   type, the most specific range that matches it decides its quality: an exact type beats a
+ *   subtype wildcard (`text/*`), which beats the fully wildcard range. The fully wildcard range is
+ *   not written literally here because it would close this comment;
+ * - **`q=0` is a REFUSAL**, not a weak preference, so a type whose applicable rule scores zero is
+ *   never chosen;
+ * - equal quality keeps the order the document offers, so nothing in the header displaces it;
+ * - a malformed `q` is IGNORED rather than read as zero - a typo should not turn into a 406;
  * - parameters after the media range (`;charset=utf-8`) are not part of the match.
+ *
+ * **Specificity was implemented as a tie-break and that was wrong three ways at once**, all of them
+ * live in a published runtime until `test/negotiation.test.ts` was written. Scoring every matching
+ * range and keeping the best `(q, specificity)` pair lets a permissive wildcard out-vote the precise
+ * rule a caller wrote about that exact type - so `Accept: *​/*, application/json;q=0` was served
+ * JSON, which is the one outcome an explicit refusal must never produce. The prose above stated the
+ * right rules the whole time; nothing compared it to the code.
  *
  * Returns `undefined` when nothing offered is acceptable. The caller answers 406, and the
  * difference between "no preference" and "no acceptable option" is exactly what that turns on.
@@ -143,22 +153,34 @@ export function selectContentType(
 		const quality = parameters
 			.map((parameter) => /^q=(?<value>[\d.]+)$/i.exec(parameter)?.groups?.value)
 			.find((value) => value !== undefined);
-		return { range: range.toLowerCase(), q: quality === undefined ? 1 : Number(quality) };
+		const q = quality === undefined ? 1 : Number(quality);
+		// A malformed `q` is treated as unstated. Reading `q=1.2.3` as zero would 406 a typo.
+		return { range: range.toLowerCase(), q: Number.isFinite(q) ? q : 1 };
 	});
 
-	let best: { type: string; q: number; specificity: number } | undefined;
+	let best: { type: string; q: number } | undefined;
 	for (const type of offered) {
-		const [group] = type.toLowerCase().split("/");
+		const lowered = type.toLowerCase();
+		const [group] = lowered.split("/");
+		/**
+		 * **The most specific matching range decides this type's quality**, which is what makes an
+		 * explicit `application/json;q=0` beat a wildcard that would otherwise accept it. Reading the
+		 * best-scoring range instead lets a permissive rule override a precise one.
+		 */
+		let applicable: { q: number; specificity: number } | undefined;
 		for (const { range, q } of ranges) {
-			// `q=0` is "I will not accept this", so it never becomes a candidate.
-			if (!Number.isFinite(q) || q <= 0) continue;
 			const specificity =
-				range === type.toLowerCase() ? 2 : range === `${group}/*` ? 1 : range === "*/*" ? 0 : -1;
+				range === lowered ? 2 : range === `${group}/*` ? 1 : range === "*/*" ? 0 : -1;
 			if (specificity < 0) continue;
-			if (best === undefined || q > best.q || (q === best.q && specificity > best.specificity)) {
-				best = { type, q, specificity };
+			// Strictly greater, so two rules of equal specificity leave the first one in force.
+			if (applicable === undefined || specificity > applicable.specificity) {
+				applicable = { q, specificity };
 			}
 		}
+		// `q=0` is "I will not accept this", so a type its own rule scores zero is never a candidate.
+		if (applicable === undefined || applicable.q <= 0) continue;
+		// Strictly greater, so equal quality keeps the order the document offers.
+		if (best === undefined || applicable.q > best.q) best = { type, q: applicable.q };
 	}
 	return best?.type;
 }
@@ -253,26 +275,35 @@ export function byContentType<E extends Env, S extends ZodType>(
 		result: { readonly success: boolean },
 		c: Context<E, P, I>,
 	) => Response | undefined,
-	branches: readonly (readonly [mediaType: string, target: BodyTarget])[],
+	/**
+	 * **A NON-EMPTY list, stated in the type.** The fallback below reads the first branch, and
+	 * `branches[0]` on a plain array is `T | undefined`, which was silenced with a cast. A tuple says
+	 * the same thing the emitter already guarantees - this middleware is only ever emitted for a route
+	 * declaring at least one request media type - and removes the cast rather than typing around it.
+	 */
+	branches: readonly [
+		readonly [mediaType: string, target: BodyTarget],
+		...(readonly [mediaType: string, target: BodyTarget])[],
+	],
 ): MiddlewareHandler<E, string, { in: { json: input<S> }; out: { json: output<S> } }> {
 	return async (c, next) => {
 		const declared = (c.req.header("content-type") ?? "").split(";")[0]?.trim().toLowerCase() ?? "";
 		const matched = branches.find(([mediaType]) => mediaType.toLowerCase() === declared);
-		const [, target] = matched ?? (branches[0] as (typeof branches)[number]);
+		const [, target] = matched ?? branches[0];
 		/**
 		 * **Registered against the body slot whichever parser runs**, so the validated body is
 		 * published under one target and the handler reads it exactly as it reads a single-media-type
 		 * one. Hono's `validator` is what `@hono/zod-validator` is built on, so this is the same
 		 * extraction, the same `HTTPException` on malformed JSON, and the same default rejection.
 		 *
-		 * `validator("json", ...)` hands over `{}` rather than throwing when the request is not JSON,
-		 * because it checks the `Content-Type` before reading. That is what leaves room for the form
-		 * branch to read the body itself with `c.req.parseBody({ all: true })`, which builds the same
-		 * object hono's own `"form"` target builds: a repeated key and a `key[]` name both become an
-		 * array, everything else stays a string.
+		 * **Hono's own `validator` is deliberately not called here.** Its target fixes the reader at
+		 * registration time, and the whole point of this function is that the reader is chosen when the
+		 * request arrives. What it does instead is reproduce `validator`'s observable behaviour for both
+		 * targets: {@link readBody} performs the same two extractions and raises the same
+		 * `HTTPException` on malformed JSON, and the rejection below is `zValidator`'s own.
 		 *
 		 * Annotated rather than inlined because `Context` is invariant in its environment and in its
-		 * `Input`, and `validator` infers the first as `any`. Same reason `RouteDeps` is parameterised.
+		 * `Input`. Same reason `RouteDeps` is parameterised.
 		 */
 		const parse: MiddlewareHandler<
 			E,

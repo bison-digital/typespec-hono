@@ -10,7 +10,38 @@ consumer feels, and is treated as such here rather than as an implementation det
 
 ## [Unreleased]
 
-Nothing since `0.15.0`.
+Nothing since `0.16.0`.
+
+## [0.16.0] - 2026-08-15
+
+An idiomatic review of `src/runtime.ts`, which had never had one. **`selectContentType` was wrong in
+four ways and had no behavioural test at all** - `compiles.test.ts` asserted that the string
+`selectContentType(` appears in emitted output, which is a claim that negotiation is wired, not that
+it is correct. It ships in the runtime every consumer imports, so all four were live.
+
+### Fixed
+
+- **A media type the caller explicitly refused could be served.** `Accept: */*, application/json;q=0`
+  chose `application/json`. `q=0` is a refusal, and it must never lose to a wildcard that accepts.
+- **A type's quality was read from the best-scoring matching range rather than the most specific
+  one.** RFC 9110 section 12.5.1 says specificity SELECTS which rule applies, before quality is
+  compared; it was implemented as a tie-break. So `Accept: */*;q=1.0, application/json;q=0.1` served
+  JSON, when the caller had pinned JSON to 0.1 and everything else to 1.0.
+- **An exact type lost to a subtype wildcard** for the same reason:
+  `Accept: text/*;q=0.9, text/plain;q=0.1` served `text/plain`.
+- **A malformed `q` made the type unacceptable**, so `q=1.2.3` answered 406. It is now ignored, as an
+  unstated `q` is: a typo in a request header should not fail negotiation.
+
+  The docblock stated all of these rules correctly the whole time. Nothing compared it to the code,
+  which is what `test/negotiation.test.ts` now does - 11 arms, every one of the four proven red first.
+
+### Changed
+
+- **`byContentType`'s `branches` parameter is a non-empty tuple.** The fallback reads `branches[0]`,
+  which on a plain array is `T | undefined` and was silenced with a cast. The type now states what
+  the emitter already guarantees, and the cast is gone rather than typed around.
+- A stale docblock in `byContentType` described an implementation using Hono's `validator` that had
+  already been replaced, including behaviour the current code does not have.
 
 ## [0.15.0] - 2026-08-15
 
