@@ -415,6 +415,23 @@ export function renderApp(
 		grouped.set(slot, [...(grouped.get(slot) ?? []), entry]);
 	}
 
+	/**
+	 * The input type of an operation that declares no input.
+	 *
+	 * **Every operation takes `(ctx, input)`, including this one.** A surface written once against
+	 * `Operations` - an RPC entrypoint, a proxy, any uniform dispatch - is typed `(ctx, input)`, and
+	 * TypeScript refuses a function with MORE parameters than the signature it is assigned to. So a
+	 * single parameterless operation emitting `(ctx)` made the whole surface unassignable, measured as
+	 * `TS2322: Target signature provides too few arguments. Expected 2 or more, but got 1.`
+	 *
+	 * **Adding the parameter breaks nothing**, which is what makes this the right shape rather than a
+	 * trade: FEWER parameters is always assignable, so a handler already written `(ctx) => ...` keeps
+	 * compiling untouched. `test/openmodel/treaty.test.ts` holds both halves.
+	 *
+	 * `Record<string, never>` rather than `{}`, because `{}` in TypeScript means "anything but null",
+	 * which is the opposite of the claim being made.
+	 */
+	const EMPTY_INPUT = "Record<string, never>";
 	const methods = entries.map((entry) => {
 		const { route, names } = entry;
 		/**
@@ -434,22 +451,21 @@ export function renderApp(
 					? negotiated
 					: `${validated} & ${negotiated}`;
 		/**
-		 * **The RETURN type drops index signatures; the input type keeps them.**
+		 * **The RETURN type is the producer's view; the input type is left exactly as it arrives.**
 		 *
-		 * A handler receives whatever the validator let through, and an open model's validator really
-		 * does pass unknown keys along - so the input saying `[key: string]: unknown` describes the
-		 * value in hand. Returning is the opposite direction: the handler supplies a value the
-		 * application already holds, and an index signature there is an obligation rather than a
-		 * description. TypeScript gives an interface no implicit index signature, so a domain type
-		 * could not satisfy it without a spread at every level of the tree.
+		 * A handler receives whatever the validator let through, so an input carrying
+		 * `[key: string]: unknown`, `T | undefined` on an optional, and mutable arrays is an honest
+		 * description of the value in hand. Returning is the opposite direction: the handler supplies
+		 * something the application already holds, and each of those becomes an obligation rather than
+		 * a description. See `Produced` below for what that cost, measured.
 		 *
-		 * `typespec-http-zod@0.17.0` took the catchall off the contract types for this reason. It did
-		 * not reach here, because this signature is derived from `z.infer` rather than from those
-		 * types - which is exactly the half-fix `test/openmodel/` now guards against.
+		 * `typespec-http-zod` fixes the same three things on its contract types. None of it reaches
+		 * here on its own, because this signature is derived from `z.infer` rather than from those
+		 * types - which is exactly the half-fix `test/openmodel/` exists to catch.
 		 */
 		const output =
-			names.response === undefined ? "void" : `Declared<z.infer<typeof ${names.response}>>`;
-		const signature = input === undefined ? "ctx: Ctx" : `ctx: Ctx, input: ${input}`;
+			names.response === undefined ? "void" : `Produced<z.infer<typeof ${names.response}>>`;
+		const signature = `ctx: Ctx, input: ${input ?? EMPTY_INPUT}`;
 		const doc = route.summary === undefined ? "" : `\t/** ${route.summary} */\n`;
 		return `${doc}\t${route.operationId}(${signature}): Awaitable<Result<${output}>>;`;
 	});
@@ -466,32 +482,40 @@ export function renderApp(
 	const returnsAnything = entries.some((entry) => entry.names.response !== undefined);
 	const declaredHelper = returnsAnything
 		? `/**
- * A shape with its index signatures removed, at every depth.
+ * What a handler must SUPPLY, as opposed to what it receives.
  *
- * An open model - one declared with \`...Record<T>\` - infers \`[key: string]: unknown\`, because its
- * validator really does pass unknown keys through. That is true of what a handler RECEIVES, so the
- * input types above keep it. It is not true of what a handler must SUPPLY: TypeScript gives an
- * interface no implicit index signature, so a domain type could not be returned without spreading
- * every level of the tree, which on one real service meant a structural deep copy per response.
+ * **Three things that are true of an inferred type are not obligations on a producer**, and each one
+ * made a value the application already held unreturnable:
  *
- * Returning extra properties still works - excess-property checks apply to object literals, not to
- * a value the application already holds.
+ * - an index signature, which an open model infers because its validator really does pass unknown
+ *   keys through. TypeScript gives an interface no implicit index signature, so returning one meant
+ *   spreading every level of the tree - a structural deep copy per response on one real service;
+ * - \`readonly\`, which a codebase commonly puts on the views its layers hand back. \`readonly T[]\`
+ *   and \`T[]\` serialise to identical bytes, so mutability says nothing about a payload.
+ *
+ * The input types above keep both, deliberately: they describe the value in hand.
+ *
+ * **An explicit \`undefined\` on an optional property is NOT removed, and that was tried.** It looks
+ * like the same class and is the opposite: dropping an index signature or adding \`readonly\` makes
+ * MORE values assignable, and removing \`| undefined\` makes fewer. Measured, it broke
+ * \`(ctx, input) => ok(input)\` - return what you were given - because what arrives carries it.
+ *
+ * Returning extra properties still works - excess-property checks apply to object literals, not to a
+ * value the application already holds.
  */
-type Declared<T> = T extends (...args: never[]) => unknown
+type Produced<T> = T extends (...args: never[]) => unknown
 	? T
 	: T extends readonly (infer Element)[]
-		? T extends Element[]
-			? Declared<Element>[]
-			: readonly Declared<Element>[]
+		? readonly Produced<Element>[]
 		: T extends object
 			? {
-					[K in keyof T as string extends K
+					readonly [K in keyof T as string extends K
 						? never
 						: number extends K
 							? never
 							: symbol extends K
 								? never
-								: K]: Declared<T[K]>;
+								: K]: Produced<T[K]>;
 				}
 			: T;
 
@@ -722,7 +746,8 @@ type Declared<T> = T extends (...args: never[]) => unknown
 				 */
 				const call =
 					input.length === 0
-						? `handlersFor(c).${member.route.operationId}(ctx)`
+						? // An empty object, because every operation takes `(ctx, input)`. See `EMPTY_INPUT`.
+							`handlersFor(c).${member.route.operationId}(ctx, {})`
 						: [
 								`handlersFor(c).${member.route.operationId}(ctx, {`,
 								...input.map((piece) => `\t\t\t\t\t\t${piece},`),

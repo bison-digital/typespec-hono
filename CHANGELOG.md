@@ -10,7 +10,37 @@ consumer feels, and is treated as such here rather than as an implementation det
 
 ## [Unreleased]
 
-Nothing since `0.17.0`.
+Nothing since `0.18.0`.
+
+## [0.18.0] - 2026-08-15
+
+Requires `typespec-http-zod@^0.19.0`. Two changes to the signature a handler is written against,
+both from consumer reports.
+
+### Changed
+
+- **Every operation now takes `(ctx, input)`, including one that declares no input**, which gets
+  `Record<string, never>`. A surface written once against `Operations` - an RPC entrypoint, a proxy,
+  any uniform dispatch - is typed `(ctx, input)`, and TypeScript refuses a function with MORE
+  parameters than the signature it is assigned to, so a single parameterless operation made the whole
+  surface unassignable: `TS2322: Target signature provides too few arguments. Expected 2 or more, but
+got 1.`
+
+  **This breaks nothing.** Fewer parameters is always assignable, so a handler already written
+  `(ctx) => ...` keeps compiling untouched, and `test/openmodel/treaty.test.ts` holds both halves so
+  that stays true.
+
+- **A handler can return an immutable view.** The return type is now the producer's view: `readonly`
+  as well as index-signature-free, at every depth. `readonly T[]` and `T[]` serialise to identical
+  bytes, so mutability is a TypeScript variance property rather than a wire property - which
+  `Produced<>` in the contract types had said all along while the handler signature did not honour
+  it. Measured on one service: 2 contract methods returning `readonly T[]` could not be wired at all.
+
+  **An explicit `undefined` on an optional property is deliberately still accepted.** Removing it was
+  implemented and reverted: it looks like the same class and is the opposite. Dropping an index
+  signature or adding `readonly` makes MORE values assignable; removing `| undefined` makes fewer,
+  and it broke `(ctx, input) => ok(input)` - return what you were given - because what a handler
+  receives carries it.
 
 ## [0.17.0] - 2026-08-15
 
