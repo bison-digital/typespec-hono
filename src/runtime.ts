@@ -34,7 +34,15 @@ export interface ResponseArm {
 	readonly headers?: readonly { readonly name: string; readonly property: string }[];
 	readonly when?: {
 		readonly property: string;
-		readonly value: boolean | string;
+		/**
+		 * **A number too, because a `@statusCode` union selects by the status itself.**
+		 *
+		 * `model Created { @statusCode statusCode: 200 | 201 }` names the property that chooses, and
+		 * its values are the statuses. The discriminator case carries a boolean or string literal off
+		 * the body instead; both are the same question - which arm did the handler mean - so both use
+		 * this one field.
+		 */
+		readonly value: boolean | number | string;
 	};
 }
 

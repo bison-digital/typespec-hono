@@ -578,8 +578,56 @@ type Fields<T> = string extends keyof T ? ([T[string]] extends [never] ? unknown
 		 * here on its own, because this signature is derived from `z.infer` rather than from those
 		 * types - which is exactly the half-fix `test/openmodel/` exists to catch.
 		 */
+		/**
+		 * **The ENVELOPE a handler has to be able to say, beside the body it returns.**
+		 *
+		 * `@statusCode` and `@header` properties are stripped from the body schema - correctly, they
+		 * are not body - so a return type derived from that schema alone could not carry them. The arms
+		 * name them anyway: `{ headers: [{ property: "correlationId" }] }` tells `respond` to read a
+		 * property off the returned value, and `when: { property: "statusCode" }` tells it which arm
+		 * the handler meant. Measured before this existed, on `payload__head`:
+		 * `Awaitable<Result<void>>` against an arm naming two header properties, so the emitter
+		 * published an envelope contract nothing could satisfy.
+		 *
+		 * Only the SUCCESS statuses count. `responseHeaders` covers error responses too, and a header
+		 * declared on a 404 is the error body's business rather than something a handler returns.
+		 */
+		const successStatuses = route.statusSelector?.statuses ?? [route.statusCode];
+		const envelope: string[] = [];
+		if (route.statusSelector !== undefined) {
+			envelope.push(
+				`${objectKey(route.statusSelector.property)}: ${route.statusSelector.statuses.join(" | ")}`,
+			);
+		}
+		const headerEntries = route.responseHeaders.filter((entry) =>
+			successStatuses.includes(entry.status as number),
+		);
+		const declaredOn = new Map<string, { count: number; type: string }>();
+		for (const entry of headerEntries) {
+			for (const header of entry.headers) {
+				const seen = declaredOn.get(header.property);
+				declaredOn.set(header.property, {
+					count: (seen?.count ?? 0) + 1,
+					type: header.type,
+				});
+			}
+		}
+		for (const [property, { count, type }] of declaredOn) {
+			// Required only where EVERY success status declares it; otherwise the handler cannot know
+			// which status it is answering with until it has chosen one.
+			const optional =
+				count === headerEntries.length && headerEntries.length === successStatuses.length;
+			envelope.push(`${objectKey(property)}${optional ? "" : "?"}: ${type}`);
+		}
+		const envelopeType = envelope.length === 0 ? undefined : `{ ${envelope.join("; ")} }`;
+		const body =
+			names.response === undefined ? undefined : `Produced<z.infer<typeof ${names.response}>>`;
 		const output =
-			names.response === undefined ? "void" : `Produced<z.infer<typeof ${names.response}>>`;
+			body === undefined
+				? (envelopeType ?? "void")
+				: envelopeType === undefined
+					? body
+					: `${body} & ${envelopeType}`;
 		const signature = `ctx: Ctx, input: ${input ?? EMPTY_INPUT}`;
 		const doc = route.summary === undefined ? "" : `\t/** ${route.summary} */\n`;
 		return `${doc}\t${route.operationId}(${signature}): Awaitable<Result<${output}>>;`;

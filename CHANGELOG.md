@@ -10,7 +10,37 @@ consumer feels, and is treated as such here rather than as an implementation det
 
 ## [Unreleased]
 
-Nothing since `0.19.1`.
+Nothing since `0.20.0`.
+
+## [0.20.0] - 2026-08-15
+
+Requires `typespec-http-zod@^0.22.0`.
+
+### Fixed
+
+- **A handler can now say which success status it means, and set a declared response header.** Both
+  are published in the emitted arms and neither could be reached: `@statusCode` and `@header` are
+  stripped from the body schema - correctly, they are not body - so a return type derived from that
+  schema alone could not carry them, while the arms named them anyway. Measured on `payload__head`:
+
+      contentTypeHeaderInResponse(ctx, input): Awaitable<Result<void>>
+      ...Responses = [{ status: 200, schema: undefined,
+                        headers: [{ name: "Content-Type", property: "contentType" }, ...] }]
+
+  `respond` was instructed to read `contentType` off a value typed `void`. The return type is now the
+  body view intersected with the envelope the arms ask for - the `@statusCode` union where the spec
+  declares one, and each declared response header with its own type rather than a guessed `string`.
+
+  `test/envelope/` sends real requests: a handler returning `statusCode: 201` gets a **201**, one
+  returning `200` gets a **200**, and a header the arm names reaches the response. Asserting the
+  signature mentions `statusCode` would have passed for a server that still answers 200 to
+  everything.
+
+### Changed
+
+- `test/path-template.test.ts`'s fixture no longer omits fields behind `as unknown as`. It did, and a
+  field added to `EmittedRoute` turned eight path arms red with
+  `Cannot read properties of undefined` - a failure about nothing to do with paths.
 
 ## [0.19.1] - 2026-08-15
 

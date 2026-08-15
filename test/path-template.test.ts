@@ -23,12 +23,30 @@ function serviceWithParameter(name: string): EmittedService {
 		operations: [],
 		options: { runtimeModule: "typespec-hono/runtime" },
 		routes: [
+			/**
+			 * **Only the fields this arm is about, and the cast below is what makes that safe.**
+			 *
+			 * It is also what let a runtime `TypeError` in for a field added later: `responseHeaders`
+			 * was read while rendering and this fixture had never supplied it, so eight arms failed
+			 * with `Cannot read properties of undefined` rather than with anything about paths. The
+			 * fields below are the ones the renderer reaches on this path; a new one added to
+			 * `EmittedRoute` will land here the same way, which `render.test.ts` fixed by moving to
+			 * `satisfies` and this file cannot, because it is deliberately partial.
+			 */
 			{
 				operationId: "probe",
 				verb: "GET",
 				path: `/a/{${name}}`,
 				requestContentTypes: [],
 				responseContentTypes: [],
+				responseHeaders: [],
+				responseMediaTypes: [],
+				statusCode: 200,
+				statusCodes: [200],
+				statusSelector: undefined,
+				statusBy: undefined,
+				errorArms: [],
+				scopes: [],
 				noAuth: true,
 			},
 		],

@@ -59,6 +59,7 @@ function serviceWith(
 		noAuth: true,
 		scopes: [],
 		statusBy: undefined,
+		statusSelector: undefined,
 		alternateResponseSchema: undefined,
 		path: "/thing",
 		...route,
