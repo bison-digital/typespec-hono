@@ -1,4 +1,3 @@
-import { HTTPException } from "hono/http-exception";
 import type { Context, Env, Input, MiddlewareHandler } from "hono";
 import type { input, output, ZodType } from "zod";
 
@@ -219,13 +218,33 @@ export type BodyTarget = "json" | "form";
  * the JSON it claims to be. `parseBody({ all: true })` builds the object Hono's `"form"` target
  * builds: a repeated key and a `key[]` name both become an array, everything else stays a string.
  */
+const UNREADABLE = Symbol("a body that is not what its content type claims");
+
 async function readBody(c: Context, target: BodyTarget): Promise<unknown> {
 	if (target === "form") return c.req.parseBody({ all: true });
 	try {
 		return await c.req.json();
 	} catch {
-		throw new HTTPException(400, { message: "Malformed JSON in request body" });
+		return UNREADABLE;
 	}
+}
+
+/**
+ * The failure a malformed body produces, reported through the app's `invalid` hook like any other.
+ *
+ * **It used to `throw new HTTPException(400)`, which never reaches that hook.** The response was
+ * `text/plain` with a bare message, so an API whose document declares a JSON error envelope answered
+ * a shape its own contract forbids - and the app had no way to intervene, because the throw happened
+ * before its code ran.
+ *
+ * Parsing `undefined` against the body's own schema is what produces a real Zod failure, so
+ * `deps.invalid` receives the shape it receives for every other rejection rather than a special case
+ * it has to know about. A schema that somehow accepts `undefined` still fails here: a body that
+ * could not be read is not a body that validated.
+ */
+async function unreadableResult(schema: ZodType): Promise<{ readonly success: boolean }> {
+	const parsed = await schema.safeParseAsync(undefined);
+	return parsed.success ? { success: false } : parsed;
 }
 
 /**
@@ -310,18 +329,77 @@ export function byContentType<E extends Env, S extends ZodType>(
 			string,
 			{ in: { json: input<S> }; out: { json: output<S> } }
 		> = async (ctx, proceed) => {
-			const result = await schema.safeParseAsync(await readBody(ctx, target));
+			const raw = await readBody(ctx, target);
+			const result =
+				raw === UNREADABLE ? await unreadableResult(schema) : await schema.safeParseAsync(raw);
 			const response = invalid(result, ctx);
 			if (response !== undefined) return response;
 			// `zValidator`'s own answer when a hook declines to, kept identical so a dispatched route
 			// and a single-media-type one reject a bad body the same way.
 			if (!result.success) return ctx.json(result, 400);
-			ctx.req.addValidatedData(BODY_TARGET, result.data ?? {});
+			ctx.req.addValidatedData(BODY_TARGET, ("data" in result ? result.data : undefined) ?? {});
 			await proceed();
 			return undefined;
 		};
 		return parse(c, next);
 	};
+}
+
+/**
+ * Validate a body the document says is OPTIONAL, and let a request carrying none through.
+ *
+ * **`requestBody.required: false` means a request with no body is one the contract permits**, and a
+ * plain `zValidator` refused it. Measured against @hono/zod-validator 0.9.0 and hono 4.12.26: a
+ * `POST` with `content-type: application/json` and no body answered **400 `Malformed JSON in request
+ * body`** as `text/plain` - raised before the `invalid` hook, so outside the app's error envelope
+ * entirely. A service refusing what its own document allows, in a shape that document forbids.
+ *
+ * **Nothing is published when the body is absent**, so `c.req.valid(...)` reads `undefined` and the
+ * handler is told the truth. That is why an optional body is a NAMED property on the input rather
+ * than merged into it: a merge has no way to say "these are here only sometimes" without making
+ * every one of them optional, which is a weaker and different claim about the body that IS sent.
+ *
+ * A body that is present but unreadable still fails, through `invalid`, so the app's envelope holds.
+ */
+export function optionalBody<E extends Env, S extends ZodType>(
+	schema: S,
+	invalid: <P extends string, I extends Input>(
+		result: { readonly success: boolean },
+		c: Context<E, P, I>,
+	) => Response | undefined,
+	target: BodyTarget,
+): MiddlewareHandler<
+	E,
+	string,
+	{ in: { json: input<S> | undefined }; out: { json: output<S> | undefined } }
+> {
+	return async (c, next) => {
+		if (!hasBody(c)) {
+			await next();
+			return undefined;
+		}
+		const raw = await readBody(c, target);
+		const result =
+			raw === UNREADABLE ? await unreadableResult(schema) : await schema.safeParseAsync(raw);
+		const response = invalid(result, c as never);
+		if (response !== undefined) return response;
+		if (!result.success) return c.json(result, 400);
+		c.req.addValidatedData(BODY_TARGET, ("data" in result ? result.data : undefined) ?? {});
+		await next();
+		return undefined;
+	};
+}
+
+/**
+ * Whether the request carries a body at all.
+ *
+ * Both halves are load-bearing. The platform reports `null` for a request sent without one, and a
+ * caller may instead send `content-length: 0`, which is a body of no bytes and reads the same way to
+ * anything downstream. Neither alone covers what arrives.
+ */
+function hasBody(c: Context): boolean {
+	if (c.req.raw.body === null) return false;
+	return (c.req.header("content-length") ?? "").trim() !== "0";
 }
 
 /**

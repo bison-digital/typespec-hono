@@ -44,6 +44,24 @@ let app: Hono;
 /** What each handler actually received, so the assertion is about arrival rather than about status. */
 const received: Record<string, unknown> = {};
 
+/**
+ * Read a streamed body INSIDE the handler, recording that it was a stream and what it carried.
+ *
+ * **A binary body reaches the handler unread**, which is the point: the emitter hands over
+ * `c.req.raw.body` rather than materialising it, so a 100 MB upload is servable in a 128 MB isolate.
+ * That also means it cannot be inspected after the exchange - the request is over by then - so it is
+ * drained here, where a real handler would pipe it onward.
+ */
+async function drained(input: unknown): Promise<unknown> {
+	if (typeof input !== "object" || input === null || !("body" in input)) return input;
+	const body = (input as { body: unknown }).body;
+	if (!(body instanceof ReadableStream)) return input;
+	const bytes = new Uint8Array(
+		await new Response(body as ReadableStream<Uint8Array>).arrayBuffer(),
+	);
+	return { ...input, body: { streamed: true, bytes } };
+}
+
 beforeAll(async () => {
 	const compiled = await compileFixture(referenceDir, "wire", { outName: "wire-requests" });
 	const server = (await import(join(compiled.outDir, "app.gen.ts"))) as {
@@ -55,8 +73,8 @@ beforeAll(async () => {
 		{
 			get:
 				(_target, name: string) =>
-				(_ctx: unknown, input: unknown): unknown => {
-					received[name] = input;
+				async (_ctx: unknown, input: unknown): Promise<unknown> => {
+					received[name] = await drained(input);
 					return { id: "1", label: "ok" };
 				},
 		},
@@ -194,8 +212,18 @@ describe("the generated server accepts what the wire actually carries", () => {
 			body: BINARY,
 		});
 		expect(response.status).toBe(200);
-		const body = (received["uploadBlob"] as { body: ArrayBuffer }).body;
-		expect(body).toBeInstanceOf(ArrayBuffer);
-		expect([...new Uint8Array(body)]).toEqual([...BINARY]);
+		const body = (received["uploadBlob"] as { body: { streamed: boolean; bytes: Uint8Array } })
+			.body;
+		/**
+		 * **Unread when it arrives.** It used to be `await c.req.arrayBuffer()`, which materialises
+		 * the whole payload: a Worker isolate is 128 MB against a request-body limit of 100 MB, so an
+		 * upload at the documented maximum could not be served at all. The document publishes only
+		 * `contentMediaType` for such a body, so nothing about it was validated either - the emitter
+		 * was paying the entire cost of reading it to produce a value nothing checked.
+		 */
+		expect(body.streamed, "the body was materialised before the handler saw it").toBe(true);
+		// Byte IDENTITY, not length. The original defect was `c.req.text()` UTF-8-decoding five of
+		// these eighteen bytes into U+FFFD while answering 200, and a count comparison passed.
+		expect([...body.bytes]).toEqual([...BINARY]);
 	});
 });

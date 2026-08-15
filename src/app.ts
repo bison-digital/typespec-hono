@@ -194,6 +194,11 @@ interface AppRoute {
 	readonly dispatched:
 		| { readonly byType: readonly (readonly [string, string])[]; readonly identifier: string }
 		| undefined;
+	/**
+	 * Set where the document publishes `requestBody.required: false`, so the body is mounted by
+	 * `optionalBody` and a request carrying none is let through rather than refused.
+	 */
+	readonly optional: { readonly target: string; readonly identifier: string } | undefined;
 }
 
 /**
@@ -217,13 +222,34 @@ interface AppRoute {
  * `isRawBinaryMediaType` is the library's own rule for telling them apart, already applied on the
  * response side; importing it rather than re-deriving it is what keeps the two halves from disagreeing
  * again.
+ *
+ * **A binary body is handed over as the UNREAD stream, not as an `ArrayBuffer`.** `arrayBuffer()`
+ * materialises the whole payload in the isolate, and a Worker gets 128 MB against a request-body
+ * limit of 100 MB, so an upload at the documented maximum cannot be served at all. The document
+ * publishes only `contentMediaType` for such a body - **nothing a validator can check** - so
+ * materialising it produced a value nothing validates, at the cost of the one thing a gateway
+ * actually wants to do with it: pipe it somewhere without touching it.
+ *
+ * Handing over the stream is strictly more capable. A handler wanting the bytes writes
+ * `await new Response(input.body).arrayBuffer()`; a handler wanting to stream into R2 pipes it. The
+ * reverse was not possible.
+ *
+ * **It costs no ambient dependency, which was assumed to be a trade and then measured.**
+ * `ReadableStream` needs `lib.dom`, `@cloudflare/workers-types` or `@types/node` - and the generated
+ * server has needed exactly the same lib since it was first emitted, because it names `Response`.
+ * Whatever a project already supplies to satisfy that declares `ReadableStream` too, so there is no
+ * project that could build the old output and cannot build this. `test/streambody/` asserts both
+ * halves; `test/compiles.test.ts` cannot, because it sets `target` without `lib` and TypeScript then
+ * defaults to the `.full` variant, which includes DOM.
+ *
+ * `null` because a request may carry no body at all, which is what the platform reports.
  */
 function rawBodyReaderFor(contentTypes: readonly string[]): {
 	readonly call: string;
 	readonly type: string;
 } {
 	return isRawBinaryMediaType(contentTypes)
-		? { call: "await c.req.arrayBuffer()", type: "ArrayBuffer" }
+		? { call: "c.req.raw.body", type: "ReadableStream<Uint8Array> | null" }
 		: { call: "await c.req.text()", type: "string" };
 }
 
@@ -235,6 +261,21 @@ function rawBodyReaderFor(contentTypes: readonly string[]): {
  * deriving the type from the same consts is what makes the call site check itself. A restated
  * interface would be a second source of truth that drifts.
  */
+/**
+ * The validators whose fields are INTERSECTED into the input, as opposed to named beside it.
+ *
+ * Shared with the decision to emit `Fields<>` at all, so "is this helper used" is answered by the
+ * same code that uses it rather than by searching the rendered output - an unused type declaration
+ * fails `noUnusedLocals`, which a generated file has to pass like any other.
+ */
+function intersectedValidatorsOf(entry: AppRoute): readonly string[] {
+	const bodyProperty = entry.route.bodyProperty;
+	const bodyName = entry.names.body;
+	return entry.validators
+		.filter(([, name]) => bodyProperty === undefined || name !== bodyName)
+		.map(([, name]) => name);
+}
+
 function inputTypeOf(entry: AppRoute): string | undefined {
 	/**
 	 * **A body the document says must not be flattened is NAMED, not intersected.**
@@ -255,11 +296,32 @@ function inputTypeOf(entry: AppRoute): string | undefined {
 	 * identifier is the same fact whichever parser reads it.
 	 */
 	const bodyName = entry.names.body;
-	const parts = entry.validators
-		.filter(([, name]) => bodyProperty === undefined || name !== bodyName)
-		.map(([, name]) => `z.infer<typeof ${name}>`);
+	/**
+	 * **`Fields<>` is what stops an EMPTY validator poisoning the intersection.**
+	 *
+	 * Zod 4 infers `Record<string, never>` for `z.object({})` - "no string key may exist" - which is
+	 * a correct reading of an empty object on its own and lethal in an intersection: `{ id: string }
+	 * & Record<string, never>` makes `id` into `string & never`, so the input type is uninhabitable
+	 * and the generated call site fails `tsc` inside `app.gen.ts` itself. Measured on
+	 * `model Empty {}` as an optional body: `TS2345: Argument of type '{ id: string; }' is not
+	 * assignable to parameter of type '{ id: string; } & Record<string, never>'`.
+	 *
+	 * The emitted server not compiling is the worst shape available to this emitter, and no arm saw
+	 * it because no fixture declared an empty model.
+	 */
+	const parts = intersectedValidatorsOf(entry).map((name) => `Fields<z.infer<typeof ${name}>>`);
 	if (bodyProperty !== undefined && bodyName !== undefined) {
-		parts.push(`{ ${objectKey(bodyProperty)}: z.infer<typeof ${bodyName}> }`);
+		/**
+		 * **Optional on the input when the document says the body is optional**, which is the whole
+		 * reason such a body is named rather than merged: `c.req.valid(...)` reads `undefined` when
+		 * none arrived, and a merge has no way to say that. Spelled `| undefined` as every other
+		 * optional here is, because `exactOptionalPropertyTypes` is on.
+		 */
+		const optionalMark = entry.route.optionalBody ? "?" : "";
+		const optionalValue = entry.route.optionalBody ? " | undefined" : "";
+		parts.push(
+			`{ ${objectKey(bodyProperty)}${optionalMark}: z.infer<typeof ${bodyName}>${optionalValue} }`,
+		);
 	}
 	if (entry.route.rawBodyProperty !== undefined) {
 		const reader = rawBodyReaderFor(entry.route.requestContentTypes);
@@ -366,6 +428,7 @@ export function renderApp(
 		// this package's pairing rather than a spec the emitter chose not to serve.
 		if (names === undefined) return [];
 		const validators: (readonly [string, string])[] = [];
+		let optional: { readonly target: string; readonly identifier: string } | undefined;
 		for (const location of ["path", "query", "header", "body"] as const) {
 			const identifier = names[location];
 			if (identifier === undefined) continue;
@@ -383,6 +446,35 @@ export function renderApp(
 			if (body.byType.length === 0) continue;
 			const targets = [...new Set(body.byType.map(([, target]) => target))];
 			if (targets.length === 1) {
+				/**
+				 * **An optional body is mounted by `optionalBody`, not `zValidator`**, so a request
+				 * carrying none is let through instead of refused - see the runtime's docblock for the
+				 * 400 that produced. It publishes under the canonical body slot whichever parser read
+				 * it, exactly as `byContentType` does, so the handler reads it the same way everywhere.
+				 */
+				if (route.optionalBody) {
+					validators.push([VALIDATOR_TARGET.body, identifier]);
+					optional = { target: targets[0] as string, identifier };
+					continue;
+				}
+				/**
+				 * **A required body keeps `zValidator`, and unifying it was tried and reverted.**
+				 *
+				 * `zValidator` raises `HTTPException` on a body that is not the JSON its content type
+				 * claims, BEFORE `deps.invalid` runs, so that 400 is `text/plain` and escapes the app's
+				 * error envelope. Routing every body through `byContentType` fixes it and is the obvious
+				 * move - one code path, one place the rejection is decided.
+				 *
+				 * **It is a breaking change to the RUNTIME CONTRACT, not just to emitted output.** An app
+				 * that points `runtime-module` at its own module would have to export `byContentType`,
+				 * which today it needs only if some operation declares several request media types - rare
+				 * enough that no consumer exports it. Measured: 15 arms red, every one of them an app
+				 * whose substituted module has no such export.
+				 *
+				 * The envelope gap is real and stays open for a required single-media-type body. Closing
+				 * it wants a form that adds no export to the runtime contract - most likely emitting the
+				 * middleware into `app.gen.ts` itself - and that is its own change, not a line here.
+				 */
 				validators.push([targets[0] as string, identifier]);
 				continue;
 			}
@@ -396,7 +488,7 @@ export function renderApp(
 			validators.push([VALIDATOR_TARGET.body, identifier]);
 			dispatched = { byType: body.byType, identifier };
 		}
-		return [{ route, names, validators, dispatched }];
+		return [{ route, names, validators, dispatched, optional }];
 	});
 
 	const entries = mounted;
@@ -432,6 +524,29 @@ export function renderApp(
 	 * which is the opposite of the claim being made.
 	 */
 	const EMPTY_INPUT = "Record<string, never>";
+	/**
+	 * Emitted only where an operation INTERSECTS a validator's fields, which is what names it.
+	 *
+	 * Decided from the routes rather than by searching the rendered text - the mistake that once
+	 * dropped the `byContentType` import when a call gained an argument.
+	 */
+	const usesFields = entries.some((entry) => intersectedValidatorsOf(entry).length > 0);
+	const fieldsHelper = usesFields
+		? `/**
+ * A validator's fields, or nothing at all when it declares none.
+ *
+ * **Zod 4 infers \`Record<string, never>\` for \`z.object({})\`.** That is a fair reading on its own -
+ * no string key may exist - and lethal in an intersection: \`{ id: string } & Record<string, never>\`
+ * makes \`id\` into \`string & never\`, so the input type is uninhabitable and the call site below
+ * cannot compile. An empty model contributes nothing to an operation's input, and \`unknown\` is the
+ * identity of \`&\`, so that is what it becomes.
+ *
+ * A DICTIONARY body is not this: \`Record<unknown>\` has a value type, so it survives untouched.
+ */
+type Fields<T> = string extends keyof T ? ([T[string]] extends [never] ? unknown : T) : T;
+
+`
+		: "";
 	const methods = entries.map((entry) => {
 		const { route, names } = entry;
 		/**
@@ -479,6 +594,7 @@ export function renderApp(
 	 * mentions a name is how this package lost the `byContentType` import: the call gained an argument
 	 * and the substring stopped matching, so a module referenced a function it no longer imported.
 	 */
+	const mountsOptionalBody = entries.some((entry) => entry.optional !== undefined);
 	const returnsAnything = entries.some((entry) => entry.names.response !== undefined);
 	const declaredHelper = returnsAnything
 		? `/**
@@ -675,12 +791,22 @@ type Produced<T> = T extends (...args: never[]) => unknown
 				...gate,
 				...validators
 					// The dispatched body's own `zValidator` is `byContentType`; emitting both would parse
-					// the body twice and reject every media type but one.
-					.filter(([target]) => entry.dispatched === undefined || target !== VALIDATOR_TARGET.body)
+					// the body twice and reject every media type but one. An optional body is the same
+					// story with `optionalBody`, which additionally lets a bodyless request through.
+					.filter(
+						([target]) =>
+							(entry.dispatched === undefined && entry.optional === undefined) ||
+							target !== VALIDATOR_TARGET.body,
+					)
 					.map(
 						([target, name]) => `\t\tzValidator(${JSON.stringify(target)}, ${name}, deps.invalid),`,
 					),
 				...dispatch,
+				...(entry.optional === undefined
+					? []
+					: [
+							`\t\toptionalBody(${entry.optional.identifier}, deps.invalid, ${JSON.stringify(entry.optional.target)}),`,
+						]),
 			];
 			/**
 			 * Whether the operation requires a caller, and NOTHING else about the caller.
@@ -1006,7 +1132,7 @@ type Produced<T> = T extends (...args: never[]) => unknown
 
 	return `${generatedBanner(emitted.options.regenerateHint)}
 ${validates ? 'import { zValidator } from "@hono/zod-validator";\n' : ""}${needsHonoValue ? 'import { Hono } from "hono";\nimport type { Context, Input } from "hono";' : 'import type { Context, Hono, Input } from "hono";'}
-${usesZod ? 'import { z } from "zod";\n' : ""}import type { AppEnv, Awaitable, Ctx, Result, RouteDeps } from ${runtimeModule};${negotiates ? `\nimport { selectContentType } from ${runtimeModule};` : ""}${guardsHead ? `\nimport { headOnly } from ${runtimeModule};` : ""}${dispatchesBody ? `\nimport { byContentType } from ${runtimeModule};` : ""}
+${usesZod ? 'import { z } from "zod";\n' : ""}import type { AppEnv, Awaitable, Ctx, Result, RouteDeps } from ${runtimeModule};${negotiates ? `\nimport { selectContentType } from ${runtimeModule};` : ""}${guardsHead ? `\nimport { headOnly } from ${runtimeModule};` : ""}${dispatchesBody ? `\nimport { byContentType } from ${runtimeModule};` : ""}${mountsOptionalBody ? `\nimport { optionalBody } from ${runtimeModule};` : ""}
 ${imports}
 /**
  * One method per operation, each concretely typed from the schemas it validates against.
@@ -1014,7 +1140,7 @@ ${imports}
  * There is no cast anywhere in this file, and no dynamic lookup: the generated call sites name the
  * method, so an implementation whose input or output does not match the contract fails to compile.
  */
-${declaredHelper}export interface Operations {
+${fieldsHelper}${declaredHelper}export interface Operations {
 ${methods.join("\n")}
 }
 

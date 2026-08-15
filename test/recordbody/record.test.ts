@@ -45,8 +45,10 @@ describe("a request body with an indexer", () => {
 
 	it("still spreads an ordinary model body, so nothing else moved", () => {
 		// A named model body reuses its own schema, so the name is `thingSchema` rather than `yBody`.
+		// `Fields<>` wraps each intersected member so an EMPTY validator cannot poison the rest; the
+		// claim here is unchanged, that an ordinary body is intersected rather than named.
 		expect(source).toMatch(
-			/y\(ctx: Ctx, input: z\.infer<typeof yQuery> & z\.infer<typeof thingSchema>/,
+			/y\(ctx: Ctx, input: Fields<z\.infer<typeof yQuery>> & Fields<z\.infer<typeof thingSchema>>/,
 		);
 	});
 });

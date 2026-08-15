@@ -36,6 +36,7 @@ function serviceWith(
 ): EmittedService {
 	const full = {
 		bodyProperty: undefined,
+		optionalBody: false,
 		reservedPathParameters: [],
 		responseHeaders: [],
 		responseMediaTypes: [],

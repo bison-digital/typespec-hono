@@ -10,7 +10,52 @@ consumer feels, and is treated as such here rather than as an implementation det
 
 ## [Unreleased]
 
-Nothing since `0.18.1`.
+Nothing since `0.19.0`.
+
+## [0.19.0] - 2026-08-15
+
+Requires `typespec-http-zod@^0.20.0`. Three findings from `agent-books` (~260 operations ported).
+All three reproduced; none was covered by either suite.
+
+### Fixed
+
+- **An EMPTY request model made the generated server fail to compile.** Zod 4 infers
+  `Record<string, never>` for `z.object({})`, so `{ id: string } & Record<string, never>` turned `id`
+  into `string & never` - `TS2345`, inside `app.gen.ts` itself. Each intersected member now passes
+  through `Fields<>`, which maps an empty validator to `unknown`, the identity of `&`. A dictionary
+  body is untouched: it has a value type, so it is not empty.
+
+- **A streamed upload is handed over unread.** A binary body was read with `await c.req.arrayBuffer()`
+  before the handler ran. A Worker isolate is 128 MB against a request-body limit of 100 MB, so an
+  upload at the documented maximum could not be served at all - and the document publishes only
+  `contentMediaType` for such a body, so **nothing about it was validated either**: the whole cost of
+  reading it bought a value nothing checked. The handler now receives `c.req.raw.body` as
+  `ReadableStream<Uint8Array> | null` and pipes it wherever it likes.
+
+  **This costs no ambient dependency**, which was assumed to be a trade and then measured: the
+  generated server has named `Response` since it was first emitted, so whatever a project already
+  supplies to satisfy that declares `ReadableStream` too. `test/streambody/` asserts both halves.
+
+  A raw JSON body is still read with `text()`, which a signature check needs verbatim.
+
+- **An OPTIONAL body no longer refuses a request that carries none.** `@body body?:` mounted
+  `zValidator` unconditionally, so a bodyless `POST` naming `content-type: application/json` answered
+  400 `Malformed JSON in request body` as `text/plain` - outside the app's error envelope, because
+  `zValidator` raises before `deps.invalid` runs. Such a body is now named `body?:` on the input and
+  mounted by a new `optionalBody` middleware, so an absent body reads `undefined` and the handler is
+  told the truth rather than handed an invented empty object.
+
+- **A malformed body now reports through `deps.invalid`** for optional and multi-media-type bodies,
+  so the app's envelope holds. See the known limit below for the case that remains.
+
+### Known limit
+
+A **required, single-media-type** body still rejects malformed JSON through `zValidator`'s
+`HTTPException`, which is `text/plain` and escapes `deps.invalid`. Routing it through the same
+middleware was implemented and reverted: it is a breaking change to the RUNTIME CONTRACT rather than
+to emitted output, because an app substituting `runtime-module` would have to export `byContentType`,
+which today it needs only for the rare multi-media-type case. Measured, 15 arms red. Closing it wants
+a form that adds no export - most likely emitting the middleware into `app.gen.ts` itself.
 
 ## [0.18.1] - 2026-08-15
 
