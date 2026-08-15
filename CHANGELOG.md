@@ -10,7 +10,28 @@ consumer feels, and is treated as such here rather than as an implementation det
 
 ## [Unreleased]
 
-Nothing since `0.16.0`.
+Nothing since `0.17.0`.
+
+## [0.17.0] - 2026-08-15
+
+Requires `typespec-http-zod@^0.18.0`, which types a `HttpPart<File>` as a file instead of `unknown`.
+
+### Changed
+
+- **A handler reads a multipart file part without a cast.** `input.file.name`, `input.file.type` and
+  `input.file.arrayBuffer()` are all reachable, for a required part, an optional one and a repeated
+  one. No source change was needed here - the narrowing survives the walk that builds a handler's
+  input type - but `test/filepart/` asserts it at the boundary rather than inferring it from the
+  library being correct. The open-model fix in `0.15.0` did NOT survive that walk, which is why the
+  claim is made here and not assumed.
+
+  The part type is spelled structurally, so the consumer arm compiles under `types: []`: reading a
+  file part pulls in no `lib.dom` and no `@types/node`.
+
+- **`test/vocabulary.test.ts` admits that one `.refine` as a SHAPE**, with its own non-vacuity floor.
+  Duplicated from the library's copy deliberately: that package emits the schema, this one embeds it
+  in a server, and each grades the output it produces. A rule enforced in one place only is a rule
+  the other can drift away from.
 
 ## [0.16.0] - 2026-08-15
 

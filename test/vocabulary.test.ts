@@ -27,6 +27,25 @@ const packageRoot = fileURLToPath(new URL("..", import.meta.url));
 const NOT_DERIVABLE = /\.(refine|superRefine|transform|catch|pipe|brand)\(/g;
 
 /**
+ * The one permitted `.refine`, written as the only form it may take.
+ *
+ * **A `HttpPart<File>` is a file, and this establishes it.** `@typespec/openapi3` publishes a bare
+ * `{}` for such a part - in 3.1, and even where the part declares a content type. That is OpenAPI's
+ * IDIOM for binary content in a multipart body rather than a statement that any value is
+ * acceptable, and the transport agrees: Hono types a multipart part as `string | File` and nothing
+ * else. So this refuses exactly one thing, a text field where the spec declared a file, and that
+ * request is malformed against the spec the document was projected from. A spec that means "either"
+ * writes `HttpPart<File | string>`, so nothing becomes inexpressible.
+ *
+ * **Duplicated from `typespec-http-zod`'s copy of this suite deliberately.** That package emits the
+ * schema; this one embeds it in a server. Each grades the output IT produces, and a rule enforced in
+ * one place only is a rule the other can drift away from. Written out literally in both, rather than
+ * imported, so neither oracle derives its expectation from the code it grades.
+ */
+const MULTIPART_FILE_REFINE =
+	/z\.unknown\(\)\.refine\(\(value\): value is \{ name: string; type: string; arrayBuffer: \(\) => Promise<ArrayBuffer> \} => typeof value === "object" && value !== null && "name" in value && typeof value\.name === "string" && "type" in value && typeof value\.type === "string" && "arrayBuffer" in value && typeof value\.arrayBuffer === "function"\)/g;
+
+/**
  * The permitted `z.preprocess` shapes. Each written as the only form it may take.
  *
  * Every one of these undoes a TRANSPORT ENCODING before validation, so the document's own schema and
@@ -133,10 +152,25 @@ describe("the generated validator says only what the document can say", () => {
 		 * here rather than pass quietly.
 		 */
 		const offenders = files.flatMap((file) => {
-			const source = readFileSync(file, "utf8");
+			// The permitted shape is removed first, so anything left is by definition not it.
+			const source = readFileSync(file, "utf8").replaceAll(MULTIPART_FILE_REFINE, "");
 			return [...source.matchAll(NOT_DERIVABLE)].map((match) => `${match[1]} in ${file}`);
 		});
 		expect(offenders).toEqual([]);
+	});
+
+	it("finds the multipart file refinements it is meant to permit", () => {
+		/**
+		 * **Paired with the arm above, which passes trivially if the emitter stops emitting any.** An
+		 * exemption that outlives the thing it exempted has stopped guarding anything, and would then
+		 * be stripping text that has come to mean something else.
+		 */
+		const refinements = files.reduce(
+			(total, file) =>
+				total + (readFileSync(file, "utf8").match(MULTIPART_FILE_REFINE) ?? []).length,
+			0,
+		);
+		expect(refinements).toBeGreaterThanOrEqual(4);
 	});
 
 	it("permits `z.preprocess` only as a wire decode of a known shape", () => {
