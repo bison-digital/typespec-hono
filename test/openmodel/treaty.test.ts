@@ -81,7 +81,7 @@ export const handlers: Operations = {
 		const output = withConsumer(`
 import type { Operations } from "./app.gen.js";
 
-export const listPages: Operations["listPages"] = () => ({ entries: [], tags: [] });
+export const listPages: Operations["listPages"] = () => ({ claims: {}, entries: [], tags: [] });
 `);
 		expect(output, output).toBe("");
 	});
@@ -102,11 +102,12 @@ interface Entry {
 }
 
 interface ImmutablePage {
+	readonly claims: Readonly<Record<string, unknown>>;
 	readonly entries: readonly Entry[];
 	readonly tags: readonly string[];
 }
 
-const view: ImmutablePage = { entries: [{ id: "a" }], tags: ["t"] };
+const view: ImmutablePage = { claims: { a: 1 }, entries: [{ id: "a" }], tags: ["t"] };
 
 export const listPages: Operations["listPages"] = () => view;
 `);
@@ -117,8 +118,8 @@ export const listPages: Operations["listPages"] = () => view;
 		const output = withConsumer(`
 import type { Operations } from "./app.gen.js";
 
-export const listPages: Operations["listPages"] = () => ({ entries: [], tags: [] });
-export const withNote: Operations["listPages"] = () => ({ entries: [], tags: [], note: "n" });
+export const listPages: Operations["listPages"] = () => ({ claims: {}, entries: [], tags: [] });
+export const withNote: Operations["listPages"] = () => ({ claims: {}, entries: [], tags: [], note: "n" });
 `);
 		expect(output, output).toBe("");
 	});

@@ -10,7 +10,20 @@ consumer feels, and is treated as such here rather than as an implementation det
 
 ## [Unreleased]
 
-Nothing since `0.18.0`.
+Nothing since `0.18.1`.
+
+## [0.18.1] - 2026-08-15
+
+### Fixed
+
+- **A property whose declared type is a dictionary was flattened in a handler's return type.**
+  `Produced<>` strips index signatures so an open model's `.loose()` catchall does not become an
+  obligation on the handler; it recursed into every object, so a property declared `Record<unknown>`
+  - where the index signature IS the type - lost it and became `{}`. Same defect as
+    `typespec-http-zod@0.19.1`, at this package's boundary, and fixed the same way: the index signature
+    is dropped only from a shape with declared keys beside it.
+
+Requires `typespec-http-zod@^0.19.1`.
 
 ## [0.18.0] - 2026-08-15
 

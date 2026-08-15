@@ -489,7 +489,11 @@ export function renderApp(
  *
  * - an index signature, which an open model infers because its validator really does pass unknown
  *   keys through. TypeScript gives an interface no implicit index signature, so returning one meant
- *   spreading every level of the tree - a structural deep copy per response on one real service;
+ *   spreading every level of the tree - a structural deep copy per response on one real service.
+ *   **Only where the shape has declared keys beside it**: an index signature also arrives as a
+ *   property's own declared type (\`Record<unknown>\`), where it is stated identically in both
+ *   artefacts and stripping it would destroy the property. A string indexer means "dictionary" only
+ *   when nothing is declared next to it, which is the same rule the contract types use;
  * - \`readonly\`, which a codebase commonly puts on the views its layers hand back. \`readonly T[]\`
  *   and \`T[]\` serialise to identical bytes, so mutability says nothing about a payload.
  *
@@ -503,20 +507,32 @@ export function renderApp(
  * Returning extra properties still works - excess-property checks apply to object literals, not to a
  * value the application already holds.
  */
+type ProducedKeyOf<T> = keyof {
+	[K in keyof T as string extends K
+		? never
+		: number extends K
+			? never
+			: symbol extends K
+				? never
+				: K]: 0;
+};
+
 type Produced<T> = T extends (...args: never[]) => unknown
 	? T
 	: T extends readonly (infer Element)[]
 		? readonly Produced<Element>[]
 		: T extends object
-			? {
-					readonly [K in keyof T as string extends K
-						? never
-						: number extends K
+			? [ProducedKeyOf<T>] extends [never]
+				? { readonly [K in keyof T]: Produced<T[K]> }
+				: {
+						readonly [K in keyof T as string extends K
 							? never
-							: symbol extends K
+							: number extends K
 								? never
-								: K]: Produced<T[K]>;
-				}
+								: symbol extends K
+									? never
+									: K]: Produced<T[K]>;
+					}
 			: T;
 
 `

@@ -22,6 +22,7 @@ model Entry {
 }
 
 model Page {
+  claims: Record<unknown>;
   entries: Entry[];
   tags: string[];
   note?: string;
