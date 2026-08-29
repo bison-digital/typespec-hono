@@ -85,8 +85,20 @@ The library publishes first, always, because the server resolves it by range.
    the workflow by a minute; that is not a failure.
 4. Only then bump `typespec-hono`'s dependency range, run its gates against the published library,
    and release it.
-5. Bring `typespec-hono-example` onto the pair last. It is a consumer, so it is the last thing that
-   can tell you the release is wrong, and the first thing to go stale if nobody moves it.
+5. **Prove the release against the reference consumer.**
+
+   ```bash
+   gh workflow run CI --repo bison-digital/typespec-hono-example
+   ```
+
+   [`typespec-hono-example`](https://github.com/bison-digital/typespec-hono-example) has a `latest`
+   job that installs whatever is newest on npm rather than what it has pinned, so it fails when a
+   release breaks a real consumer. It also runs daily, which catches a bad release nobody thought to
+   check - but a release is exactly when you want the answer immediately rather than tomorrow.
+
+   It is the last thing that can tell you the release is wrong, and the first thing to go stale if
+   nobody moves it: it sat eighteen minor versions behind for weeks, demonstrating an emitter nobody
+   could install.
 
 ## On prereleases
 
