@@ -39,7 +39,12 @@ describe("the README documents everything this package can do to you", () => {
 		 * A reference nothing points at is a reference nobody reads, which is the failure mode of
 		 * moving it out of the README in the first place.
 		 */
-		for (const doc of ["docs/guides.md", "docs/cloudflare-workers.md", "docs/reference.md"]) {
+		for (const doc of [
+			"docs/guides.md",
+			"docs/cloudflare-workers.md",
+			"docs/reference.md",
+			"docs/releasing.md",
+		]) {
 			expect(readme, `README does not link ${doc}`).toContain(`(${doc})`);
 		}
 	});

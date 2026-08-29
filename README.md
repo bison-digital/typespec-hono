@@ -175,6 +175,8 @@ and exists only for the duration of a request.
   request bodies, streaming, observability
 - [Cloudflare Workers](docs/cloudflare-workers.md): which router to pick, and what the bundle costs
 - [Reference](docs/reference.md): every option, every diagnostic, and the known limits
+- [Releasing](docs/releasing.md): rehearsing a two-package release against a local registry,
+  because the server resolves the library through npm and CI cannot verify a change spanning both
 
 ## Licence
 
