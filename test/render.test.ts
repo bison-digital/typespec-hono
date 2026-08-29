@@ -83,6 +83,7 @@ function serviceWith(
 			contractsOutputDir: undefined,
 			contractsPackage: undefined,
 			sealObjectSchemas: false,
+			compileSchemas: false,
 			keyVocabularies: [],
 			runtimeModule: "typespec-hono/runtime",
 			regenerateHint: undefined,
