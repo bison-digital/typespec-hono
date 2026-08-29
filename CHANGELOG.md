@@ -10,7 +10,14 @@ consumer feels, and is treated as such here rather than as an implementation det
 
 ## [Unreleased]
 
-Requires `typespec-http-zod@^0.24.0`.
+Requires `typespec-http-zod@^0.24.0` and **`zod@^4.5.0`**.
+
+**The `zod` peer range was `^4.0.0` and had to move.** The emitted validators now use
+`.exactOptional()`, which needs 4.3, and their agreement with the published document depends on 4.5
+counting a length bound in code points rather than UTF-16 units - under `^4.0.0` there are resolvable
+versions where a payload the document forbids reaches a handler. Verified end to end on `workerd`:
+eight emoji against `@maxLength(8)` are accepted and two against `@minLength(3)` are refused, both
+through a running generated server.
 
 A minor: **every request body is now mounted by one middleware emitted into `app.gen.ts`**, so a body
 that cannot be read is refused through the app's own error envelope in every position. This closes
