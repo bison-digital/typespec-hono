@@ -11,7 +11,8 @@ jobs:
   publish:
     runs-on: ubuntu-latest
     permissions:
-      contents: read
+      # `write`, not `read`: the last step creates the GitHub release.
+      contents: write
       # Required for npm provenance: npm exchanges this for a signed attestation linking the
       # published tarball to the commit and workflow that produced it. Without it, `provenance: true`
       # in package.json fails the publish rather than silently skipping.
@@ -69,3 +70,20 @@ jobs:
       - run: pnpm publish --access public --provenance --no-git-checks
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      # **A tag is not a release.** Every version so far was published to npm and left no trace on
+      # GitHub: the workflow was named Release and only ever did half of one, so a reader browsing
+      # the repository saw tags and no notes. The notes ARE the changelog section, extracted rather
+      # than rewritten - two accounts of one release is one account too many, and the second drifts.
+      - name: Publish the GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          awk -v v="## [$version]" 'index($0,v)==1{f=1;next} f&&/^## \[/{exit} f' CHANGELOG.md > /tmp/notes.md
+          # Fails rather than publishing an empty release: a version with no changelog section is a
+          # release nobody can read, and the tag is already pushed by the time anyone would notice.
+          test -s /tmp/notes.md
+          # Idempotent, because a publish that failed on auth is rerun against a tag that already exists.
+          gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1 \
+            || gh release create "$GITHUB_REF_NAME" --title "$GITHUB_REF_NAME" --notes-file /tmp/notes.md
