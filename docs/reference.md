@@ -4,7 +4,19 @@
 
 Every option `typespec-http-zod` accepts is forwarded, and the schema is derived from that package's
 rather than restated. See its README for `seal-object-schemas`, `contracts-output-dir`,
-`contracts-package`, `key-vocabularies`, `runtime-module`, `regenerate-hint` and `services`.
+`contracts-package`, `compile-schemas`, `key-vocabularies`, `runtime-module`, `regenerate-hint` and
+`services`.
+
+`compile-schemas` is worth a word here because a SERVER is where it pays. It wraps every emitted
+validator in Zod 4.5's `z.compile()`, and a generated server parses on the synchronous path - the
+only path the compiled fast path is available on, since Zod bypasses it for any async parse. It costs
+startup time in proportion to the number of schemas, so it is off by default.
+
+**On Cloudflare Workers it is the only route to a compiled schema.** `new Function` is permitted
+during a Worker's STARTUP phase, which is when module scope runs, whereas Zod's own
+`import "zod/compile"` compiles lazily on first parse - inside a request, where the runtime refuses
+it, silently. Both measured on `workerd`, and a generated server with the option on reports a live
+compiled fast path while serving.
 
 `regenerate-hint` is worth setting on day one: it writes your project's own regeneration command into
 every generated banner, so a reader who opens one is told what to run rather than only what not to
