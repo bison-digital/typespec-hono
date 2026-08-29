@@ -1,5 +1,5 @@
 import type { Context, Env, Input, MiddlewareHandler } from "hono";
-import type { input, output, ZodType } from "zod";
+import type { ZodType } from "zod";
 
 /**
  * One arm of an operation's declared response set, as the document publishes it.
@@ -214,201 +214,20 @@ export const headOnly: MiddlewareHandler = async (c, next) =>
 	c.req.method === "HEAD" ? next() : c.notFound();
 
 /**
- * The `zValidator` targets a request BODY can be read from. Hono extracts `"json"` with
- * `c.req.json()` and `"form"` with `c.req.parseBody()`, and those are the only two that read a body.
+ * **The request-body middleware used to live here, and it moved into `app.gen.ts`.**
+ *
+ * `byContentType` and `optionalBody` were exported from this module and imported by the generated
+ * server, which made them part of a SECOND contract this package has: what an application that
+ * points `runtime-module` at a module of its own must export. That contract is easy to break without
+ * noticing, and it was the reason a required single-media-type body kept `zValidator` - whose
+ * `HTTPException` on an unreadable body is a `text/plain` 400 raised before `deps.invalid`, escaping
+ * the app's error envelope. Routing those through `byContentType` closed the gap in one line and
+ * made that export mandatory for every substituting app: measured, 15 arms red.
+ *
+ * Emitting the middleware instead closes the gap and SHRINKS the runtime contract by these two
+ * names. Nothing generated imports them, so keeping them here would leave a second implementation of
+ * body reading that nothing exercises - which is how two copies of one rule drift apart.
  */
-export type BodyTarget = "json" | "form";
-
-/**
- * The request body, read the way the target says to read it.
- *
- * The same two readers Hono's own `validator` uses, and the same rejection for a body that is not
- * the JSON it claims to be. `parseBody({ all: true })` builds the object Hono's `"form"` target
- * builds: a repeated key and a `key[]` name both become an array, everything else stays a string.
- */
-const UNREADABLE = Symbol("a body that is not what its content type claims");
-
-async function readBody(c: Context, target: BodyTarget): Promise<unknown> {
-	if (target === "form") return c.req.parseBody({ all: true });
-	try {
-		return await c.req.json();
-	} catch {
-		return UNREADABLE;
-	}
-}
-
-/**
- * The failure a malformed body produces, reported through the app's `invalid` hook like any other.
- *
- * **It used to `throw new HTTPException(400)`, which never reaches that hook.** The response was
- * `text/plain` with a bare message, so an API whose document declares a JSON error envelope answered
- * a shape its own contract forbids - and the app had no way to intervene, because the throw happened
- * before its code ran.
- *
- * Parsing `undefined` against the body's own schema is what produces a real Zod failure, so
- * `deps.invalid` receives the shape it receives for every other rejection rather than a special case
- * it has to know about. A schema that somehow accepts `undefined` still fails here: a body that
- * could not be read is not a body that validated.
- */
-async function unreadableResult(schema: ZodType): Promise<{ readonly success: boolean }> {
-	const parsed = await schema.safeParseAsync(undefined);
-	return parsed.success ? { success: false } : parsed;
-}
-
-/**
- * The slot a validated request body is published under, whichever parser produced it.
- *
- * `ValidationTargets` is a closed union in Hono, so a body cannot be given a name of its own. This
- * is the slot the generated code already reads a body from when one media type is declared, so using
- * it for a dispatched body is what keeps the two cases identical downstream.
- */
-const BODY_TARGET = "json";
-
-/**
- * Apply the validator that parses the media type the request actually carries.
- *
- * A route may declare several request media types needing different parsers -- `addPet` in the
- * Swagger Petstore accepts JSON, XML and urlencoded on one path. `zValidator`'s target is fixed when
- * the server is generated; which parser applies is decided by the caller's `Content-Type` when the
- * request arrives. Those are different times, and only the second one has the answer.
- *
- * **Before this, one target was chosen for the whole route and everything else was rejected.** A
- * form-encoded body to a route declaring JSON first was handed to `c.req.json()` and answered 400,
- * with no diagnostic anywhere. The status looked like the caller's fault and was not.
- *
- * Parameters after the media type (`; charset=utf-8`, `; boundary=...`) are not part of the match,
- * which matters because a multipart request always carries a boundary.
- *
- * A `Content-Type` matching nothing declared falls through to the first validator, which reproduces
- * the previous behaviour exactly for that case: the body fails to parse and `deps.invalid` answers.
- * No status is invented here that the document does not describe.
- *
- * **The validated body is published under `"json"` whichever parser produced it**, and that is what
- * makes a dispatched route the same shape as every other one downstream. `ValidationTargets` is a
- * closed union in Hono, so there is no seventh name to coin for "the body"; `"json"` is already the
- * slot this emitter reads a body from, and using it here means the handler spreads one
- * `c.req.valid("json")` exactly as it does for a route declaring a single media type.
- *
- * **The alternative was a middleware that publishes under whichever target ran**, and it was worse
- * in two ways that both shipped. `byContentType` was a bare `MiddlewareHandler`, which contributes no
- * `Input` to the chain, so the generated `c.req.valid("json")` did not compile at all
- * (`TS2345: Argument of type '"json"' is not assignable to parameter of type '"header"'`), and the
- * handler's declared input type omitted the body entirely because the body was not among the route's
- * ordinary validators. Publishing to one known slot removes both, rather than typing around them.
- */
-export function byContentType<E extends Env, S extends ZodType>(
-	schema: S,
-	invalid: <P extends string, I extends Input>(
-		result: { readonly success: boolean },
-		c: Context<E, P, I>,
-	) => Response | undefined,
-	/**
-	 * **A NON-EMPTY list, stated in the type.** The fallback below reads the first branch, and
-	 * `branches[0]` on a plain array is `T | undefined`, which was silenced with a cast. A tuple says
-	 * the same thing the emitter already guarantees - this middleware is only ever emitted for a route
-	 * declaring at least one request media type - and removes the cast rather than typing around it.
-	 */
-	branches: readonly [
-		readonly [mediaType: string, target: BodyTarget],
-		...(readonly [mediaType: string, target: BodyTarget])[],
-	],
-): MiddlewareHandler<E, string, { in: { json: input<S> }; out: { json: output<S> } }> {
-	return async (c, next) => {
-		const declared = (c.req.header("content-type") ?? "").split(";")[0]?.trim().toLowerCase() ?? "";
-		const matched = branches.find(([mediaType]) => mediaType.toLowerCase() === declared);
-		const [, target] = matched ?? branches[0];
-		/**
-		 * **Registered against the body slot whichever parser runs**, so the validated body is
-		 * published under one target and the handler reads it exactly as it reads a single-media-type
-		 * one. Hono's `validator` is what `@hono/zod-validator` is built on, so this is the same
-		 * extraction, the same `HTTPException` on malformed JSON, and the same default rejection.
-		 *
-		 * **Hono's own `validator` is deliberately not called here.** Its target fixes the reader at
-		 * registration time, and the whole point of this function is that the reader is chosen when the
-		 * request arrives. What it does instead is reproduce `validator`'s observable behaviour for both
-		 * targets: {@link readBody} performs the same two extractions and raises the same
-		 * `HTTPException` on malformed JSON, and the rejection below is `zValidator`'s own.
-		 *
-		 * Annotated rather than inlined because `Context` is invariant in its environment and in its
-		 * `Input`. Same reason `RouteDeps` is parameterised.
-		 */
-		const parse: MiddlewareHandler<
-			E,
-			string,
-			{ in: { json: input<S> }; out: { json: output<S> } }
-		> = async (ctx, proceed) => {
-			const raw = await readBody(ctx, target);
-			const result =
-				raw === UNREADABLE ? await unreadableResult(schema) : await schema.safeParseAsync(raw);
-			const response = invalid(result, ctx);
-			if (response !== undefined) return response;
-			// `zValidator`'s own answer when a hook declines to, kept identical so a dispatched route
-			// and a single-media-type one reject a bad body the same way.
-			if (!result.success) return ctx.json(result, 400);
-			ctx.req.addValidatedData(BODY_TARGET, ("data" in result ? result.data : undefined) ?? {});
-			await proceed();
-			return undefined;
-		};
-		return parse(c, next);
-	};
-}
-
-/**
- * Validate a body the document says is OPTIONAL, and let a request carrying none through.
- *
- * **`requestBody.required: false` means a request with no body is one the contract permits**, and a
- * plain `zValidator` refused it. Measured against @hono/zod-validator 0.9.0 and hono 4.12.26: a
- * `POST` with `content-type: application/json` and no body answered **400 `Malformed JSON in request
- * body`** as `text/plain` - raised before the `invalid` hook, so outside the app's error envelope
- * entirely. A service refusing what its own document allows, in a shape that document forbids.
- *
- * **Nothing is published when the body is absent**, so `c.req.valid(...)` reads `undefined` and the
- * handler is told the truth. That is why an optional body is a NAMED property on the input rather
- * than merged into it: a merge has no way to say "these are here only sometimes" without making
- * every one of them optional, which is a weaker and different claim about the body that IS sent.
- *
- * A body that is present but unreadable still fails, through `invalid`, so the app's envelope holds.
- */
-export function optionalBody<E extends Env, S extends ZodType>(
-	schema: S,
-	invalid: <P extends string, I extends Input>(
-		result: { readonly success: boolean },
-		c: Context<E, P, I>,
-	) => Response | undefined,
-	target: BodyTarget,
-): MiddlewareHandler<
-	E,
-	string,
-	{ in: { json: input<S> | undefined }; out: { json: output<S> | undefined } }
-> {
-	return async (c, next) => {
-		if (!hasBody(c)) {
-			await next();
-			return undefined;
-		}
-		const raw = await readBody(c, target);
-		const result =
-			raw === UNREADABLE ? await unreadableResult(schema) : await schema.safeParseAsync(raw);
-		const response = invalid(result, c as never);
-		if (response !== undefined) return response;
-		if (!result.success) return c.json(result, 400);
-		c.req.addValidatedData(BODY_TARGET, ("data" in result ? result.data : undefined) ?? {});
-		await next();
-		return undefined;
-	};
-}
-
-/**
- * Whether the request carries a body at all.
- *
- * Both halves are load-bearing. The platform reports `null` for a request sent without one, and a
- * caller may instead send `content-length: 0`, which is a body of no bytes and reads the same way to
- * anything downstream. Neither alone covers what arrives.
- */
-function hasBody(c: Context): boolean {
-	if (c.req.raw.body === null) return false;
-	return (c.req.header("content-length") ?? "").trim() !== "0";
-}
 
 /**
  * What the app provides. One object, passed once, rather than a module the generated file imports by

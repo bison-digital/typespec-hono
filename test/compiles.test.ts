@@ -163,9 +163,21 @@ describe("every generated server compiles", () => {
 		const sources = [...compiled.values()].flatMap(servers);
 		const emitted = (token: string): number =>
 			sources.filter((source) => source.includes(token)).length;
-		expect(emitted("byContentType("), "no fixture emits a dispatched request body").toBeGreaterThan(
-			0,
-		);
+		/**
+		 * A DISPATCHED body - several media types needing different readers - is now the same
+		 * `validateBody` call as any other, given more than one branch. So the shape to count is the
+		 * second branch, not a second function name: counting the name would pass for a fixture that
+		 * declares one media type and prove nothing about dispatch.
+		 */
+		expect(
+			sources.filter((source) => /validateBody\([^)]*, \[\n(\s*\[.*\],\n){2,}/.test(source)).length,
+			"no fixture emits a dispatched request body",
+		).toBeGreaterThan(0);
+		expect(emitted("validateBody("), "no fixture emits a required request body").toBeGreaterThan(0);
+		expect(
+			emitted("validateOptionalBody("),
+			"no fixture emits an optional request body",
+		).toBeGreaterThan(0);
 		expect(emitted("headOnly,"), "no fixture emits a guarded HEAD").toBeGreaterThan(0);
 		expect(emitted("selectContentType("), "no fixture negotiates").toBeGreaterThan(0);
 		expect(emitted("arrayBuffer()"), "no fixture reads a binary body").toBeGreaterThan(0);

@@ -10,7 +10,70 @@ consumer feels, and is treated as such here rather than as an implementation det
 
 ## [Unreleased]
 
-Nothing since `0.20.0`.
+Requires `typespec-http-zod@^0.24.0`.
+
+A minor: **every request body is now mounted by one middleware emitted into `app.gen.ts`**, so a body
+that cannot be read is refused through the app's own error envelope in every position. This closes
+the known limit recorded in `0.19.0`, and the runtime contract gets **smaller** rather than larger.
+
+### Fixed
+
+- **A malformed body on a required, single-media-type operation escaped the app's error envelope.**
+  It was mounted with `zValidator`, which raises `HTTPException` on a body it cannot read - a
+  `text/plain` 400 raised before `deps.invalid` is called. So an API whose document declares a JSON
+  error envelope answered a shape its own contract forbids, and the application had no way to
+  intervene, because the throw happened before its code ran. Reported by a consumer and recorded in
+  `0.19.0` as a known limit.
+
+  Measured on a fresh install of the published pair against the new one, byte-identical spec, consumer
+  and runner:
+
+  | pair                                                | well-formed body | malformed body                                      |
+  | --------------------------------------------------- | ---------------- | --------------------------------------------------- |
+  | `typespec-hono@0.20.0` + `typespec-http-zod@0.22.0` | 204              | `400 text/plain` - `Malformed JSON in request body` |
+  | the new pair                                        | 204              | `400 application/json` - the app's envelope         |
+
+  The well-formed row is the control, so neither row is vacuous.
+
+- **An unreadable FORM body answered 500 where the JSON case answered 400**, from the same missing
+  `try`: the old `readBody` wrapped only its JSON branch. Both readers can fail, and both are guarded
+  now.
+
+### Changed
+
+- **Request bodies parse SYNCHRONOUSLY, and so do parameter validators.** Nothing this emitter writes
+  is asynchronous - `vocabulary.test.ts` refuses `.transform(`, `.pipe(`, `.superRefine(` and
+  `.catch(`, and the one permitted `.refine(` is a synchronous predicate - so `safeParseAsync` was
+  buying nothing and costing on every request.
+
+  Measured on an emitted five-property model, zod 4.5.2, 200k iterations: `safeParseAsync` 958 ns,
+  `safeParse` 371 ns. **2.6x per parse, and there are up to four per request.**
+
+  Parameter validators go through `validationFunction`, `@hono/zod-validator`'s own published option,
+  rather than around it. `test/sync.test.ts` grades the claim by RUNNING every schema the emitter
+  produces across the whole corpus, because `safeParse` throws rather than fails on a schema that
+  cannot take the synchronous path - and an argument about emitted text is not an argument about
+  emitted behaviour.
+
+- **The runtime contract SHRANK by two names.** `byContentType` and `optionalBody` are gone from
+  `typespec-hono/runtime`. Everything the generated server imports from there is something a project
+  substituting `runtime-module` has to supply, so closing the envelope gap by routing bodies through
+  the runtime would have made those exports mandatory for every such application - measured, 15 arms
+  red, each one an app whose module has no such export. Emitting the middleware removes the choice
+  instead: the mechanism lives in the file that uses it. Imported names went from 11 to 9, and
+  `test/adopter.test.ts` asserts the set as a closed list.
+
+- **A required form body is published under `"json"`.** `ValidationTargets` is a closed union in Hono,
+  so there is no name to coin for "the body"; using one slot is what makes every route the same shape
+  downstream. Three mounting paths - `zValidator`, `optionalBody` and `byContentType` - became one
+  call, which is what let a rejection stop depending on which path a route happened to take.
+
+### Known limit
+
+- **An optional `@multipartBody` emits a server that does not compile** (`TS2345`). The handler input
+  merges a multipart body's properties rather than naming it, so what an optional body publishes
+  (`... | undefined`) is spread into a position requiring them. Measured identically against `0.20.0`,
+  so it is long-standing rather than new here.
 
 ## [0.20.0] - 2026-08-15
 

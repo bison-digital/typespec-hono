@@ -16,6 +16,15 @@ signature carries your types. Setting it also stops `runtime.gen.ts` being writt
 replaces it; that module has to export every name the generated files reference, which is what
 `runtime.gen.ts` is a working example of.
 
+**That list of names is a contract, and it is deliberately small.** Everything the generated files
+import from your module is something you have to supply, so the set is kept to what only an
+application can answer - its environment, its caller context, its result envelope, its hooks - plus
+the two helpers that implement a published rule rather than a policy (`selectContentType` implements
+RFC 9110's content negotiation; `headOnly` implements what a `HEAD`-only route answers). Request-body
+validation is emitted into `app.gen.ts` instead: it is pure mechanism with no application types in
+it, and putting it here would have made every substituting application implement body parsing to get
+a correct error envelope. `test/adopter.test.ts` asserts the set as a closed list.
+
 ## What it refuses, and why
 
 | code                        | why                                                                                                                                                                                                                                                                                                                          |

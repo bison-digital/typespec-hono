@@ -38,9 +38,22 @@ describe("a request body with an indexer", () => {
 		expect(source).toContain('body: c.req.valid("json")');
 	});
 
-	it("names a FORM body too, whose validator target is not the JSON one", () => {
+	/**
+	 * **A form body is named the same way, and is now read from the same slot.**
+	 *
+	 * This used to assert `c.req.valid("form")`, because a required form body was the one route shape
+	 * mounted under its own target. Every body is now mounted by one emitted middleware that publishes
+	 * to the canonical body slot whichever reader produced it - so a form body reads exactly as a JSON
+	 * one does, and the shape a consumer writes against no longer depends on the media type.
+	 *
+	 * The claim that survives is the one this arm was written for: the body is NAMED rather than
+	 * intersected. That a form body actually parses is asserted by request in `test/wire/wire.test.ts`,
+	 * which is where a claim about behaviour belongs.
+	 */
+	it("names a FORM body too, and reads it from the one body slot", () => {
 		expect(source).toMatch(/z\(ctx: Ctx, input: [^)]*\{ body: z\.infer<typeof zBody> \}/);
-		expect(source).toContain('body: c.req.valid("form")');
+		expect(source).toContain('body: c.req.valid("json")');
+		expect(source).not.toContain('c.req.valid("form")');
 	});
 
 	it("still spreads an ordinary model body, so nothing else moved", () => {

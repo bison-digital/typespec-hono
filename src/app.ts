@@ -182,23 +182,247 @@ function bodyValidationFor(contentTypes: readonly string[]): BodyValidation {
 	return { byType, unparseable };
 }
 
+/**
+ * The request-body middleware, emitted INTO the generated file rather than imported from the runtime
+ * module.
+ *
+ * **Because the runtime module is a contract too, and it is the one that breaks quietly.** An
+ * application may point `runtime-module` at a module of its own, and everything the generated file
+ * imports from there is something that application has to supply. A required, single-media-type body
+ * used to be mounted by `zValidator`, which throws `HTTPException` on a body it cannot read - a
+ * `text/plain` 400 raised before `deps.invalid` is called, so an API whose document declares a JSON
+ * error envelope answered a shape its own contract forbids. Routing those through the runtime's
+ * `byContentType` fixes it in one line and makes that export mandatory for every substituting app:
+ * measured, 15 arms red, every one an app whose module has no such export.
+ *
+ * Emitting the middleware removes the choice. The runtime contract does not grow to close the gap -
+ * it SHRINKS by the two names that used to serve it, and the mechanism now lives in the file that
+ * uses it, where a reader can see what their route is mounted with.
+ *
+ * **One reader, one rejection, three positions.** Required, optional and dispatched bodies differ in
+ * exactly two ways - whether an absent body is permitted, and how many media types may be declared -
+ * and nothing else. `validateBody` covers required and dispatched, which are the same function with
+ * one branch or several. `validateOptionalBody` is separate only because its `Input` type differs:
+ * what it publishes may be `undefined`, and that cannot be a runtime argument.
+ *
+ * **`z.input` on the way in, `z.output` on the way out.** A `.default(...)` makes a property optional
+ * to a caller and guaranteed to a handler, and Hono's chain types those two positions separately, so
+ * saying `z.output` on both would require callers to send what the document says they may omit.
+ *
+ * Every rejection goes through `deps.invalid` first, and falls back to `zValidator`'s own answer when
+ * the hook declines - kept identical so a route that changed shape does not change how it refuses.
+ */
+/**
+ * **Parameter validators parse SYNCHRONOUSLY, through `zValidator`'s own typed extension point.**
+ *
+ * `zValidator` calls `safeParseAsync` by default, and nothing this emitter writes is asynchronous:
+ * `vocabulary.test.ts` refuses every construct that could be - no `.transform()`, no `.pipe()`, and
+ * the single permitted `.refine()` is a synchronous predicate on a multipart file part. So the async
+ * path was buying nothing and costing on every request.
+ *
+ * Measured on an emitted five-property model, zod 4.5.2, 200k iterations:
+ *
+ * | call | ns/parse |
+ * | --- | --- |
+ * | `safeParseAsync` | 958 |
+ * | `safeParse` | 371 |
+ *
+ * **2.6x, on every parameter group of every request**, for a promise nothing awaited a result from.
+ * It also unblocks `z.compile()`, whose fast path is bypassed for any async parse - measured from
+ * `zod/compile`'s own shim, which returns the uncompiled run for `ctx.async`, and confirmed on the
+ * same fixture: compiled `safeParse` is 51 ns and compiled `safeParseAsync` is 923 ns.
+ *
+ * `validationFunction` is `@hono/zod-validator`'s published option and its return type admits a
+ * synchronous result, so this is the package's own seam rather than a way around it.
+ *
+ * `test/sync.test.ts` asserts that every schema emitted across the whole corpus really does parse
+ * synchronously, because `safeParse` THROWS on a schema that cannot - a claim about output this file
+ * does not produce is exactly the kind that needs an arm rather than a comment.
+ */
+const SYNC_PARSE = `/** Parse synchronously: nothing emitted here is async, and the async path costs 2.6x. */
+const SYNC = { validationFunction: (schema: z.ZodType, value: unknown) => schema.safeParse(value) };
+
+`;
+
+const BODY_READER = `/** The two ways Hono can read a request body: \`c.req.json()\` and \`c.req.parseBody()\`. */
+type BodyTarget = "json" | "form";
+
+/**
+ * A body that is not what its content type claims.
+ *
+ * **BOTH readers can fail.** Hono's own validator catches in both branches and throws
+ * \`HTTPException\` - which is what escapes the app's envelope. Catching here is what lets the failure
+ * be reported like any other. Measured: an unreadable multipart body answered 500 while the JSON case
+ * answered 400, from the same missing \`try\`.
+ */
+const UNREADABLE = Symbol("a body that is not what its content type claims");
+
+async function readBody(c: Context, target: BodyTarget): Promise<unknown> {
+	try {
+		return target === "form" ? await c.req.parseBody({ all: true }) : await c.req.json();
+	} catch {
+		return UNREADABLE;
+	}
+}
+
+/**
+ * The failure an unreadable body produces, in the shape every other rejection has.
+ *
+ * Parsing \`undefined\` against the body's own schema is what makes a real Zod failure, so
+ * \`deps.invalid\` receives what it receives for a failed parse rather than a special case it has to
+ * know about. A schema that somehow accepts \`undefined\` still fails: a body that could not be read
+ * is not a body that validated.
+ */
+function unreadableResult(schema: z.ZodType): { readonly success: boolean } {
+	const parsed = schema.safeParse(undefined);
+	return parsed.success ? { success: false } : parsed;
+}
+
+/**
+ * Which reader parses the media type the request actually carries.
+ *
+ * A route may declare several request media types needing different parsers, and which one applies is
+ * decided by the caller's \`Content-Type\` when the request arrives - not when this file was
+ * generated. Parameters (\`; charset=utf-8\`, \`; boundary=...\`) are not part of the match, which
+ * matters because a multipart request always carries a boundary.
+ *
+ * A \`Content-Type\` matching nothing declared falls through to the first branch, so the body simply
+ * fails to parse and the app answers. No status is invented that the document does not describe.
+ */
+function bodyTarget(c: Context, branches: readonly (readonly [string, BodyTarget])[]): BodyTarget {
+	const declared = (c.req.header("content-type") ?? "").split(";")[0]?.trim().toLowerCase() ?? "";
+	const matched = branches.find(([mediaType]) => mediaType.toLowerCase() === declared);
+	return matched?.[1] ?? branches[0]?.[1] ?? "json";
+}
+
+/** The app's rejection hook, as this file needs to name it. */
+type BodyInvalid<E extends Env> = <P extends string, I extends Input>(
+	result: { readonly success: boolean },
+	c: Context<E, P, I>,
+) => Response | undefined;
+
+`;
+
+/**
+ * The required-body half, emitted only where a route declares one.
+ *
+ * **Split from the optional half because `noUnusedLocals` makes an unused declaration an error**, and
+ * a generated file has to pass the lint of whatever project it lands in. Three declarations have
+ * shipped that way already - `zValidator` and `z` imported unconditionally, and `Simplify<T>` written
+ * into a contracts file with nothing to flatten. Emitting both functions whenever any body exists
+ * made it four, in eight fixtures at once.
+ */
+const REQUIRED_BODY_MIDDLEWARE = `/**
+ * Validate a REQUIRED request body, whatever media type it arrives as.
+ *
+ * The validated value is published under \`"json"\` whichever reader produced it: \`ValidationTargets\`
+ * is a closed union in Hono, so there is no name to coin for "the body", and using one slot is what
+ * makes every route the same shape downstream.
+ */
+function validateBody<E extends Env, S extends z.ZodType>(
+	schema: S,
+	invalid: BodyInvalid<E>,
+	branches: readonly (readonly [string, BodyTarget])[],
+): MiddlewareHandler<E, string, { in: { json: z.input<S> }; out: { json: z.output<S> } }> {
+	return async (c, next) => {
+		/**
+		 * Annotated rather than inlined, and that is what removes a CAST from this file. \`Context\` is
+		 * invariant in its environment and in its \`Input\`, so passing the outer \`c\` to a hook typed
+		 * against the route's own input needs either an annotation here or an \`as never\` there.
+		 */
+		const parse: MiddlewareHandler<
+			E,
+			string,
+			{ in: { json: z.input<S> }; out: { json: z.output<S> } }
+		> = async (ctx, proceed) => {
+			const raw = await readBody(ctx, bodyTarget(ctx, branches));
+			const result =
+				raw === UNREADABLE ? unreadableResult(schema) : schema.safeParse(raw);
+			const response = invalid(result, ctx);
+			if (response !== undefined) return response;
+			if (!result.success) return ctx.json(result, 400);
+			ctx.req.addValidatedData("json", ("data" in result ? result.data : undefined) ?? {});
+			await proceed();
+			return undefined;
+		};
+		return parse(c, next);
+	};
+}
+
+`;
+
+/** The optional-body half. Emitted only where the document publishes `requestBody.required: false`. */
+const OPTIONAL_BODY_MIDDLEWARE = `/**
+ * Validate a body the document says is OPTIONAL, and let a request carrying none through.
+ *
+ * \`requestBody.required: false\` means a request with no body is one the contract permits. Nothing is
+ * published when the body is absent, so \`c.req.valid("json")\` reads \`undefined\` and the handler is
+ * told the truth - which is why an optional body is a NAMED property on the input rather than merged
+ * into it. A body that is present but unreadable still fails, through the same hook.
+ */
+function validateOptionalBody<E extends Env, S extends z.ZodType>(
+	schema: S,
+	invalid: BodyInvalid<E>,
+	branches: readonly (readonly [string, BodyTarget])[],
+): MiddlewareHandler<
+	E,
+	string,
+	{ in: { json: z.input<S> | undefined }; out: { json: z.output<S> | undefined } }
+> {
+	return async (c, next) => {
+		const parse: MiddlewareHandler<
+			E,
+			string,
+			{ in: { json: z.input<S> | undefined }; out: { json: z.output<S> | undefined } }
+		> = async (ctx, proceed) => {
+			/**
+			 * Both halves are load-bearing. The platform reports \`null\` for a request sent without a
+			 * body, and a caller may instead send \`content-length: 0\`, which is a body of no bytes and
+			 * reads the same way to anything downstream. Neither alone covers what arrives.
+			 */
+			const absent =
+				ctx.req.raw.body === null || (ctx.req.header("content-length") ?? "").trim() === "0";
+			if (absent) {
+				await proceed();
+				return undefined;
+			}
+			const raw = await readBody(ctx, bodyTarget(ctx, branches));
+			const result =
+				raw === UNREADABLE ? unreadableResult(schema) : schema.safeParse(raw);
+			const response = invalid(result, ctx);
+			if (response !== undefined) return response;
+			if (!result.success) return ctx.json(result, 400);
+			ctx.req.addValidatedData("json", ("data" in result ? result.data : undefined) ?? {});
+			await proceed();
+			return undefined;
+		};
+		return parse(c, next);
+	};
+}
+
+`;
+
 interface AppRoute {
 	readonly route: EmittedRoute;
 	readonly names: RouteSchemaNames;
 	/** `[zValidator target, the identifier holding its schema]`, in the order they are applied. */
 	readonly validators: readonly (readonly [string, string])[];
 	/**
-	 * Set where the document declares request media types needing DIFFERENT parsers, so the validator
-	 * is chosen from the request's `Content-Type` rather than at generation time.
+	 * How the request body is mounted, or `undefined` where the route declares none.
+	 *
+	 * **One field for what used to be three cases**, because required, optional and dispatched bodies
+	 * differ in exactly two facts and nothing else: whether an absent body is permitted, and which
+	 * media types may arrive. Both are recorded here and read by one emitted middleware. Before this
+	 * they were three mounting paths - `zValidator`, `optionalBody` and `byContentType` - which is how
+	 * a rejection came to be decided differently depending on which one a route happened to take.
 	 */
-	readonly dispatched:
-		| { readonly byType: readonly (readonly [string, string])[]; readonly identifier: string }
+	readonly body:
+		| {
+				readonly branches: readonly (readonly [string, string])[];
+				readonly identifier: string;
+				readonly optional: boolean;
+		  }
 		| undefined;
-	/**
-	 * Set where the document publishes `requestBody.required: false`, so the body is mounted by
-	 * `optionalBody` and a request carrying none is let through rather than refused.
-	 */
-	readonly optional: { readonly target: string; readonly identifier: string } | undefined;
 }
 
 /**
@@ -347,11 +571,6 @@ export interface RenderRefusals {
 	readonly unvalidatableMediaType: (route: EmittedRoute, types: readonly string[]) => void;
 }
 
-/** The schema identifier a dispatched body validates against. */
-function identifierOf(entry: AppRoute): string {
-	return entry.dispatched?.identifier ?? "";
-}
-
 /**
  * The resource a route belongs to (its first path segment) or `undefined` when it has none.
  *
@@ -420,15 +639,12 @@ export function renderApp(
 	securityFor?: (verb: string, path: string) => readonly SecurityRequirement[],
 ): string {
 	const mounted: AppRoute[] = emitted.routes.flatMap((route) => {
-		let dispatched:
-			| { byType: readonly (readonly [string, string])[]; identifier: string }
-			| undefined;
 		const names = emitted.schemaNames.get(route.operationId);
 		// The library declares a `Responses` const for every operation, so a missing entry is a bug in
 		// this package's pairing rather than a spec the emitter chose not to serve.
 		if (names === undefined) return [];
 		const validators: (readonly [string, string])[] = [];
-		let optional: { readonly target: string; readonly identifier: string } | undefined;
+		let body: AppRoute["body"];
 		for (const location of ["path", "query", "header", "body"] as const) {
 			const identifier = names[location];
 			if (identifier === undefined) continue;
@@ -437,58 +653,28 @@ export function renderApp(
 				continue;
 			}
 			/**
-			 * The body is the one location whose parser the document does not fix at generation time.
-			 * Where it declares a single parseable media type this is one `zValidator`, unchanged. Where
-			 * it declares several, the choice belongs to the caller's `Content-Type` and is made then.
+			 * **The body is the one location whose parser the document does not fix at generation
+			 * time**, and it is the one whose rejection used to depend on which of three mountings it
+			 * got. All three are now one emitted middleware; what the document decides is only the
+			 * branches it is given and whether an absent body is permitted.
 			 */
-			const body = bodyValidationFor(route.requestContentTypes);
-			if (body.unparseable.length > 0) refuse.unvalidatableMediaType(route, body.unparseable);
-			if (body.byType.length === 0) continue;
-			const targets = [...new Set(body.byType.map(([, target]) => target))];
-			if (targets.length === 1) {
-				/**
-				 * **An optional body is mounted by `optionalBody`, not `zValidator`**, so a request
-				 * carrying none is let through instead of refused - see the runtime's docblock for the
-				 * 400 that produced. It publishes under the canonical body slot whichever parser read
-				 * it, exactly as `byContentType` does, so the handler reads it the same way everywhere.
-				 */
-				if (route.optionalBody) {
-					validators.push([VALIDATOR_TARGET.body, identifier]);
-					optional = { target: targets[0] as string, identifier };
-					continue;
-				}
-				/**
-				 * **A required body keeps `zValidator`, and unifying it was tried and reverted.**
-				 *
-				 * `zValidator` raises `HTTPException` on a body that is not the JSON its content type
-				 * claims, BEFORE `deps.invalid` runs, so that 400 is `text/plain` and escapes the app's
-				 * error envelope. Routing every body through `byContentType` fixes it and is the obvious
-				 * move - one code path, one place the rejection is decided.
-				 *
-				 * **It is a breaking change to the RUNTIME CONTRACT, not just to emitted output.** An app
-				 * that points `runtime-module` at its own module would have to export `byContentType`,
-				 * which today it needs only if some operation declares several request media types - rare
-				 * enough that no consumer exports it. Measured: 15 arms red, every one of them an app
-				 * whose substituted module has no such export.
-				 *
-				 * The envelope gap is real and stays open for a required single-media-type body. Closing
-				 * it wants a form that adds no export to the runtime contract - most likely emitting the
-				 * middleware into `app.gen.ts` itself - and that is its own change, not a line here.
-				 */
-				validators.push([targets[0] as string, identifier]);
-				continue;
+			const validation = bodyValidationFor(route.requestContentTypes);
+			if (validation.unparseable.length > 0) {
+				refuse.unvalidatableMediaType(route, validation.unparseable);
 			}
+			if (validation.byType.length === 0) continue;
 			/**
-			 * **Recorded as an ordinary body validator as well**, because `byContentType` publishes what
-			 * it validated under the body target whichever parser produced it. So a dispatched route is
-			 * the same shape as every other one downstream: the handler's input type includes the body,
-			 * and the handler reads it with one `c.req.valid` like anywhere else. What differs is only
-			 * which middleware is emitted, below.
+			 * **Recorded under the canonical body slot whatever media type arrives.** The middleware
+			 * publishes what it validated under one target, so the handler reads it with a single
+			 * `c.req.valid("json")` whether the body was JSON, a form, or chosen from the request's
+			 * `Content-Type`. A required form body used to be published under `"form"` instead, which
+			 * made it the one route shape that read differently downstream for no reason the document
+			 * states.
 			 */
 			validators.push([VALIDATOR_TARGET.body, identifier]);
-			dispatched = { byType: body.byType, identifier };
+			body = { branches: validation.byType, identifier, optional: route.optionalBody === true };
 		}
-		return [{ route, names, validators, dispatched, optional }];
+		return [{ route, names, validators, body }];
 	});
 
 	const entries = mounted;
@@ -547,6 +733,33 @@ type Fields<T> = string extends keyof T ? ([T[string]] extends [never] ? unknown
 
 `
 		: "";
+	/**
+	 * **Which halves of the body middleware this file needs**, decided from the routes rather than from
+	 * the rendered text - the rule the import block below states, and once broke by matching a
+	 * substring that a new argument had moved.
+	 *
+	 * Each half is emitted only where something mounts it: `noUnusedLocals` makes an unused declaration
+	 * an error, and a generated file has to pass the lint of whatever project it lands in.
+	 */
+	const mountsRequiredBody = entries.some((entry) => entry.body?.optional === false);
+	const mountsOptionalBody = entries.some((entry) => entry.body?.optional === true);
+	const mountsBody = mountsRequiredBody || mountsOptionalBody;
+	const bodyHelper = mountsBody
+		? `${BODY_READER}${mountsRequiredBody ? REQUIRED_BODY_MIDDLEWARE : ""}${mountsOptionalBody ? OPTIONAL_BODY_MIDDLEWARE : ""}`
+		: "";
+	/**
+	 * **Whether any `zValidator` is actually emitted**, which is the same question the import block
+	 * below asks - stated once, because `SYNC` is passed to every one of those calls and a second
+	 * spelling of the rule is a second thing that can drift. A body's target is filtered out: it is
+	 * mounted by the emitted middleware instead, so a route with only a body mounts no `zValidator`.
+	 */
+	const validates = entries.some(
+		(entry) =>
+			entry.validators.filter(
+				([target]) => entry.body === undefined || target !== VALIDATOR_TARGET.body,
+			).length > 0,
+	);
+	const syncHelper = validates ? SYNC_PARSE : "";
 	const methods = entries.map((entry) => {
 		const { route, names } = entry;
 		/**
@@ -642,7 +855,6 @@ type Fields<T> = string extends keyof T ? ([T[string]] extends [never] ? unknown
 	 * mentions a name is how this package lost the `byContentType` import: the call gained an argument
 	 * and the substring stopped matching, so a module referenced a function it no longer imported.
 	 */
-	const mountsOptionalBody = entries.some((entry) => entry.optional !== undefined);
 	const returnsAnything = entries.some((entry) => entry.names.response !== undefined);
 	const declaredHelper = returnsAnything
 		? `/**
@@ -812,24 +1024,26 @@ type Produced<T> = T extends (...args: never[]) => unknown
 			 * from that type -- measured, `hc<typeof app>` resolved the wrapped route's body to `unknown`.
 			 */
 			/**
-			 * Where the document declares request media types needing different parsers, the parser is
-			 * chosen from the request's `Content-Type`. `byContentType` takes the body's schema and
-			 * `deps.invalid` and validates with them, so it stands in for that target's `zValidator`
-			 * rather than wrapping one, and publishes under the body target either way.
+			 * The body's own middleware, emitted into this file rather than imported - see
+			 * `BODY_MIDDLEWARE` for why the runtime module is the wrong place for it.
 			 *
-			 * **It used to wrap pre-built `zValidator`s and publish under whichever one ran, and that
-			 * emitted code a consumer could not compile.** A plain `MiddlewareHandler` contributes no
-			 * `Input` to Hono's chain, so `c.req.valid("json")` in the handler below was
+			 * It stands IN FOR the body's `zValidator` rather than wrapping one, which is what lets it
+			 * decide the rejection. A plain `MiddlewareHandler` contributes no `Input` to Hono's chain,
+			 * so a wrapper made `c.req.valid("json")` in the handler below
 			 * `TS2345: Argument of type '"json"' is not assignable to parameter of type '"header"'`, and
-			 * the handler's declared input type omitted the body entirely because the body was not among
-			 * the route's validators. One published slot removes both.
+			 * dropped the body from the handler's declared input type entirely. Publishing to one known
+			 * slot removes both.
+			 *
+			 * The branches are always emitted, even the single one: a route declaring one media type is
+			 * the same question with one answer, and a special case there is what let three mountings
+			 * drift apart in the first place.
 			 */
-			const dispatch =
-				entry.dispatched === undefined
+			const bodyMiddleware =
+				entry.body === undefined
 					? []
 					: [
-							`\t\tbyContentType(${identifierOf(entry)}, deps.invalid, [`,
-							...entry.dispatched.byType.map(
+							`\t\t${entry.body.optional ? "validateOptionalBody" : "validateBody"}(${entry.body.identifier}, deps.invalid, [`,
+							...entry.body.branches.map(
 								([type, target]) => `\t\t\t[${JSON.stringify(type)}, ${JSON.stringify(target)}],`,
 							),
 							"\t\t]),",
@@ -838,23 +1052,14 @@ type Produced<T> = T extends (...args: never[]) => unknown
 				...(headOnly ? ["\t\theadOnly,"] : []),
 				...gate,
 				...validators
-					// The dispatched body's own `zValidator` is `byContentType`; emitting both would parse
-					// the body twice and reject every media type but one. An optional body is the same
-					// story with `optionalBody`, which additionally lets a bodyless request through.
-					.filter(
-						([target]) =>
-							(entry.dispatched === undefined && entry.optional === undefined) ||
-							target !== VALIDATOR_TARGET.body,
-					)
+					// The body's validator IS the middleware above; emitting a `zValidator` beside it would
+					// parse the body twice and reject every media type but one.
+					.filter(([target]) => entry.body === undefined || target !== VALIDATOR_TARGET.body)
 					.map(
-						([target, name]) => `\t\tzValidator(${JSON.stringify(target)}, ${name}, deps.invalid),`,
+						([target, name]) =>
+							`\t\tzValidator(${JSON.stringify(target)}, ${name}, deps.invalid, SYNC),`,
 					),
-				...dispatch,
-				...(entry.optional === undefined
-					? []
-					: [
-							`\t\toptionalBody(${entry.optional.identifier}, deps.invalid, ${JSON.stringify(entry.optional.target)}),`,
-						]),
+				...bodyMiddleware,
 			];
 			/**
 			 * Whether the operation requires a caller, and NOTHING else about the caller.
@@ -1137,7 +1342,6 @@ type Produced<T> = T extends (...args: never[]) => unknown
 	 * safe in a way these are not: an identifier absent from the text is genuinely not needed, so the
 	 * check cannot be wrong in the direction that breaks a build.
 	 */
-	const dispatchesBody = entries.some((entry) => entry.dispatched !== undefined);
 	/**
 	 * **Imported only where a route actually validates something, like every other value import here.**
 	 *
@@ -1148,7 +1352,7 @@ type Produced<T> = T extends (...args: never[]) => unknown
 	 * `TS6133: 'zValidator' is declared but its value is never read`.
 	 *
 	 * Counted from the same filtered list the middleware is rendered from, so it cannot disagree with
-	 * what was emitted: a dispatched body's validator is `byContentType`, not a `zValidator`.
+	 * what was emitted: a body's validator is the middleware this file declares, not a `zValidator`.
 	 */
 	/**
 	 * **`z` is only ever reached through `z.infer`**, which appears where an operation has an input
@@ -1156,16 +1360,15 @@ type Produced<T> = T extends (...args: never[]) => unknown
 	 * neither, so the import was written and never used:
 	 * `TS6133: 'z' is declared but its value is never read`. Same shape as the `zValidator` one above,
 	 * one step further along.
+	 *
+	 * The emitted body middleware names `z.input` and `z.output` as well, so a service whose only use
+	 * of Zod is a request body still needs it.
 	 */
-	const usesZod = entries.some(
-		(entry) => inputTypeOf(entry) !== undefined || entry.names.response !== undefined,
-	);
-	const validates = entries.some(
-		(entry) =>
-			entry.validators.filter(
-				([target]) => entry.dispatched === undefined || target !== VALIDATOR_TARGET.body,
-			).length > 0,
-	);
+	const usesZod =
+		mountsBody ||
+		// `SYNC` annotates its schema parameter `z.ZodType`, so the value import is load-bearing.
+		validates ||
+		entries.some((entry) => inputTypeOf(entry) !== undefined || entry.names.response !== undefined);
 	const runtimeModule = JSON.stringify(emitted.options.runtimeModule);
 
 	/**
@@ -1179,8 +1382,8 @@ type Produced<T> = T extends (...args: never[]) => unknown
 	const needsHonoValue = subApps.size > 0 || usesBasePath;
 
 	return `${generatedBanner(emitted.options.regenerateHint)}
-${validates ? 'import { zValidator } from "@hono/zod-validator";\n' : ""}${needsHonoValue ? 'import { Hono } from "hono";\nimport type { Context, Input } from "hono";' : 'import type { Context, Hono, Input } from "hono";'}
-${usesZod ? 'import { z } from "zod";\n' : ""}import type { AppEnv, Awaitable, Ctx, Result, RouteDeps } from ${runtimeModule};${negotiates ? `\nimport { selectContentType } from ${runtimeModule};` : ""}${guardsHead ? `\nimport { headOnly } from ${runtimeModule};` : ""}${dispatchesBody ? `\nimport { byContentType } from ${runtimeModule};` : ""}${mountsOptionalBody ? `\nimport { optionalBody } from ${runtimeModule};` : ""}
+${validates ? 'import { zValidator } from "@hono/zod-validator";\n' : ""}${needsHonoValue ? 'import { Hono } from "hono";\nimport type { Context, Input } from "hono";' : 'import type { Context, Hono, Input } from "hono";'}${mountsBody ? '\nimport type { Env, MiddlewareHandler } from "hono";' : ""}
+${usesZod ? 'import { z } from "zod";\n' : ""}import type { AppEnv, Awaitable, Ctx, Result, RouteDeps } from ${runtimeModule};${negotiates ? `\nimport { selectContentType } from ${runtimeModule};` : ""}${guardsHead ? `\nimport { headOnly } from ${runtimeModule};` : ""}
 ${imports}
 /**
  * One method per operation, each concretely typed from the schemas it validates against.
@@ -1188,7 +1391,7 @@ ${imports}
  * There is no cast anywhere in this file, and no dynamic lookup: the generated call sites name the
  * method, so an implementation whose input or output does not match the contract fails to compile.
  */
-${fieldsHelper}${declaredHelper}export interface Operations {
+${syncHelper}${bodyHelper}${fieldsHelper}${declaredHelper}export interface Operations {
 ${methods.join("\n")}
 }
 

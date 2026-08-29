@@ -95,6 +95,54 @@ describe("output emitted with no options but the output directory", () => {
 		expect(runtime).not.toMatch(/^typespec-http-zod\b/);
 	});
 
+	/**
+	 * **The SECOND contract this package has, asserted as a closed set.**
+	 *
+	 * Emitted output is not the only thing a consumer is held to. An application may point
+	 * `runtime-module` at a module of its own, and every name the generated files import from there is
+	 * something that application must export. That contract has no file to read and nothing was
+	 * comparing it, so it could grow by one import in an unrelated change and break every substituting
+	 * app at once - which is exactly what happened when a required body was routed through
+	 * `byContentType`: 15 arms red, every one an app whose module had no such export.
+	 *
+	 * Written out literally rather than derived from the source, so the oracle does not take its
+	 * expectation from the code it grades. Adding a name here is a deliberate act with a reason beside
+	 * it; adding one by accident fails this arm.
+	 *
+	 * `byContentType` and `optionalBody` were on this list and are not any more: the body middleware is
+	 * emitted into `app.gen.ts`, so closing the error-envelope gap made this set SMALLER rather than
+	 * larger.
+	 */
+	it("imports only the runtime names a substituting application is told to supply", () => {
+		const allowed = new Set([
+			"AppEnv",
+			"Awaitable",
+			"Ctx",
+			"Result",
+			"RouteDeps",
+			"ResponseArm",
+			"armFor",
+			"headOnly",
+			"selectContentType",
+		]);
+		const imported = new Set<string>();
+		for (const name of readdirSync(outDir).filter((entry) => entry.endsWith(".gen.ts"))) {
+			const source = readFileSync(join(outDir, name), "utf8");
+			for (const match of source.matchAll(
+				/^import\s+(?:type\s+)?\{([^}]*)\}\s*from\s*"([^"]+)"/gm,
+			)) {
+				if (!/runtime/.test(match[2] ?? "")) continue;
+				for (const clause of (match[1] ?? "").split(",")) {
+					const bare = clause.replace(/^\s*type\s+/, "").trim();
+					if (bare !== "") imported.add(bare);
+				}
+			}
+		}
+		// Non-vacuity: a regex that matched nothing would satisfy the subset check below trivially.
+		expect(imported.size).toBeGreaterThanOrEqual(5);
+		expect([...imported].filter((name) => !allowed.has(name)).toSorted()).toEqual([]);
+	});
+
 	it("compiles, which is the whole claim, and the part that was false", () => {
 		const config = join(outDir, "tsconfig.adopter.json");
 		writeFileSync(
