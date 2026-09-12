@@ -107,6 +107,42 @@ describe("a body that cannot be read is refused through the app's envelope", () 
 		expect(response.headers.get("content-type")).toContain("application/json");
 		expect(await response.json()).toEqual({ envelope: true });
 	});
+
+	/**
+	 * **The optional path and the form reader together, which no fixture could carry before.**
+	 *
+	 * `optionalBody` and `zValidator` call one reader, so this is the only route that reaches its
+	 * form branch through the optional mounting. The shape was unavailable while an optional
+	 * multipart body emitted a server that did not compile; `optional-form` in the fixture records
+	 * that.
+	 */
+	it("refuses an unreadable body on an OPTIONAL FORM operation", async () => {
+		const response = await app.request("/optional-form", malformedForm);
+		expect(response.status).toBe(400);
+		expect(response.headers.get("content-type")).toContain("application/json");
+		expect(await response.json()).toEqual({ envelope: true });
+	});
+
+	/**
+	 * **Non-vacuity for the arm above, and the naming proved by request rather than by type.**
+	 *
+	 * The arm above would pass against a server that refused everything on that route. This one
+	 * requires a well-formed body to be accepted, and requires it to reach the handler UNDER `body`
+	 * rather than merged into the input beside the header. A merged shape would satisfy every
+	 * type-level arm in `test/optionalmultipart/` only if the emitter also changed the signature, so
+	 * this is the runtime half of the same claim.
+	 *
+	 * `@header contentType` is declared and required, so a header-less request is refused by the
+	 * HEADER validator before any of this is reached. `FormData` sets the header with its boundary,
+	 * which is why the request is built this way rather than by hand.
+	 */
+	it("accepts a well-formed body on that operation and hands it over NAMED", async () => {
+		const form = new FormData();
+		form.set("note", "hello");
+		const response = await app.request("/optional-form", { method: "POST", body: form });
+		expect(response.status).toBe(204);
+		expect(received["optionalForm"]).toMatchObject({ body: { note: "hello" } });
+	});
 });
 
 /**

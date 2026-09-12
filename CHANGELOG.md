@@ -8,6 +8,39 @@ published types; a patch will not. The **emitted output is part of the API**, a 
 `registerRoutes` returns, to a validator's shape, or to what a handler receives is a change a
 consumer feels, and is treated as such here rather than as an implementation detail.
 
+## [0.22.0] - 2026-09-12
+
+Requires `typespec-http-zod@^0.25.0`.
+
+### Fixed
+
+- **An optional `@multipartBody` now emits a server that compiles**, closing the known limit recorded
+  under `0.21.0`. The handler receives such a body NAMED rather than merged:
+
+  ```ts
+  // before, and it did not compile
+  upload(ctx: Ctx, input: Fields<z.infer<typeof uploadHeader>> & Fields<z.infer<typeof uploadPartsSchema>>): ...
+  // after
+  upload(ctx: Ctx, input: Fields<z.infer<typeof uploadHeader>> & { body?: z.infer<typeof uploadPartsSchema> | undefined }): ...
+  ```
+
+  **No source in this package changed.** The decision is `EmittedRoute.bodyProperty`, which the
+  library publishes and which this emitter already rendered correctly in all three places that read
+  it: the intersection, the signature, and the generated call site. It was faithfully rendering a
+  wrong input. That is worth recording, because the reverse has bitten here before - `test/openmodel/`
+  exists because a library fix once did NOT reach the boundary a consumer types against, and the
+  check is the same either way: put the arm where a consumer writes code.
+
+  Source-breaking for a handler on such an operation, which reads `input.body?.file` where it read
+  `input.file`. The set of consumers that can break is empty by construction: no such server has ever
+  compiled. A REQUIRED multipart body is unchanged and still merged.
+
+  `test/optionalmultipart/` compiles a hand-written consumer against emitted output and holds both
+  halves in one arm. `test/malformed/` regains the operation it had been unable to carry: an optional
+  multipart body is the only spec shape that reaches the body reader's form branch through the
+  optional mounting, and the fixture had been carrying a docblock explaining the omission instead. An
+  oracle narrowed around a defect outlives the defect unless closing it is part of the fix.
+
 ## [0.21.0] - 2026-08-29
 
 Requires `typespec-http-zod@^0.24.0` and **`zod@^4.5.0`**.
@@ -74,13 +107,6 @@ the known limit recorded in `0.19.0`, and the runtime contract gets **smaller** 
   so there is no name to coin for "the body"; using one slot is what makes every route the same shape
   downstream. Three mounting paths - `zValidator`, `optionalBody` and `byContentType` - became one
   call, which is what let a rejection stop depending on which path a route happened to take.
-
-### Known limit
-
-- **An optional `@multipartBody` emits a server that does not compile** (`TS2345`). The handler input
-  merges a multipart body's properties rather than naming it, so what an optional body publishes
-  (`... | undefined`) is spread into a position requiring them. Measured identically against `0.20.0`,
-  so it is long-standing rather than new here.
 
 ## [0.20.0] - 2026-08-15
 

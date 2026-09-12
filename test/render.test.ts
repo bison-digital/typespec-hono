@@ -58,6 +58,11 @@ function serviceWith(
 		errorArms: [],
 		noAuth: true,
 		scopes: [],
+		// Added by `typespec-http-zod@0.25.0`, which publishes the security requirements the document
+		// states rather than the two lossy projections beside it. Supplied here because the fixture
+		// uses `satisfies`, which is what turns a new required field into a compile error naming the
+		// fixture instead of a runtime one naming something else.
+		security: [],
 		statusBy: undefined,
 		statusSelector: undefined,
 		alternateResponseSchema: undefined,

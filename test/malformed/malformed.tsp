@@ -62,16 +62,19 @@ op form(
 ): void;
 
 /**
- * **An optional MULTIPART body is deliberately absent, and the reason is a separate defect.**
+ * **The only spec shape that reaches the optional path WITH the form reader, and it was absent.**
  *
- * It would be the only spec shape reaching the optional path with the form reader. Measured: the
- * emitted server for one does not compile, and did not before this release either - the handler's
- * input merges the body's properties rather than naming it, so what an optional body publishes
- * (`... | undefined`) is spread into a position requiring the properties. Same `TS2345` from the
- * committed emitter at 0.20.0 and from this one, so it is not a regression here; it is recorded and
- * left alone.
+ * This operation used to be a docblock explaining why it could not exist: the emitted server for an
+ * optional multipart body did not compile, so a fixture carrying one would have failed the compile
+ * arm rather than covered anything. `typespec-http-zod` named such a body instead of merging it,
+ * and the shape became expressible, so the omission is gone and the coverage it cost is back.
  *
- * Nothing is lost by leaving it out: both middlewares call one reader, and `/form` above exercises
- * it. A fixture carrying a shape whose server cannot compile would fail the compile arm rather than
- * cover anything.
+ * An oracle narrowed to accommodate a defect outlives the defect unless closing it is part of the
+ * fix. This is that part.
  */
+@route("/optional-form")
+@post
+op optionalForm(
+  @header contentType: "multipart/form-data",
+  @multipartBody body?: Parts,
+): void;
