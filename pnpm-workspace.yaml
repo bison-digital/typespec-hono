@@ -1,14 +1,3 @@
-# **`overrides` lives HERE, not in `package.json`.** pnpm 11 no longer reads
-# `pnpm.overrides` from the manifest and only warns, so a block written there is silently
-# ignored while the install looks correct.
-#
-# `typespec-http-zod@0.25.0` is not published yet. This redirects it to the sibling checkout so
-# the two can be developed together, and `.github/workflows/release.yml` REFUSES to publish while
-# this block is present -- `--frozen-lockfile` exits 0 on a dangling link, so a release checkout
-# with no sibling on disk would install happily and fail four steps later as a wall of TS2307.
-overrides:
-  typespec-http-zod: "link:../typespec-http-zod"
-
 minimumReleaseAgeExclude:
   - zod@4.5.2
   - "@typespec/compiler@1.15.0"
