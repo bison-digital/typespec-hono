@@ -105,3 +105,32 @@ describe("the README documents everything this package can do to you", () => {
 		expect(reference).toContain(`${baseline.refused} refused`);
 	});
 });
+
+/**
+ * **The two documentation gates above check that NAMES appear. Nothing checked that CLAIMS are true.**
+ *
+ * That gap shipped: `docs/guides.md` told a reader a `bytes` body is read with `arrayBuffer()` for
+ * binary media types, which stopped being so when the streamed body landed and the handler started
+ * receiving an unread `ReadableStream`. The code said the opposite in bold, three lines above the
+ * function that decides it, for two releases. A consumer found it by hitting the compile error.
+ *
+ * Prose about emitted TYPES is the part a reader acts on, so it is the part worth grading. This is
+ * narrow on purpose: it pins the one claim that has already drifted, against the source of truth for
+ * it, rather than trying to parse the guide.
+ */
+describe("the guides describe the types this emitter actually emits", () => {
+	const guides = readFileSync(join(packageRoot, "docs", "guides.md"), "utf8");
+	const appSource = readFileSync(join(packageRoot, "src", "app.ts"), "utf8");
+
+	it("states the binary body type that `rawBodyReaderFor` actually emits", () => {
+		const emitted = /type: "(ReadableStream<[^"]+>[^"]*)"/.exec(appSource)?.[1];
+		expect(emitted, "rawBodyReaderFor no longer spells its type this way").toBeDefined();
+		expect(guides).toContain(emitted ?? " ");
+	});
+
+	it("does not still say a binary body is read with arrayBuffer()", () => {
+		// The exact sentence that was wrong. `arrayBuffer()` still appears in the guide as the one line
+		// a handler writes when it wants the bytes, which is correct, so this pins the claim not the word.
+		expect(guides).not.toMatch(/`bytes` body is read with `arrayBuffer\(\)`/);
+	});
+});

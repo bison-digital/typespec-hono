@@ -87,8 +87,71 @@ Where an operation declares several media types needing different parsers, the v
 from the request's `Content-Type` at request time, since that is the only point at which the answer
 exists.
 
-A `bytes` body is read with `arrayBuffer()` for binary media types and `text()` otherwise, so bytes
-that are not valid UTF-8 reach the handler intact.
+A `bytes` body is handed over as the **unread stream** for binary media types, typed
+`ReadableStream<Uint8Array> | null`, and read with `text()` otherwise, so bytes that are not valid
+UTF-8 reach the handler intact.
+
+`null` is not an error case. It is what the platform reports for a request carrying no body at all,
+and a zero-byte upload is a legitimate thing to write.
+
+Reading the bytes is one line where you want them:
+
+```ts
+const bytes = await new Response(input.body).arrayBuffer();
+```
+
+Piping them is why the stream is handed over unread. `arrayBuffer()` materialises the whole payload
+in the isolate, and a Worker gets 128 MB against a request-body limit of 100 MB, so an upload at the
+documented maximum could not be served at all.
+
+## Upgrading
+
+**The streamed request body is the one hand-edit.** If you have an upload route, moving to
+`typespec-hono@0.20.0` or later changes what its handler receives, and the compile error does not
+name the change:
+
+```
+TS2345: Type '{ path: string } & { body: ReadableStream<Uint8Array> | null }' is not assignable to
+  type '{ path: string; body: ArrayBuffer }' with 'exactOptionalPropertyTypes: true'.
+```
+
+The fix is usually an improvement rather than a translation, because a per-file cap can now be
+enforced **while reading** instead of after the whole body has been buffered:
+
+```ts
+async function bodyBytes(
+	body: ReadableStream<Uint8Array> | null,
+	limit: number,
+): Promise<Uint8Array> {
+	if (body === null) return new Uint8Array(0);
+	const reader = body.getReader();
+	const chunks: Uint8Array[] = [];
+	let total = 0;
+	for (;;) {
+		const { done, value } = await reader.read();
+		if (done) break;
+		total += value.byteLength;
+		if (total > limit) {
+			await reader.cancel();
+			throw new TooLarge(limit);
+		}
+		chunks.push(value);
+	}
+	const out = new Uint8Array(total);
+	let at = 0;
+	for (const chunk of chunks) {
+		out.set(chunk, at);
+		at += chunk.byteLength;
+	}
+	return out;
+}
+```
+
+A consumer who made this move reported that it made their 413 cheaper rather than merely different:
+the request is cancelled at the first chunk that crosses the line.
+
+Nothing else in the move needs a hand-edit. Everything since has been additive or a fix to output
+that did not compile.
 
 ## Streaming
 

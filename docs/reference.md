@@ -37,6 +37,30 @@ validation is emitted into `app.gen.ts` instead: it is pure mechanism with no ap
 it, and putting it here would have made every substituting application implement body parsing to get
 a correct error envelope. `test/adopter.test.ts` asserts the set as a closed list.
 
+**If you substitute the module, hold your copy current with a test rather than with a habit.**
+`src/runtime.ts` is in the published `files` list, so the authority is on disk in `node_modules`
+rather than in a repository you would have to clone. A consumer who substitutes can diff against it:
+
+```ts
+// test/conformance/runtime-copy-is-current.test.ts
+const ours = readFileSync("src/spec-runtime/core.ts", "utf8");
+const published = readFileSync("node_modules/typespec-hono/src/runtime.ts", "utf8");
+expect(bodyOf(ours)).toBe(bodyOf(published));
+expect(ours).toContain(`typespec-hono@${installedVersion()}`);
+```
+
+This is the recommended way, and the reason is measured: a gateway ran the `0.10.1` runtime while
+this emitter reached `0.21.0`, carrying the pre-fix `selectContentType` the whole time, because a
+substituted copy ages silently and nothing compares the two. The contract also SHRANK at `0.21.0`,
+where `byContentType` and `optionalBody` left it, and dead exports compile, so a shrinking contract
+is exactly as invisible as a growing one.
+
+**`selectContentType` is emitted only where several operations share one route.** The generated
+server imports it when some route group has more than one member, which is what a route serving
+several media types looks like. A spec with no such route never imports it, so a consumer reading a
+negotiation fix can tell whether it reached them: if `selectContentType` does not appear in your
+`app.gen.ts`, it did not.
+
 ## What it refuses, and why
 
 | code                        | why                                                                                                                                                                                                                                                                                                                          |
