@@ -14,6 +14,19 @@ Requires `typespec-http-zod@^0.25.0`.
 
 ### Fixed
 
+- **An operation summary can now contain anything a spec can write.** The emitted `Operations`
+  interface renders each summary as a JSDoc comment, and that comment was built by interpolation with
+  no escaping, so `@summary("Returns a */ b")` closed the comment early and the rest of the sentence
+  became code. Measured on emitted output: `TS1131`, `TS1434`, `TS1161`. One operation costing the
+  whole file, the same shape as a model named `as`.
+
+  The rule is `jsDocComment`, exported by `typespec-http-zod` beside `objectKey` because both server
+  emitters in this estate had the same defect and there should be one answer. Emitted output is held
+  to what a person would have written, not merely to what parses: a terminator is escaped as `*\/`,
+  and a multi-line description is now a real block with aligned continuation lines instead of one
+  line with newlines in it. `test/summarytext/` grades this package's own output, with the raw
+  interpolation restored as its control.
+
 - **An optional `@multipartBody` now emits a server that compiles**, closing the known limit recorded
   under `0.21.0`. The handler receives such a body NAMED rather than merged:
 

@@ -1,6 +1,7 @@
 import { renderSecurity, type SecurityRequirement } from "./security.js";
 import {
 	isRawBinaryMediaType,
+	jsDocComment,
 	objectKey,
 	type EmittedRoute,
 	type EmittedService,
@@ -842,7 +843,7 @@ type Fields<T> = string extends keyof T ? ([T[string]] extends [never] ? unknown
 					? body
 					: `${body} & ${envelopeType}`;
 		const signature = `ctx: Ctx, input: ${input ?? EMPTY_INPUT}`;
-		const doc = route.summary === undefined ? "" : `\t/** ${route.summary} */\n`;
+		const doc = jsDocComment(route.summary, "\t");
 		return `${doc}\t${route.operationId}(${signature}): Awaitable<Result<${output}>>;`;
 	});
 
