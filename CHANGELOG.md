@@ -8,6 +8,22 @@ published types; a patch will not. The **emitted output is part of the API**, a 
 `registerRoutes` returns, to a validator's shape, or to what a handler receives is a change a
 consumer feels, and is treated as such here rather than as an implementation detail.
 
+## [Unreleased]
+
+### Fixed
+
+- **An operation that allows anonymous access as one alternative no longer demands a credential.**
+  `@useAuth(NoAuth | BearerAuth)` publishes `security: [{}, { "BearerAuth": [] }]`, where `{}` is the
+  requirement satisfied by nothing. The generated gate dropped it and called
+  `deps.authorize([{ "BearerAuth": [] }])`, so an `authorize` applying the documented rule refused every
+  anonymous caller the document accepts. Measured by request on `@typespec/http-specs`'
+  `authentication/noauth/union`: the document's anonymous request answered 401. The gate now passes
+  `[{}, { "BearerAuth": [] }]`, and an operation whose every alternative is anonymous still carries no
+  gate. `test/authz/` holds the source arm and a request arm, both proven red first.
+
+  **Felt by an `authorize` that assumed every requirement names a scheme.** One written to the rule in
+  `docs/guides.md` (any one requirement, every scheme within it) admits `{}` with no change.
+
 ## [0.22.0] - 2026-09-12
 
 Requires `typespec-http-zod@^0.25.0`.

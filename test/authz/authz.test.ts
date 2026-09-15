@@ -43,12 +43,17 @@ describe("an operation's declared scopes reach the generated server", () => {
 		 * one. A generator that gated everything, or nothing, fails this; a fixture that grows does not.
 		 */
 		// `.route()` mounts a sub-app; it is not a route registration and must not be counted as one.
-		const registrations = (source.match(/^\t\t\.(?!route\()\w+\(/gm) ?? []).length;
+		const registrations = source.split(/^\t\t\.(?!route\()\w+\(/m).slice(1);
 		const gates = source.split("deps.authorize(").length - 1;
-		const unsecured = (source.match(/deps\.context\(c, "none"\)/g) ?? []).length;
-		expect(registrations).toBeGreaterThanOrEqual(4);
-		expect(unsecured).toBe(1);
-		expect(gates).toBe(registrations - unsecured);
+		/**
+		 * A route needs no gate only when EVERY alternative is anonymous. `deps.context(c, "none")`
+		 * alone does not say that: `NoAuth | BearerAuth` takes no context and still names a scheme a
+		 * caller may present, so the ungated routes are the ones with no `authorize` in their block.
+		 */
+		const ungated = registrations.filter((block) => !block.includes("deps.authorize(")).length;
+		expect(registrations.length).toBeGreaterThanOrEqual(5);
+		expect(ungated).toBe(1);
+		expect(gates).toBe(registrations.length - ungated);
 	});
 
 	it("puts the gate BEFORE the validators", () => {
@@ -78,6 +83,15 @@ describe("an operation's declared scopes reach the generated server", () => {
 		expect(source).toContain('deps.authorize([{ "BearerAuth": [] }])');
 	});
 
+	it("keeps an anonymous alternative as the empty requirement the document publishes", () => {
+		/**
+		 * `security: [{}, { "BearerAuth": [] }]`: the empty object is a requirement satisfied by
+		 * nothing, so an `authorize` applying the documented rule (any one requirement, every scheme
+		 * in it) admits an anonymous caller with no special case. Dropping it demanded the token.
+		 */
+		expect(source).toContain('deps.authorize([{}, { "BearerAuth": [] }])');
+	});
+
 	it("keeps alternatives separate, because either authorises and both is a different claim", () => {
 		/**
 		 * `@useAuth(A | B)` is an OpenAPI `security` array with two entries: satisfying EITHER
@@ -88,5 +102,62 @@ describe("an operation's declared scopes reach the generated server", () => {
 		expect(source).toMatch(
 			/deps\.authorize\(\[\{ "OAuth2Auth": \["widgets:read"\] \}, \{ "BearerAuth": \[\] \}\]\)/,
 		);
+	});
+});
+
+/**
+ * **And by request**, against an `authorize` written to the rule `docs/guides.md` states. The source
+ * arms above cannot see what a caller sees; this one sends the anonymous request the document accepts.
+ */
+describe("an anonymous caller where anonymous access is one alternative", () => {
+	it("reaches the handler without a credential, and still does with one", async () => {
+		const compiled = await compileFixture(here, "guarded", { outName: "guarded-request" });
+		const server = (await import(join(compiled.outDir, "app.gen.ts"))) as {
+			registerRoutes: (app: unknown, handlersFor: unknown, deps: unknown) => void;
+		};
+		const { Hono } = await import("hono");
+		const app = new Hono();
+		type Context = {
+			req: { header: (name: string) => string | undefined };
+			json: (body: unknown, status: number) => Response;
+		};
+		const widget = () => ({ id: "1" });
+		server.registerRoutes(
+			app,
+			() => ({
+				listWidgets: widget,
+				getWidget: widget,
+				health: widget,
+				auditWidget: widget,
+				widgetHistory: widget,
+				previewWidget: widget,
+			}),
+			{
+				// The documented rule, and nothing else: any one requirement, every scheme within it.
+				authorize:
+					(requirements: readonly Record<string, readonly string[]>[]) =>
+					async (c: Context, next: () => Promise<void>) => {
+						const bearer = (c.req.header("authorization") ?? "").startsWith("Bearer ");
+						const ok = requirements.some((requirement) =>
+							Object.keys(requirement).every((scheme) => scheme === "BearerAuth" && bearer),
+						);
+						if (!ok) return c.json({}, 401);
+						await next();
+						return undefined;
+					},
+				context: () => ({}),
+				noContext: (c: Context) => c.json({}, 401),
+				notAcceptable: (c: Context) => c.json({}, 406),
+				invalid: (result: { success: boolean }, c: Context) =>
+					result.success ? undefined : c.json({}, 400),
+				respond: (c: Context, _arms: unknown, value: unknown) => c.json(value, 200),
+			},
+		);
+		expect((await app.request("/widgets/1/preview")).status).toBe(200);
+		expect(
+			(await app.request("/widgets/1/preview", { headers: { authorization: "Bearer t" } })).status,
+		).toBe(200);
+		// Control: a route that requires the token still refuses the same anonymous request.
+		expect((await app.request("/widgets/1/audit")).status).toBe(401);
 	});
 });

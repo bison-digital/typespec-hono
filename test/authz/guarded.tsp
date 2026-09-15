@@ -50,3 +50,12 @@ model Widget {
  */
 @useAuth(Read | BearerAuth)
 @route("/widgets/{id}/history") op widgetHistory(@path id: string): Widget;
+
+/**
+ * **Anonymous access, or a bearer token.** `@useAuth(NoAuth | BearerAuth)` publishes
+ * `security: [{}, { "BearerAuth": [] }]`, where the empty requirement means "nothing is needed". The
+ * gate once dropped it and passed `[{ "BearerAuth": [] }]`, so an `authorize` doing its documented job
+ * refused every anonymous caller the document accepts.
+ */
+@useAuth(NoAuth | BearerAuth)
+@route("/widgets/{id}/preview") op previewWidget(@path id: string): Widget;

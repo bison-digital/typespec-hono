@@ -54,23 +54,33 @@ export function securityFor(program: Program, operation: HttpOperation): Securit
 					: [];
 			requirement[scheme.id] = scopes;
 		}
-		if (anonymous && Object.keys(requirement).length === 0) continue;
-		if (Object.keys(requirement).length > 0) requirements.push(requirement);
+		/**
+		 * **An anonymous alternative stays, as the empty requirement the document publishes.**
+		 * `NoAuth | BearerAuth` is `security: [{}, { "BearerAuth": [] }]`: `{}` is satisfied by nothing,
+		 * so the documented rule (any one requirement, every scheme in it) admits an anonymous caller
+		 * with no special case. Dropping it passed `[{ "BearerAuth": [] }]`, and a correct `authorize`
+		 * refused every anonymous caller the contract accepts.
+		 */
+		if (anonymous || Object.keys(requirement).length > 0) requirements.push(requirement);
 	}
-	return requirements;
+	// Only when EVERY alternative is anonymous is there nothing to gate, which is `@useAuth(NoAuth)`.
+	return requirements.every((requirement) => Object.keys(requirement).length === 0)
+		? []
+		: requirements;
 }
 
 /** The requirements as a TypeScript literal, for the generated call site. */
 export function renderSecurity(requirements: readonly SecurityRequirement[]): string {
 	return `[${requirements
-		.map(
-			(requirement) =>
-				`{ ${Object.entries(requirement)
-					.map(
-						([scheme, scopes]) =>
-							`${JSON.stringify(scheme)}: [${scopes.map((s) => JSON.stringify(s)).join(", ")}]`,
-					)
-					.join(", ")} }`,
+		.map((requirement) =>
+			Object.keys(requirement).length === 0
+				? "{}"
+				: `{ ${Object.entries(requirement)
+						.map(
+							([scheme, scopes]) =>
+								`${JSON.stringify(scheme)}: [${scopes.map((s) => JSON.stringify(s)).join(", ")}]`,
+						)
+						.join(", ")} }`,
 		)
 		.join(", ")}]`;
 }

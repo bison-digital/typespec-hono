@@ -50,7 +50,11 @@ exactly that:
 deps.authorize([{ BearerAuth: [] }]); // one scheme, no scopes
 deps.authorize([{ OAuth2Auth: ["widgets:read"] }]); // scopes, from the declared flows
 deps.authorize([{ OAuth2Auth: [] }, { BearerAuth: [] }]); // either one authorises
+deps.authorize([{}, { BearerAuth: [] }]); // `NoAuth | BearerAuth`: anonymous, or the token
 ```
+
+`{}` is the requirement `@useAuth(NoAuth | ...)` publishes: it names no scheme, so it is satisfied by
+every caller. An operation whose every alternative is `NoAuth` carries no gate at all.
 
 Satisfying any one requirement authorises the caller, and every scheme within one requirement must be
 satisfied together. That is what an array of OpenAPI `security` objects means. Which credentials
