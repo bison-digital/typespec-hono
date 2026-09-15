@@ -67,6 +67,7 @@ export function serviceWith(
 		],
 		responseContentTypes: [],
 		requestContentTypes: ["application/json"],
+		requestTextual: false,
 		summary: undefined,
 		requestSchema: undefined,
 		pathSchema: undefined,

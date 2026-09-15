@@ -65,6 +65,16 @@ richer context compiles), no range exclusion in `default` (the switch stops comp
 
 ### Fixed
 
+- **A `text/plain` request body reaches the handler.** It has no JSON, form or multipart reader, so no
+  body middleware was emitted at all: the server accepted the request, read nothing, and called the
+  handler with an empty input. There is a text reader now, used where the library says the body IS
+  text (`requestTextual`) - a model framed as `text/plain` is still reported as unvalidatable rather
+  than guessed at.
+- **Every scenario in the conformance corpus now compiles.** Six were pinned in
+  `test/conformance/typecheck.test.ts` on two library defects, both fixed in `typespec-http-zod`
+  0.26.0: a non-model request body was spread into the handler's input, and a recursive model's schema
+  inferred `unknown` in anything wrapping it. The known-failures list is empty, and it is asserted
+  exactly, so a new failure cannot be absorbed.
 - **Every URI `@typespec/http-specs` declares for `routes` and `parameters/path` now reaches its
   operation, with the value the scenario documents.** Routes were mounted from `path`, which
   `@typespec/http` strips of every RFC 6570 operator, so `array{.param*}`, `array{;param}` and

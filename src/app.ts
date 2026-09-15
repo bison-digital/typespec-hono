@@ -485,10 +485,20 @@ const VALIDATOR_TARGET = {
  * justifies, so it keeps the existing behaviour rather than acquiring a new one on the way past. That
  * gap is real and is stated in the README rather than papered over here.
  */
-function targetForMediaType(type: string): string | undefined {
+function targetForMediaType(type: string, textual: boolean): string | undefined {
 	if (type === "application/x-www-form-urlencoded" || type.startsWith("multipart/")) return "form";
 	// `application/json`, and the `+json` structured suffix RFC 6839 defines.
 	if (type === "application/json" || type.endsWith("+json")) return VALIDATOR_TARGET.body;
+	/**
+	 * **A body the document says IS text is read as text**, `@body body: string` under `text/plain`
+	 * being the ordinary case. `requestTextual` is the library's answer about the TYPE, so the same
+	 * media type carrying a model stays unparseable and keeps its warning: `text/plain` says how the
+	 * value is framed, not what it is.
+	 *
+	 * Measured before this existed: such a route emitted no body middleware at all, so the body was
+	 * never read and the handler was called with an empty input.
+	 */
+	if (textual) return "text";
 	return undefined;
 }
 
@@ -517,12 +527,12 @@ interface BodyValidation {
  * package should make. Naming them is what stops a consumer believing a route is validated when it
  * is not -- the previous behaviour said nothing and rejected them.
  */
-function bodyValidationFor(contentTypes: readonly string[]): BodyValidation {
+function bodyValidationFor(contentTypes: readonly string[], textual: boolean): BodyValidation {
 	if (contentTypes.length === 0) return { byType: [["", VALIDATOR_TARGET.body]], unparseable: [] };
 	const byType: (readonly [string, string])[] = [];
 	const unparseable: string[] = [];
 	for (const type of contentTypes) {
-		const target = targetForMediaType(type);
+		const target = targetForMediaType(type, textual);
 		if (target === undefined) unparseable.push(type);
 		else byType.push([type, target]);
 	}
@@ -592,7 +602,7 @@ const SYNC = { validationFunction: (schema: z.ZodType, value: unknown) => schema
 `;
 
 const BODY_READER = `/** The two ways Hono can read a request body: \`c.req.json()\` and \`c.req.parseBody()\`. */
-type BodyTarget = "json" | "form";
+type BodyTarget = "json" | "form" | "text";
 
 /**
  * A body that is not what its content type claims.
@@ -606,7 +616,10 @@ const UNREADABLE = Symbol("a body that is not what its content type claims");
 
 async function readBody(c: Context, target: BodyTarget): Promise<unknown> {
 	try {
-		return target === "form" ? await c.req.parseBody({ all: true }) : await c.req.json();
+		if (target === "form") return await c.req.parseBody({ all: true });
+		// A text body IS the text: it is validated as the string the caller sent, not parsed first.
+		if (target === "text") return await c.req.text();
+		return await c.req.json();
 	} catch {
 		return UNREADABLE;
 	}
@@ -1044,7 +1057,7 @@ export function renderApp(
 			 * got. All three are now one emitted middleware; what the document decides is only the
 			 * branches it is given and whether an absent body is permitted.
 			 */
-			const validation = bodyValidationFor(route.requestContentTypes);
+			const validation = bodyValidationFor(route.requestContentTypes, route.requestTextual);
 			if (validation.unparseable.length > 0) {
 				refuse.unvalidatableMediaType(route, validation.unparseable);
 			}

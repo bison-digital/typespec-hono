@@ -32,34 +32,24 @@ const here = fileURLToPath(new URL(".", import.meta.url));
 const outRoot = join(here, ".out-typecheck");
 
 /**
- * Scenarios whose emitted server does NOT compile today, each for a reason recorded here. Asserted
+ * Scenarios whose emitted server does NOT compile, each for a reason recorded here. Asserted
  * EXACTLY, so a fix has to remove its entry and a new failure cannot be absorbed.
  *
- * **Every one is on the REQUEST side**, which this list exists to keep visible rather than to excuse:
+ * **Empty, and it was not.** Six scenarios were pinned here on two REQUEST-side defects, both fixed
+ * in the same release as the response work that first compiled the corpus at all:
  *
- * - a scalar JSON request body (`@body body: string`, an enum, a discriminated union) is SPREAD into
- *   the handler's input, `TS2698: Spread types may only be created from object types`. A scalar has no
- *   properties to merge; it wants the named-body treatment an indexed body already gets;
- * - a recursive dictionary body reads back from its validator as `unknown` beside an input type that
- *   names the dictionary, `TS2322`.
+ * - a scalar, enum or union JSON request body was SPREAD into the handler's input (`TS2698`). A body
+ *   that is not a model has no properties to merge, and is now named, as an indexed body already was.
+ *   A `text/plain` body was worse than that: it emitted no body middleware, so it compiled and the
+ *   handler was called with an empty input;
+ * - a recursive model's schema is emitted with a getter, whose missing return type made `z.infer`
+ *   collapse to `unknown` in any schema WRAPPING it (`TS2322`).
  *
- * Both call sites are unchanged by the response work that added this arm; they had simply never been
- * compiled. `special-words` and `type/union/discriminated` are not here because their compile fails
- * before a server is written (openapi3 crashes on the first, the library refuses the second), which
+ * `special-words` and `type/union/discriminated` are not here because their compile fails before a
+ * server is written (openapi3 crashes on the first, the library refuses the second), which
  * `routes.test.ts` records.
  */
-/**
- * Keyed by scenario, to the error CODES it raises, so a second defect arriving in a scenario already
- * listed is not hidden behind the first.
- */
-const KNOWN_FAILURES: Readonly<Record<string, readonly string[]>> = {
-	"payload/media-type": ["TS2698"],
-	"type/dictionary": ["TS2322"],
-	"type/enum/extensible": ["TS2698"],
-	"type/enum/fixed": ["TS2698"],
-	"type/scalar": ["TS2698"],
-	"versioning/returnTypeChangedFrom": ["TS2698"],
-};
+const KNOWN_FAILURES: Readonly<Record<string, readonly string[]>> = {};
 
 let compiled: readonly CompiledScenario[] = [];
 

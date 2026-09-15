@@ -93,6 +93,32 @@ op listItems(
 
 // --- Media types, where the document states a type and the wire adds parameters --------------
 
+/**
+ * **A body the document says IS the text a caller sends.**
+ *
+ * `text/plain` has no JSON, form or multipart reader, so no body middleware was emitted at all: the
+ * body was never read and the handler was called with an empty input, from a compile that reported
+ * success. It is a transport encoding like every other one in this file, and it is the one nothing
+ * here sent.
+ */
+@route("/items/text")
+@post
+op createFromText(@body body: string): Item;
+
+enum Colour {
+  red,
+  green,
+}
+
+/**
+ * A body that is not an object, so it cannot be merged into the parameters. Its validator still
+ * refuses a value the document does not declare, which is what makes the arm about the BODY rather
+ * than about the plumbing.
+ */
+@route("/items/colour")
+@post
+op createFromColour(@body body: Colour): Item;
+
 @route("/items/json")
 @post
 op createFromJson(

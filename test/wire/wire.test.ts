@@ -162,6 +162,28 @@ describe("the generated server accepts what the wire actually carries", () => {
 	 * the dispatch in `src/` left the entire suite green. Asserting the emitted text would not have
 	 * been enough either: the emitted code did not compile, and would still have contained the call.
 	 */
+	it("hands a text/plain body to the handler as the text it carries", async () => {
+		const response = await app.request("/items/text", {
+			method: "POST",
+			headers: { "content-type": "text/plain" },
+			body: "the whole body, as text",
+		});
+		expect(response.status).toBe(200);
+		expect(received["createFromText"]).toEqual({ body: "the whole body, as text" });
+	});
+
+	it("accepts a body that is not an object, and still refuses a value it does not declare", async () => {
+		const post = (body: string) =>
+			app.request("/items/colour", {
+				method: "POST",
+				headers: { "content-type": "application/json" },
+				body,
+			});
+		expect((await post('"red"')).status).toBe(200);
+		expect(received["createFromColour"]).toEqual({ body: "red" });
+		expect((await post('"purple"')).status).toBe(400);
+	});
+
 	it("accepts a JSON body on an operation that also accepts a form", async () => {
 		const response = await app.request("/items/either", {
 			method: "POST",
