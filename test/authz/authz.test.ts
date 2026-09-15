@@ -160,3 +160,57 @@ describe("an anonymous caller where anonymous access is one alternative", () => 
 		expect((await app.request("/widgets/1/audit")).status).toBe(401);
 	});
 });
+
+/**
+ * **`context` is told whether a caller is needed, in the three states the document can say.** It was
+ * told `"none"` for `NoAuth | BearerAuth` as well as for `@useAuth(NoAuth)`, so an application could
+ * not tell "nobody is expected" from "somebody may be here", and a caller presenting a valid token on
+ * an optional route was never established as one. Asked by request, and the expectation is the
+ * `security` each operation publishes: none, an anonymous alternative beside a real one, or real only.
+ */
+describe("the context hook learns whether a caller is none, optional or required", () => {
+	it("passes optional where anonymous access is one alternative", async () => {
+		const compiled = await compileFixture(here, "guarded", { outName: "guarded-context" });
+		const server = (await import(join(compiled.outDir, "app.gen.ts"))) as {
+			registerRoutes: (app: unknown, handlersFor: unknown, deps: unknown) => void;
+		};
+		const { Hono } = await import("hono");
+		const app = new Hono();
+		type Context = { json: (body: unknown, status: number) => Response };
+		const seen: string[] = [];
+		const widget = () => ({ status: 200, body: { id: "1" } });
+		server.registerRoutes(
+			app,
+			() => ({
+				listWidgets: () => ({ status: 200, body: [{ id: "1" }] }),
+				getWidget: widget,
+				health: widget,
+				auditWidget: widget,
+				widgetHistory: widget,
+				previewWidget: widget,
+			}),
+			{
+				authorize: () => async (_c: Context, next: () => Promise<void>) => {
+					await next();
+					return undefined;
+				},
+				context: (_c: Context, authentication: string) => {
+					seen.push(authentication);
+					return {};
+				},
+				noContext: (c: Context) => c.json({}, 401),
+				notAcceptable: (c: Context) => c.json({}, 406),
+				invalid: (result: { success: boolean }, c: Context) =>
+					result.success ? undefined : c.json({}, 400),
+			},
+		);
+		const told = async (path: string) => {
+			seen.length = 0;
+			expect((await app.request(path)).status, path).toBe(200);
+			return seen[0];
+		};
+		expect(await told("/widgets/1/preview")).toBe("optional");
+		expect(await told("/widgets/1/audit")).toBe("required");
+		expect(await told("/health")).toBe("none");
+	});
+});

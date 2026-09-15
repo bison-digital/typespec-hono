@@ -65,6 +65,21 @@ richer context compiles), no range exclusion in `default` (the switch stops comp
 
 ### Fixed
 
+- **Every URI `@typespec/http-specs` declares for `routes` and `parameters/path` now reaches its
+  operation, with the value the scenario documents.** Routes were mounted from `path`, which
+  `@typespec/http` strips of every RFC 6570 operator, so `array{.param*}`, `array{;param}` and
+  `optional{/name}` were mounted as `array:param` and `optional:name`, and a literal query string sat
+  inside the router path. Measured by request with the mock server's own URIs: 33 of 47 `routes`
+  URIs and `/parameters/path/optional/foo` answered 404 or 400. Routes are now mounted from the
+  library's `pathSegments` as pattern parameters matching their whole segment, a literal query string
+  is checked by the new `literalQuery` runtime middleware, and the library decodes the captured text.
+  `test/conformance/uris.test.ts` sends every mock URI, red first.
+- **`context` is told `"optional"` where anonymous access is one alternative.** It was told `"none"`
+  for `NoAuth | BearerAuth` as for `@useAuth(NoAuth)`, so a caller presenting a valid token on an
+  optional route was never established as one. **Breaking for a `context` that switches exhaustively
+  on the argument.** `test/authz/` asks by request.
+- **The auth gate reads the library's `security` and `authentication`**, and `src/security.ts`, this
+  package's second copy of that rule, is deleted.
 - **A concrete path is served before a templated one.** `GET /items/plain` was answered by the handler
   for `/items/{id}` whenever the templated operation was declared first, because Hono runs the first
   registered match. Measured by request, with the wrong handler's body. Routes are now registered
@@ -75,7 +90,7 @@ richer context compiles), no range exclusion in `default` (the switch stops comp
 
 - **An operation that allows anonymous access as one alternative no longer demands a credential.**
   `@useAuth(NoAuth | BearerAuth)` publishes `security: [{}, { "BearerAuth": [] }]`, where `{}` is the
-  requirement satisfied by nothing. The generated gate dropped it and called
+  requirement every caller satisfies, because it names no scheme. The generated gate dropped it and called
   `deps.authorize([{ "BearerAuth": [] }])`, so an `authorize` applying the documented rule refused every
   anonymous caller the document accepts. Measured by request on `@typespec/http-specs`'
   `authentication/noauth/union`: the document's anonymous request answered 401. The gate now passes

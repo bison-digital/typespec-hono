@@ -103,6 +103,26 @@ const SCALAR_DECODE = [
 const JSON_PART_DECODE =
 	/z\.preprocess\(\(raw, ctx\) => \{ if \(typeof raw !== "string"\) return raw; try \{ return JSON\.parse\(raw\); \} catch \{ ctx\.addIssue\(\{ code: "custom", message: "Invalid JSON in a multipart part" \}\); return z\.NEVER; \} \}, /g;
 
+/** A JSON string literal, as `JSON.stringify` writes one into emitted source. */
+const JSON_STRING = String.raw`"(?:[^"\\]|\\.)*"`;
+/** A JSON array of such strings. */
+const JSON_STRINGS = String.raw`\[(?:${JSON_STRING}(?:,${JSON_STRING})*)?\]`;
+
+/**
+ * The library's RFC 6570 decoders, copied from `typespec-http-zod/test/vocabulary.test.ts` for the
+ * reason every shape here is: the server embeds what the library emits, and each grades what it
+ * produces. A path value undone from its segment text, and a form-exploded query object gathered back
+ * under its name; both refuse text that is not the declared expansion, so neither widens a parameter.
+ */
+const URI_EXPANSION_DECODE = new RegExp(
+	String.raw`z\.preprocess\(\(raw, ctx\) => uriExpansion\(raw, ctx, \{ prefix: ${JSON_STRING}, suffix: ${JSON_STRING}, operator: "(?:|\+|#|\.|/|;)", name: ${JSON_STRING}, explode: (?:true|false), shape: "(?:scalar|list|record)", values: "(?:number|boolean|)" \}\), `,
+	"g",
+);
+const EXPLODED_QUERY_GATHER = new RegExp(
+	String.raw`z\.preprocess\(\(raw\) => explodedQuery\(raw, \{ name: ${JSON_STRING}, others: ${JSON_STRINGS}, keys: (?:null|${JSON_STRINGS}), numbers: ${JSON_STRINGS}, booleans: ${JSON_STRINGS}, values: "(?:number|boolean|)" \}\), `,
+	"g",
+);
+
 /**
  * A `content-type` header reduced to the media type, discarding the parameters the document does not
  * mention.
@@ -198,6 +218,8 @@ describe("the generated validator says only what the document can say", () => {
 			...SCALAR_DECODE,
 			...MEDIA_TYPE_DECODE,
 			JSON_PART_DECODE,
+			URI_EXPANSION_DECODE,
+			EXPLODED_QUERY_GATHER,
 		];
 		for (const file of files) {
 			const source = readFileSync(file, "utf8");

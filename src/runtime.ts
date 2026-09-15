@@ -199,6 +199,17 @@ export const headOnly: MiddlewareHandler = async (c, next) =>
 	c.req.method === "HEAD" ? next() : c.notFound();
 
 /**
+ * **A route whose template writes a query string, `/items?fixed=true{&param}`, is only that route when
+ * the request carries it.** A router matches paths, so the pairs are checked here, and a request
+ * without them gets the 404 any unrouted request gets, through whatever `app.notFound()` the
+ * application has set. In the runtime for the same reason as {@link headOnly}.
+ */
+export const literalQuery =
+	(pairs: readonly (readonly [string, string])[]): MiddlewareHandler =>
+	async (c, next) =>
+		pairs.every(([name, value]) => c.req.query(name) === value) ? next() : c.notFound();
+
+/**
  * A response body that does not match the schema the document publishes for its status.
  *
  * **Thrown, so an application decides what a contract failure answers with in `app.onError`**,
@@ -353,9 +364,17 @@ export interface RouteDeps<E extends Env = AppEnv, C = unknown> {
 	/**
 	 * The caller's context, or `null` when there is none to establish.
 	 *
-	 * `authentication` is what the DOCUMENT says, and only that: `"none"` where the operation
-	 * declares `@useAuth(NoAuth)` (`security: []` in OpenAPI) and `"required"` otherwise. Deciding
-	 * it at generation time is the point: the gate the document publishes is the gate that runs.
+	 * `authentication` is what the DOCUMENT says, and only that:
+	 *
+	 * - `"none"`: no requirement asks for anything (`@useAuth(NoAuth)`, or no authentication at all);
+	 * - `"optional"`: an anonymous alternative sits beside a real one (`NoAuth | BearerAuth`), so
+	 *   `authorize` has admitted this caller either way and a presented credential should still be
+	 *   read;
+	 * - `"required"`: every alternative asks for something.
+	 *
+	 * **`"optional"` is new, and without it the middle case was reported as `"none"`**, so a caller
+	 * with a valid token on an optional route was never established as a caller. Deciding it at
+	 * generation time is the point: the gate the document publishes is the gate that runs.
 	 *
 	 * **It used to be `"none" | "account" | "resource"`, and the last two were an invention.** They
 	 * were chosen by whether the path had parameters, which no OpenAPI keyword expresses and which
@@ -365,7 +384,7 @@ export interface RouteDeps<E extends Env = AppEnv, C = unknown> {
 	 */
 	readonly context: <P extends string, I extends Input>(
 		c: Context<E, P, I>,
-		authentication: "none" | "required",
+		authentication: "none" | "optional" | "required",
 	) => C | null;
 	/** The response when `context` returns `null`. */
 	readonly noContext: <P extends string, I extends Input>(c: Context<E, P, I>) => Response;

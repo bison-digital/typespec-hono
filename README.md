@@ -116,13 +116,13 @@ a request.
 
 Five hooks, each answering something the spec does not contain:
 
-| hook            | the spec says                               | you say                              |
-| --------------- | ------------------------------------------- | ------------------------------------ |
-| `authorize`     | which schemes and scopes an operation needs | whether this caller satisfies them   |
-| `context`       | whether a caller is required                | who the caller is                    |
-| `noContext`     |                                             | what to answer when there is not one |
-| `notAcceptable` | which media types are offered               | what to answer when none match       |
-| `invalid`       | the schema                                  | what a validation failure looks like |
+| hook            | the spec says                                  | you say                              |
+| --------------- | ---------------------------------------------- | ------------------------------------ |
+| `authorize`     | which schemes and scopes an operation needs    | whether this caller satisfies them   |
+| `context`       | whether a caller is none, optional or required | who the caller is                    |
+| `noContext`     |                                                | what to answer when there is not one |
+| `notAcceptable` | which media types are offered                  | what to answer when none match       |
+| `invalid`       | the schema                                     | what a validation failure looks like |
 
 ```ts
 import type { AppEnv, RouteDeps } from "./generated/runtime.gen.js";
@@ -145,7 +145,9 @@ export const deps: RouteDeps<AppEnv, Caller> = {
 };
 ```
 
-Whatever `context` returns is what every handler receives as `ctx`. Your Hono environment - bindings
+`context` is told `"none"` (the operation needs nobody), `"optional"` (anonymous access is one
+alternative, so read a credential if one was presented) or `"required"`. Whatever it returns is what
+every handler receives as `ctx`. Your Hono environment - bindings
 and variables - is an augmentation of the emitted `AppEnv`:
 
 ```ts

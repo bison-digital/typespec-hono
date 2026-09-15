@@ -6,7 +6,6 @@ import { fileURLToPath } from "node:url";
 import { emitHttpZod } from "typespec-http-zod";
 import { renderApp } from "./app.js";
 import { resolveBasePath } from "./base-path.js";
-import { securityFor } from "./security.js";
 import { reportDiagnostic } from "./lib.js";
 
 /**
@@ -176,10 +175,6 @@ export async function $onEmit(context: EmitContext): Promise<void> {
 					},
 				},
 				base.basePaths,
-				(verb, path) => {
-					const operation = operationFor(emitted, verb, path);
-					return operation === undefined ? [] : securityFor(context.program, operation);
-				},
 			),
 		});
 	}

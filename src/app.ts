@@ -1,5 +1,6 @@
-import { renderSecurity, type SecurityRequirement } from "./security.js";
+import type { SecurityRequirement } from "./runtime.js";
 import {
+	type EmittedPathSegment,
 	isRawBinaryMediaType,
 	jsDocComment,
 	objectKey,
@@ -339,59 +340,92 @@ export function generatedBanner(hint: string | undefined): string {
 /** A parameter name Hono can carry verbatim. Measured against Hono, not assumed. */
 const PLAIN_PATH_PARAMETER = /^[A-Za-z0-9_.~-]+$/;
 
+/** Text matched literally inside a Hono `{...}` parameter pattern. */
+function escapeRegExp(text: string): string {
+	return text.replace(/[.*+?^$()|[\]\\]/g, "\\$&");
+}
+
 /**
- * TypeSpec publishes `/widgets/{widget-id}`; Hono routes on `/widgets/:widget-id`.
+ * The Hono route for a route template, from the segments `typespec-http-zod` reads out of the
+ * operation's RFC 6570 `uriTemplate`.
  *
- * **This used to match `\w+`, so any parameter carrying a hyphen was left ALONE.**
- * `@path("thing-id")` produced the literal route `/things/{thing-id}`, mounted, counted by every arm
- * that counts routes, and reachable by nobody. It answered 404 to the only requests it was for. Hono
- * handles `:thing-id` and `:x.y` perfectly well; the narrow character class was ours.
+ * **This used to convert `route.path`, which has every operator stripped**, so `array{.param*}`,
+ * `array{;param}` and `optional{/name}` were mounted as `array:param` and `optional:name`, which Hono
+ * does not match at all. Measured by request: 31 of the URIs `@typespec/http-specs` `routes` and
+ * `parameters/path` declare answered 404 from a server generated from them.
  *
- * A name that is not plain is REFUSED rather than approximated, and the route stays at the literal
- * template so it matches nothing rather than matching the wrong thing.
+ * - A whole-segment expression is `:name`; a reserved or exploding `/` one crosses `/`, so it is
+ *   `:name{.+}` (Hono's spelling of greedy); an optional last segment is `:name?`.
+ * - An expression written beside literal text, or with a label or matrix operator, is a pattern
+ *   parameter matching the whole segment: `:param{array\.[^\x2F]*}`. The captured text is the
+ *   segment, and the path validator undoes the expansion. `\x2F` rather than `/`, so the mounted
+ *   path still splits into its segments on `/` for the ordering and sub-app rules below.
  *
- * **This is about the NAME, not about RFC 6570 operators.** An earlier version of this comment
- * claimed `{+path}` or `{tag*}` would survive into the name and that `*` would become Hono's
- * wildcard. Measured, that is false: `@typespec/http` resolves the operator before this emitter sees
- * the path, and `@typespec/openapi3` strips it from the published document too, so both artefacts say
- * `/files{path}` and agree. What actually reaches here is a wire name from `@path("...")`, and the
- * forms that fail are a space, `+` and `!`. `*` is rejected by `@typespec/http` before it arrives.
+ * **A name Hono cannot carry is REFUSED rather than approximated**, and so is a segment holding two
+ * expressions, which no segment router can split. The segment stays literal, so it matches nothing
+ * rather than the wrong thing. A space, `+` and `!` are the characters that fail; a hyphen, a dot and
+ * a tilde do not.
  *
- * **This runs at RENDER time, not during collection.** It used to run inside `collectRoutes`, which
- * put one framework's spelling into the shared intermediate representation and refused the whole
- * operation (validators included) over a template no router could mount. What a request body must
- * look like does not depend on that.
+ * **This runs at RENDER time, not during collection**, so what a request body must look like never
+ * depends on whether one framework's router can express the path.
  */
 export function toHonoPath(
-	template: string,
+	segments: readonly EmittedPathSegment[],
 	refuse: (template: string, name: string) => void,
-	/**
-	 * Wire names the document says carry RFC 6570 reserved expansion, so their value may contain `/`.
-	 *
-	 * **A hierarchical identifier is ONE value, not several segments.** An Obsidian note is
-	 * `areas/health.md`; an S3 key and a GitHub file path are the same shape. A router that stops at
-	 * the first `/` binds `areas` and 404s the rest. Hono spells the greedy form `:name{.+}`.
-	 *
-	 * Read from `EmittedRoute.reservedPathParameters`, which the library resolves from `allowReserved`
-	 * on the parameter. **Never from the template**: the operator does not survive to `route.path`,
-	 * `@typespec/http` strips it, and it can also be set with no operator in the template at all, so
-	 * the template is a derived artefact rather than the source of truth.
-	 */
-	reserved: ReadonlySet<string> = new Set(),
 ): string {
-	return template.replace(/\{([^}]+)\}/g, (match, name: string) => {
-		/**
-		 * **The name check comes FIRST and is unconditional.** A name Hono cannot carry is refused
-		 * whether or not it is reserved: greedy matching does not make a space or a `+` in a parameter
-		 * name expressible, and letting one through because another flag was set would mount a route
-		 * matching the wrong requests rather than one that fails.
-		 */
+	const template = `/${segments
+		.map((segment) =>
+			segment.kind === "expression"
+				? `${segment.prefix}{${segment.operator}${segment.parameter}${segment.explode ? "*" : ""}}${segment.suffix}`
+				: segment.text,
+		)
+		.join("/")}`;
+	const parts = segments.map((segment, index) => {
+		if (segment.kind === "literal") return segment.text;
+		if (segment.kind === "unsupported") {
+			refuse(template, segment.text);
+			return segment.text;
+		}
+		const name = segment.parameter;
 		if (!PLAIN_PATH_PARAMETER.test(name)) {
 			refuse(template, name);
-			return match;
+			return `{${name}}`;
 		}
-		return reserved.has(name) ? `:${name}{.+}` : `:${name}`;
+		const whole =
+			segment.prefix === "" &&
+			segment.suffix === "" &&
+			segment.operator !== "." &&
+			segment.operator !== ";";
+		if (whole) {
+			if (segment.reserved || (segment.operator === "/" && segment.explode)) return `:${name}{.+}`;
+			return segment.optional && index === segments.length - 1 ? `:${name}?` : `:${name}`;
+		}
+		const leader =
+			segment.operator === "." || segment.operator === ";" ? escapeRegExp(segment.operator) : "";
+		const body = segment.reserved ? ".*" : "[^\\x2F]*";
+		return `:${name}{${escapeRegExp(segment.prefix)}${leader}${body}${escapeRegExp(segment.suffix)}}`;
 	});
+	return `/${parts.join("/")}`;
+}
+
+/**
+ * The document's `security` as a TypeScript literal, for the generated `authorize` call. `{}` is the
+ * anonymous alternative, written out so an `authorize` applying the documented rule (any one
+ * requirement, every scheme within it) admits a caller who presents nothing.
+ */
+function renderSecurity(requirements: readonly SecurityRequirement[]): string {
+	return `[${requirements
+		.map((requirement) =>
+			Object.keys(requirement).length === 0
+				? "{}"
+				: `{ ${Object.entries(requirement)
+						.map(
+							([scheme, scopes]) =>
+								`${JSON.stringify(scheme)}: [${scopes.map((scope) => JSON.stringify(scope)).join(", ")}]`,
+						)
+						.join(", ")} }`,
+		)
+		.join(", ")}]`;
 }
 
 /**
@@ -729,7 +763,7 @@ function validateOptionalBody<E extends Env, S extends z.ZodType>(
  */
 const CONTEXT_MIDDLEWARE = `\tconst contexts = new WeakMap<object, { readonly value: C }>();
 	const contextFor =
-		(authentication: "none" | "required"): MiddlewareHandler<AppEnv> =>
+		(authentication: "none" | "optional" | "required"): MiddlewareHandler<AppEnv> =>
 		async (c, next) => {
 			const ctx = deps.context(c, authentication);
 			if (ctx === null) return deps.noContext(c);
@@ -989,15 +1023,6 @@ export function renderApp(
 	 * the document, and every "try it" in a rendered document, 404.
 	 */
 	basePaths: readonly string[] = [],
-	/**
-	 * What the DOCUMENT says a caller must satisfy, per operation id.
-	 *
-	 * **Resolved by the caller rather than read off `EmittedRoute`**, because which schemes an
-	 * operation accepts is a fact about the HTTP program and not part of the validator IR the library
-	 * publishes. Keeping it out of that IR is what stops a Hono concern leaking into a package whose
-	 * audience is wider.
-	 */
-	securityFor?: (verb: string, path: string) => readonly SecurityRequirement[],
 ): string {
 	const mounted: AppRoute[] = emitted.routes.flatMap((route) => {
 		const names = emitted.schemaNames.get(route.operationId);
@@ -1357,10 +1382,8 @@ type Produced<T> = T extends (...args: never[]) => unknown
 			/** A HEAD with no GET beside it: registered under GET, and guarded so only a HEAD reaches it. */
 			const headOnly = plainGroups.length === 0 && headGroups.length > 0;
 			const method = HONO_METHOD[registrationVerbOf(route.verb)] ?? "on";
-			const path = toHonoPath(
-				route.path,
-				(template, name) => refuse.unsupportedPathTemplate(route, template, name),
-				new Set(route.reservedPathParameters),
+			const path = toHonoPath(route.pathSegments, (template, name) =>
+				refuse.unsupportedPathTemplate(route, template, name),
 			);
 			/**
 			 * A route inside a sub-app is registered RELATIVE to the prefix it is mounted at.
@@ -1388,9 +1411,23 @@ type Produced<T> = T extends (...args: never[]) => unknown
 			 * all and rested entirely on `deps.context` returning null, which answers "is somebody here"
 			 * rather than "did they satisfy the scheme the contract names".
 			 */
-			const requirements = securityFor?.(route.verb, route.path) ?? [];
+			/**
+			 * Read from the route record, which carries the document's own `security` (`{}` for an
+			 * anonymous alternative) and whether a caller is needed at all. **This package kept a second
+			 * copy of that rule** in `security.ts`, because the library's once dropped `{}`; one copy now.
+			 */
 			const gate =
-				requirements.length === 0 ? [] : [`\t\tdeps.authorize(${renderSecurity(requirements)}),`];
+				route.authentication === "none"
+					? []
+					: [`\t\tdeps.authorize(${renderSecurity(route.security)}),`];
+			/**
+			 * A query string written into the route itself identifies it as much as the path does, so a
+			 * request without it is not a request for this operation: 404, as any unrouted request gets.
+			 */
+			const literalQueryGuard =
+				route.literalQuery.length === 0
+					? []
+					: [`\t\tliteralQuery(${JSON.stringify(route.literalQuery)}),`];
 			/**
 			 * A HEAD operation with no GET beside it is registered under GET, because that is the only verb
 			 * Hono dispatches. The guard keeps the registration honest: a real GET is not in the document,
@@ -1441,7 +1478,7 @@ type Produced<T> = T extends (...args: never[]) => unknown
 			 * `unknown` for every status. A plain `Response` from middleware contributes nothing to those
 			 * types, so the refusal moves there and the handler returns typed responses only.
 			 */
-			const authentication = route.noAuth === true ? "none" : "required";
+			const authentication = route.authentication;
 			/**
 			 * Several operations, one route: the caller's `Accept` chooses which one answers, and a caller
 			 * accepting none of them is refused in middleware for the same reason the context is.
@@ -1455,6 +1492,7 @@ type Produced<T> = T extends (...args: never[]) => unknown
 			const offered = `[${offers.map((offer) => JSON.stringify(offer.contentType)).join(", ")}]`;
 			const middleware = [
 				...(headOnly ? ["\t\theadOnly,"] : []),
+				...literalQueryGuard,
 				...gate,
 				...validators
 					// The body's validator IS the middleware above; emitting a `zValidator` beside it would
@@ -1708,6 +1746,7 @@ type Produced<T> = T extends (...args: never[]) => unknown
 	const negotiates = [...grouped.values()].some((group) => group.length > 1);
 	// Same rule: imported only where a HEAD operation stands alone on its path.
 	const guardsHead = registrations.some((registration) => registration.headOnly);
+	const guardsQuery = emitted.routes.some((route) => route.literalQuery.length > 0);
 	/**
 	 * **Which runtime imports to write is read from the DATA, never from the rendered text.**
 	 *
@@ -1795,6 +1834,7 @@ type Produced<T> = T extends (...args: never[]) => unknown
 		...uses.runtime,
 		...(negotiates ? ["selectContentType"] : []),
 		...(guardsHead ? ["headOnly"] : []),
+		...(guardsQuery ? ["literalQuery"] : []),
 	].toSorted();
 	const runtimeTypes = ["AppEnv", ...(operates ? ["Awaitable"] : []), "RouteDeps"];
 

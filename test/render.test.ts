@@ -57,12 +57,109 @@ describe("a verb with no dedicated Hono helper goes through `app.on(method, ...)
 });
 
 describe("path templates", () => {
-	it("converts every plain parameter, and refuses one that is not", () => {
+	const literal = (text: string) => ({ kind: "literal", text }) as const;
+	const expression = (parameter: string, rest: Partial<Record<string, unknown>> = {}) =>
+		({
+			kind: "expression",
+			parameter,
+			prefix: "",
+			suffix: "",
+			operator: "",
+			explode: false,
+			optional: false,
+			reserved: false,
+			...rest,
+		}) as const;
+
+	it("converts every plain parameter, and refuses a name Hono cannot carry", () => {
 		const refusals: string[] = [];
-		expect(toHonoPath("/a/{id}/b/{other-id}", () => refusals.push("x"))).toBe("/a/:id/b/:other-id");
+		expect(
+			toHonoPath([literal("a"), expression("id"), literal("b"), expression("other-id")], () =>
+				refusals.push("x"),
+			),
+		).toBe("/a/:id/b/:other-id");
 		expect(refusals).toEqual([]);
-		// An RFC 6570 modifier would become part of the name, or, for `*`, Hono's wildcard.
-		expect(toHonoPath("/a/{id*}", (_t, name) => refusals.push(name))).toBe("/a/{id*}");
-		expect(refusals).toEqual(["id*"]);
+		expect(
+			toHonoPath([literal("a"), expression("thing id")], (_t, name) => refusals.push(name)),
+		).toBe("/a/{thing id}");
+		expect(refusals).toEqual(["thing id"]);
+	});
+
+	/**
+	 * **Every RFC 6570 form mounts as a pattern that matches its whole segment**, measured against
+	 * Hono by `test/conformance/uris.test.ts` with the corpus's own URIs. Stated here as the spellings,
+	 * so a change to one is a change a reader sees.
+	 */
+	it("mounts label, matrix, prefixed, reserved, exploding and optional expressions", () => {
+		const refuse = () => {
+			throw new Error("unexpected refusal");
+		};
+		expect(toHonoPath([expression("param", { prefix: "array", operator: "." })], refuse)).toBe(
+			"/:param{array\\.[^\\x2F]*}",
+		);
+		expect(toHonoPath([expression("param", { prefix: "record", operator: ";" })], refuse)).toBe(
+			"/:param{record;[^\\x2F]*}",
+		);
+		expect(toHonoPath([expression("param", { prefix: "primitive" })], refuse)).toBe(
+			"/:param{primitive[^\\x2F]*}",
+		);
+		expect(toHonoPath([literal("files"), expression("path", { reserved: true })], refuse)).toBe(
+			"/files/:path{.+}",
+		);
+		expect(
+			toHonoPath([literal("array"), expression("param", { operator: "/", explode: true })], refuse),
+		).toBe("/array/:param{.+}");
+		expect(
+			toHonoPath(
+				[literal("optional"), expression("name", { operator: "/", optional: true })],
+				refuse,
+			),
+		).toBe("/optional/:name?");
+	});
+
+	/**
+	 * **A pattern parameter is still a templated segment to the ordering rule**, which reads a mounted
+	 * segment as templated when it starts with `:`. A concrete sibling must register first, or Hono's
+	 * first-match routing hands its requests to the pattern.
+	 */
+	it("registers a concrete sibling before a pattern parameter in the same position", () => {
+		const concrete = serviceWith({ operationId: "plain", verb: "GET", path: "/items/plain" });
+		const pattern = serviceWith({
+			operationId: "labelled",
+			verb: "GET",
+			path: "/items/{id}",
+			pathSegments: [
+				{ kind: "literal", text: "items" },
+				{
+					kind: "expression",
+					parameter: "id",
+					prefix: "item",
+					suffix: "",
+					operator: ".",
+					explode: false,
+					optional: false,
+					reserved: false,
+				},
+			],
+		});
+		const service = {
+			...pattern,
+			routes: [...pattern.routes, ...concrete.routes],
+			schemaNames: new Map([...pattern.schemaNames, ...concrete.schemaNames]),
+		};
+		const source = renderApp(service, noRefusals);
+		const patternAt = source.indexOf(String.raw`"/:id{item\\.[^\\x2F]*}"`);
+		const concreteAt = source.indexOf('"/plain"');
+		expect(patternAt).toBeGreaterThan(-1);
+		expect(concreteAt).toBeGreaterThan(-1);
+		expect(concreteAt).toBeLessThan(patternAt);
+	});
+
+	it("refuses a segment holding two expressions, which no segment router can split", () => {
+		const refusals: string[] = [];
+		expect(
+			toHonoPath([{ kind: "unsupported", text: "{a}{b}" }], (_t, name) => refusals.push(name)),
+		).toBe("/{a}{b}");
+		expect(refusals).toEqual(["{a}{b}"]);
 	});
 });

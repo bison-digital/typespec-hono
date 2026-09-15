@@ -1,4 +1,9 @@
-import type { EmittedRoute, EmittedService, RouteSchemaNames } from "typespec-http-zod";
+import type {
+	EmittedPathSegment,
+	EmittedRoute,
+	EmittedService,
+	RouteSchemaNames,
+} from "typespec-http-zod";
 import type { RenderRefusals } from "../../src/app.js";
 
 /**
@@ -12,13 +17,42 @@ import type { RenderRefusals } from "../../src/app.js";
  * with `satisfies` in both directions, so a field added to or removed from `EmittedRoute` fails HERE,
  * naming the fixture.
  */
+/**
+ * The segments `typespec-http-zod` reads out of a plain template, for a fixture that states only a
+ * path: each `/` segment is literal text or one `{name}` expression with no operator. A fixture that
+ * needs an operator states `pathSegments` itself.
+ */
+function segmentsOf(path: string): EmittedPathSegment[] {
+	return path
+		.split("/")
+		.filter((piece) => piece !== "")
+		.map((piece) => {
+			const match = /^\{([^}]*)\}$/.exec(piece);
+			return match === null
+				? { kind: "literal", text: piece }
+				: {
+						kind: "expression",
+						parameter: match[1] ?? "",
+						prefix: "",
+						suffix: "",
+						operator: "",
+						explode: false,
+						optional: false,
+						reserved: false,
+					};
+		});
+}
+
 export function serviceWith(
 	route: Partial<EmittedRoute> & { operationId: string; verb: string },
 ): EmittedService {
+	const path = route.path ?? "/thing";
 	const full = {
 		bodyProperty: undefined,
 		optionalBody: false,
 		reservedPathParameters: [],
+		pathSegments: segmentsOf(path),
+		literalQuery: [],
 		// One bodyless success, the smallest response set a document can declare.
 		responses: [
 			{
@@ -37,20 +71,23 @@ export function serviceWith(
 		requestSchema: undefined,
 		pathSchema: undefined,
 		querySchema: undefined,
+		queryFieldsSchema: undefined,
 		headerSchema: undefined,
 		negotiatedHeaderSchema: undefined,
 		accept: undefined,
 		rawBodyProperty: undefined,
 		noAuth: true,
+		authentication: "none",
 		scopes: [],
 		security: [],
-		path: "/thing",
+		path,
 		...route,
 	} satisfies EmittedRoute;
 	const names = {
 		operationId: full.operationId,
 		path: undefined,
 		query: undefined,
+		queryFields: undefined,
 		header: undefined,
 		body: undefined,
 		arms: full.responses.map((response) => ({ status: response.status, schema: undefined })),
