@@ -45,6 +45,8 @@ const VALID: Readonly<Record<string, string>> = {
 	xml: `() => ({ status: 200, body: "<item/>" }) as const`,
 	blob: `() => ({ status: 200, body: new Uint8Array([1]) }) as const`,
 	either: `() => ({ status: 200, contentType: "application/json", body: item }) as const`,
+	picture: `() => ({ status: 200, contentType: "image/png", body: new Uint8Array([1]) }) as const`,
+	avatar: `() => ({ status: 200, contentType: "image/webp", body: new Uint8Array([1]) }) as const`,
 	remove: `() => ({ status: 204 }) as const`,
 };
 
@@ -154,6 +156,12 @@ describe("a handler cannot return what the document does not declare", () => {
 		[
 			"a media type the status does not offer",
 			{ either: `() => ({ status: 200, contentType: "text/html", body: item }) as const` },
+		],
+		[
+			"a media type outside the range the status offers",
+			{
+				avatar: `() => ({ status: 200, contentType: "text/html", body: new Uint8Array([1]) }) as const`,
+			},
 		],
 	] as const)("refuses %s", (what, override) => {
 		const { failed, output } = compile(what.replaceAll(/[^a-z]+/g, "-"), consumer(override));

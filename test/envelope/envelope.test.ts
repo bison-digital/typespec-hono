@@ -69,6 +69,17 @@ beforeAll(async () => {
 			contentType: "application/xml",
 			body: "<item/>",
 		}),
+		// `kind` is the media type to answer with, so each arm below picks its own.
+		picture: (_ctx: unknown, input: { kind: string }) => ({
+			status: 200,
+			contentType: decodeURIComponent(input.kind),
+			body: BYTES,
+		}),
+		avatar: (_ctx: unknown, input: { kind: string }) => ({
+			status: 200,
+			contentType: decodeURIComponent(input.kind),
+			body: BYTES,
+		}),
 		remove: (_ctx: unknown, input: { id: string }) =>
 			// `remove` declares one response and no `default`. Only a value the type system cannot see
 			// into returns anything else, which is why it throws rather than being served.
@@ -205,6 +216,37 @@ describe("a body that is not JSON is served as what the document says it is", ()
 		const response = await app.request("/either");
 		expect(response.headers.get("content-type")).toBe("application/xml");
 		expect(await response.text()).toBe("<item/>");
+	});
+
+	it("serves a concrete type inside a range the status offers beside an exact one", async () => {
+		const response = await app.request(`/pictures/${encodeURIComponent("image/png")}`);
+		expect(response.status).toBe(200);
+		expect(response.headers.get("content-type")).toBe("image/png");
+		expect(new Uint8Array(await response.arrayBuffer())).toEqual(BYTES);
+	});
+
+	it("still serves the exact type beside the range", async () => {
+		const response = await app.request(`/pictures/${encodeURIComponent("text/plain")}`);
+		expect(response.status).toBe(200);
+		expect(response.headers.get("content-type")).toBe("text/plain");
+	});
+
+	it("serves a concrete type inside the only range a status offers", async () => {
+		const response = await app.request(`/avatars/${encodeURIComponent("image/webp")}`);
+		expect(response.status).toBe(200);
+		expect(response.headers.get("content-type")).toBe("image/webp");
+	});
+
+	it.each([
+		["a type outside the range, beside an exact type", "/pictures", "text/html"],
+		["a type outside the only range", "/avatars", "text/html"],
+		["the range's own spelling, which is not a type", "/avatars", "image/*"],
+		["a type with no subtype", "/avatars", "image/"],
+	])("refuses %s, as an UndeclaredStatusError", async (_what, path, kind) => {
+		thrown.length = 0;
+		const response = await app.request(`${path}/${encodeURIComponent(kind)}`);
+		expect(response.status).toBe(500);
+		expect(thrown.map((error) => (error as Error).name)).toEqual(["UndeclaredStatusError"]);
 	});
 
 	it("serves a bodyless response with no body", async () => {

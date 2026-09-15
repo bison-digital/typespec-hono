@@ -100,7 +100,7 @@ function membersOf(entry: AppRoute): ResultMember[] {
 		 * only a wildcard range, which is not a type a response can be sent as.
 		 */
 		const choosesMediaType =
-			response.contentTypes.length > 1 || response.contentTypes.some((type) => type.includes("*"));
+			response.contentTypes.length > 1 || response.contentTypes.some(isMediaRange);
 		return response.contentTypes.map((mediaType) => ({
 			response,
 			schemaName,
@@ -108,6 +108,24 @@ function membersOf(entry: AppRoute): ResultMember[] {
 			choosesMediaType,
 		}));
 	});
+}
+
+/** A media range such as `image/*`, rather than a type a response can be sent as. */
+function isMediaRange(mediaType: string): boolean {
+	return mediaType.endsWith("/*");
+}
+
+/**
+ * The type of the `contentType` a handler names for a member.
+ *
+ * **A range is typed as the types inside it**: `image/*` is `` `image/${string}` ``, so `text/html`
+ * under it does not compile, and TypeScript still narrows a literal member away from it. Only the
+ * full range is `string`.
+ */
+function contentTypeTypeOf(mediaType: string): string {
+	if (!isMediaRange(mediaType)) return JSON.stringify(mediaType);
+	if (mediaType === "*/*") return "string";
+	return `\`${mediaType.slice(0, -1)}\${string}\``;
 }
 
 /** The Hono group a status key's codes belong to. */
@@ -182,18 +200,37 @@ function servingLines(entry: AppRoute, depth: number, uses: Uses): string[] {
 		const status =
 			labels !== "default" && labels.length === 1 ? String(labels[0]) : "result.status";
 		const own = members.filter((member) => member.response === response);
-		const choosing = own.length > 1;
-		if (choosing) lines.push(`${indent}\t\tswitch (result.contentType) {`);
-		for (const member of own) {
-			const at = choosing ? `${indent}\t\t\t` : `${indent}\t\t`;
-			if (choosing) lines.push(`${indent}\t\t\tcase ${JSON.stringify(member.mediaType)}:`);
-			lines.push(`${choosing ? `${at}\t` : at}${serveCall(member, status, operationId, uses)}`);
-		}
-		if (choosing) {
+		if (!own.some((member) => member.choosesMediaType)) {
+			for (const member of own) {
+				lines.push(`${indent}\t\t${serveCall(member, status, operationId, uses)}`);
+			}
+		} else {
+			/**
+			 * **Exact types by `case`, then ranges by `mediaTypeWithin`, then a throw.** A `case "image/*"`
+			 * would compare the range's own spelling and never match the `image/png` the handler is typed
+			 * to name. Every `case` returns, so after the switch TypeScript has already narrowed the
+			 * result to the range members, whose bodies are served the same way.
+			 */
+			const exact = own.filter(
+				(member) => member.mediaType !== undefined && !isMediaRange(member.mediaType),
+			);
+			if (exact.length > 0) {
+				lines.push(`${indent}\t\tswitch (result.contentType) {`);
+				for (const member of exact) {
+					lines.push(`${indent}\t\t\tcase ${JSON.stringify(member.mediaType)}:`);
+					lines.push(`${indent}\t\t\t\t${serveCall(member, status, operationId, uses)}`);
+				}
+				lines.push(`${indent}\t\t}`);
+			}
+			for (const member of own) {
+				if (member.mediaType === undefined || !isMediaRange(member.mediaType)) continue;
+				uses.runtime.add("mediaTypeWithin");
+				lines.push(
+					`${indent}\t\tif (mediaTypeWithin(result.contentType, ${JSON.stringify(member.mediaType)})) ${serveCall(member, status, operationId, uses)}`,
+				);
+			}
 			uses.runtime.add("UndeclaredStatusError");
-			lines.push(`${indent}\t\t\tdefault:`);
-			lines.push(`${indent}\t\t\t\tthrow new UndeclaredStatusError(${operationId}, result);`);
-			lines.push(`${indent}\t\t}`);
+			lines.push(`${indent}\t\tthrow new UndeclaredStatusError(${operationId}, result);`);
 		}
 		lines.push(`${indent}\t}`);
 	}
@@ -1113,9 +1150,7 @@ type Fields<T> = string extends keyof T ? ([T[string]] extends [never] ? unknown
 			const { response } = member;
 			const fields = [`readonly status: ${statusTypeOf(response, entry.route)}`];
 			if (member.choosesMediaType && member.mediaType !== undefined) {
-				fields.push(
-					`readonly contentType: ${member.mediaType.includes("*") ? "string" : JSON.stringify(member.mediaType)}`,
-				);
+				fields.push(`readonly contentType: ${contentTypeTypeOf(member.mediaType)}`);
 			}
 			/**
 			 * **What the handler SUPPLIES for this body, which is not always what the schema infers.** A

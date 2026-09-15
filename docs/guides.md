@@ -49,6 +49,8 @@ const setFlags: SetFlagsHandler<Caller> = async (ctx, input) => {
 - **Headers** are keyed by the wire name the document publishes. A required header must be supplied;
   an optional one may be left out.
 - **A status offering several media types** takes a `contentType` naming the one answered with.
+  Where it offers a range such as `image/*`, the handler names a concrete type inside it, typed
+  `` `image/${string}` ``: a range is not a type a response can be sent as.
 
 A status the operation does not declare, a body belonging to another status, a missing required
 header or a body on a response that has none does not compile.

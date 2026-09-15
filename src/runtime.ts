@@ -283,6 +283,26 @@ export function headersOf(declared: Readonly<Record<string, unknown>>): Record<s
 	return headers;
 }
 
+/** RFC 9110 `token`, less `*`, which names a range rather than a type. */
+const MEDIA_TOKEN = "[!#$%&'+.^_`|~0-9A-Za-z-]+";
+const SERVED_MEDIA_TYPE = new RegExp(`^(${MEDIA_TOKEN})/${MEDIA_TOKEN}\\s*(;.*)?$`);
+
+/**
+ * Whether a media type a handler answers with lies inside a range the document offers.
+ *
+ * **A range is not a type a response can be sent as**, so where a status offers `image/*` the handler
+ * names the concrete type, and its result type already refuses one outside the range. This is what a
+ * CAST reaches, or data from a service binding: `text/html` under `image/*`, or `image/*` itself,
+ * would otherwise be served with a `Content-Type` the document does not permit. Type names compare
+ * case-insensitively (RFC 9110 section 8.3.1), and parameters such as `charset` are allowed.
+ */
+export function mediaTypeWithin(served: string, range: string): boolean {
+	const type = SERVED_MEDIA_TYPE.exec(served)?.[1];
+	if (type === undefined) return false;
+	if (range === "*/*") return true;
+	return range.endsWith("/*") && type.toLowerCase() === range.slice(0, -2).toLowerCase();
+}
+
 /**
  * What the app provides. One object, passed once, rather than a module the generated file imports by
  * path. A generated server that hard-codes `../../backend.js` is only usable by the project it was

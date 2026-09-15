@@ -104,6 +104,25 @@ op either(): {
   @body body: Item;
 };
 
+/**
+ * One status offering an exact type and a range. The handler names a concrete type inside the range,
+ * because a range is not a type a response can be sent as.
+ */
+@route("/pictures/{kind}")
+@get
+op picture(@path kind: string): {
+  @header contentType: "text/plain" | "image/*";
+  @body body: bytes;
+};
+
+/** Only a range, so there is nothing to switch on: the named type is checked against it. */
+@route("/avatars/{kind}")
+@get
+op avatar(@path kind: string): {
+  @header contentType: "image/*";
+  @body body: bytes;
+};
+
 /** No response body at all. */
 @route("/items/{id}")
 @delete

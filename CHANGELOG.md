@@ -24,6 +24,9 @@ HEAD guard and arm selection logic: consumers carried copies as old as `0.7`.
 - **A handler returns `{ status, body, headers }`**, typed per operation as the union of the declared
   responses: one member per status, a range excluding the statuses declared more precisely, `default`
   excluding every declared status. A status or body the document does not declare does not compile.
+  A media range such as `image/*` is typed as the types inside it, `` `image/${string}` ``, and the
+  route checks the named type against the range, so `image/png` is served and `text/html` or the
+  range's own spelling throws `UndeclaredStatusError`.
 - **The generated route serves each response with its own Hono call** - `c.json(body, 404)`,
   `c.body(stream, 200)` - after parsing the body against the schema the document publishes for that
   status, failures included. What is served is the parse result. Hono's RPC client narrows a body by
