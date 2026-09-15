@@ -26,19 +26,21 @@ import {
  * accepted and silently dropped, which produces output that is wrong in a way no test of either
  * package would see. `test/options.test.ts` asserts the forwarding as a CLASS.
  *
- * `runtime-module` arrives here with the rest and is REFUSED by the emitter (`runtime-module-removed`)
- * rather than deleted from the schema. A schema that no longer lists it would report only "must NOT
- * have additional properties", which tells a consumer upgrading from a version that documented the
- * option neither why nor what to do instead.
+ * **`runtime-module` is declared here only to be REFUSED** (`runtime-module-removed`). The library no
+ * longer has the option, and a schema without the key would report only "must NOT have additional
+ * properties", which tells a consumer upgrading from a version that documented the option neither why
+ * nor what to do instead.
  */
 export type EmitterOptions = HttpZodOptions & {
+	/** Refused. See `runtime-module-removed`. */
+	"runtime-module"?: string;
 	/**
 	 * Per-service overrides this emitter adds on top of the library's.
 	 *
 	 * **The library's own `services` map is preserved**, because the type is an intersection: an
 	 * option added there still arrives here, and this only widens what each entry may carry.
 	 */
-	services?: Record<string, { "emit-server"?: boolean }>;
+	services?: Record<string, { "emit-server"?: boolean; "runtime-module"?: string }>;
 };
 
 /**
@@ -49,9 +51,13 @@ export type EmitterOptions = HttpZodOptions & {
  *, never by copying the list.
  */
 const EmitterOptionsSchema: JSONSchemaType<EmitterOptions> = {
-	...httpZodOptions,
+	type: "object",
+	additionalProperties: false,
+	required: [],
 	properties: {
 		...httpZodOptions.properties,
+		// Accepted by the schema so that setting it reaches `runtime-module-removed`.
+		"runtime-module": { type: "string", nullable: true },
 		/**
 		 * **Spread from the library's own entry rather than restated**, so a per-service option added
 		 * there still validates here. Only `emit-server` is added.
@@ -68,6 +74,7 @@ const EmitterOptionsSchema: JSONSchemaType<EmitterOptions> = {
 						}
 					).services.additionalProperties.properties,
 					"emit-server": { type: "boolean", nullable: true },
+					"runtime-module": { type: "string", nullable: true },
 				},
 				required: [],
 			},

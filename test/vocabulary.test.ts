@@ -92,6 +92,18 @@ const SCALAR_DECODE = [
 ];
 
 /**
+ * A multipart part declared as JSON, decoded from the text a form carries.
+ *
+ * A form part arrives as a string, and a part whose content type is `application/json` carries JSON
+ * text: `Request.formData()` hands `address` over as `"{\"city\":\"x\"}"`, which the part's object
+ * schema refused. Text that is not JSON is reported as such rather than passed on, and valid JSON still
+ * runs every constraint the part's schema states. Emitted by `typespec-http-zod`, whose own vocabulary
+ * arm pins the same shape.
+ */
+const JSON_PART_DECODE =
+	/z\.preprocess\(\(raw, ctx\) => \{ if \(typeof raw !== "string"\) return raw; try \{ return JSON\.parse\(raw\); \} catch \{ ctx\.addIssue\(\{ code: "custom", message: "Invalid JSON in a multipart part" \}\); return z\.NEVER; \} \}, /g;
+
+/**
  * A `content-type` header reduced to the media type, discarding the parameters the document does not
  * mention.
  *
@@ -180,7 +192,13 @@ describe("the generated validator says only what the document can say", () => {
 		 * its own `app.gen.ts` sits beside them and could acquire a non-derivable call of its own.
 		 * Copying the shapes rather than loosening the arm is what keeps the two in step.
 		 */
-		const permitted = [DELIMITER_SPLIT, EXPLODED_BOX, ...SCALAR_DECODE, ...MEDIA_TYPE_DECODE];
+		const permitted = [
+			DELIMITER_SPLIT,
+			EXPLODED_BOX,
+			...SCALAR_DECODE,
+			...MEDIA_TYPE_DECODE,
+			JSON_PART_DECODE,
+		];
 		for (const file of files) {
 			const source = readFileSync(file, "utf8");
 			const all = (source.match(/z\.preprocess\(/g) ?? []).length;

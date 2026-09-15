@@ -38,6 +38,13 @@ export const STATUS_GROUPS = {
 	},
 } as const;
 
+/**
+ * Where every generated file imports its runtime from: the copy this package writes beside them.
+ *
+ * Declared here, where the import is rendered, and re-exported by the emitter that writes the file.
+ */
+export const DEFAULT_RUNTIME_MODULE = "./runtime.gen.js";
+
 /** Hono's `ContentlessStatusCode`: a status that cannot carry a body, so `c.json` refuses it. */
 export const CONTENTLESS_STATUS_CODES = [101, 204, 205, 304] as const;
 
@@ -1712,7 +1719,7 @@ type Produced<T> = T extends (...args: never[]) => unknown
 		validates ||
 		entries.some((entry) => inputTypeOf(entry) !== undefined) ||
 		returnsAnything;
-	const runtimeModule = JSON.stringify(emitted.options.runtimeModule);
+	const runtimeModule = JSON.stringify(DEFAULT_RUNTIME_MODULE);
 
 	/**
 	 * **One base sub-app, mounted with `app.route()`. Hono's own nesting, not a rewritten path on

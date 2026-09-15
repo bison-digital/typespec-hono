@@ -74,7 +74,7 @@ ${second}
  * **Always this module.** `runtime-module` used to replace it, and that made an application own a
  * copy of generated logic - see the `runtime-module-removed` diagnostic.
  */
-export const DEFAULT_RUNTIME_MODULE = "./runtime.gen.js";
+export { DEFAULT_RUNTIME_MODULE } from "./app.js";
 
 /** Where this package's own runtime source lives, to be copied beside the generated code. */
 const RUNTIME_SOURCE = fileURLToPath(new URL("../../src/runtime.ts", import.meta.url));
@@ -82,9 +82,8 @@ const RUNTIME_SOURCE = fileURLToPath(new URL("../../src/runtime.ts", import.meta
 /**
  * The options with `runtime-module` refused and removed, at the top level and per service.
  *
- * **Removed, not only reported**, so the library writes `schemas.gen.ts` against the runtime this
- * emitter actually emits. Reporting and then honouring the value would emit an import of a module the
- * application was just told to delete.
+ * **Removed, not only reported**, because the library validates nothing about a key it no longer
+ * declares, and a wrapper passing options through should not hand it one.
  */
 function withoutRuntimeModule(context: EmitContext): EmitContext {
 	const options = context.options as Record<string, unknown> & {
@@ -116,9 +115,7 @@ function withoutRuntimeModule(context: EmitContext): EmitContext {
 }
 
 export async function $onEmit(context: EmitContext): Promise<void> {
-	for (const emitted of await emitHttpZod(withoutRuntimeModule(context), {
-		defaultRuntimeModule: DEFAULT_RUNTIME_MODULE,
-	})) {
+	for (const emitted of await emitHttpZod(withoutRuntimeModule(context))) {
 		await emitFile(context.program, {
 			path: resolvePath(emitted.outputDir, "runtime.gen.ts"),
 			content: `${generatedRuntimeBanner(emitted.options.regenerateHint)}${readFileSync(RUNTIME_SOURCE, "utf8")}`,

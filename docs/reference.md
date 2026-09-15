@@ -5,7 +5,7 @@
 Every option `typespec-http-zod` accepts is forwarded, and the schema is derived from that package's
 rather than restated. See its README for `seal-object-schemas`, `contracts-output-dir`,
 `contracts-package`, `compile-schemas`, `key-vocabularies`, `regenerate-hint` and `services`.
-`runtime-module` is accepted by that package and refused by this one; see below.
+`runtime-module` is refused; see below.
 
 `compile-schemas` is worth a word here because a SERVER is where it pays. It wraps every emitted
 validator in Zod 4.5's `z.compile()`, and a generated server parses on the synchronous path - the

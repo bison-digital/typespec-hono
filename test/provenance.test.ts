@@ -196,7 +196,7 @@ describe("the emitter is written against the published API", () => {
 		 * broken, which is the failure mode a hand-spelled assertion has and a class assertion does not.
 		 *
 		 * What matters is that the library is invoked exactly once and receives the context. What it is
-		 * additionally told (`defaultRuntimeModule`, or whatever a wrapper needs next) is this
+		 * additionally told (whatever a wrapper needs next) is this
 		 * package's business and not a fact this test should be pinning.
 		 */
 		/**

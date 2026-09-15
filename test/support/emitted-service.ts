@@ -67,7 +67,6 @@ export function serviceWith(
 			sealObjectSchemas: false,
 			compileSchemas: false,
 			keyVocabularies: [],
-			runtimeModule: "./runtime.gen.js",
 			regenerateHint: undefined,
 		},
 	};

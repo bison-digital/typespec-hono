@@ -42,7 +42,7 @@ const manifest = JSON.parse(readFileSync(join(packageRoot, "package.json"), "utf
 function packageOf(specifier: string): string | undefined {
 	if (specifier.startsWith(".") || specifier.startsWith("node:")) return undefined;
 	// An emitted import line is itself a template literal, so its specifier can be a placeholder,
-	// `${runtimeModule}` is decided by the consumer's option, not by this manifest.
+	// `${contractsPackage}` is decided by the consumer's option, not by this manifest.
 	if (specifier.includes("${")) return undefined;
 	const parts = specifier.split("/");
 	return specifier.startsWith("@") ? `${parts[0]}/${parts[1]}` : parts[0];
