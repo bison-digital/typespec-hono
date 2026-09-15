@@ -42,7 +42,7 @@ beforeAll(async () => {
 
 describe("operations whose names collide before the document disambiguates them", () => {
 	it("declare each handler alias exactly once", () => {
-		const declared = [...source.matchAll(/export type (\w+) = Operations\[/g)].map(
+		const declared = [...source.matchAll(/export type (\w+)<C = unknown> = Operations<C>\[/g)].map(
 			(m) => m[1] ?? "",
 		);
 		// Non-vacuity: a reader matching nothing would compare an empty list against itself.
@@ -51,7 +51,7 @@ describe("operations whose names collide before the document disambiguates them"
 	});
 
 	it("declare each operation on the interface exactly once", () => {
-		const members = [...source.matchAll(/^\t(\w+)\(ctx: Ctx/gm)].map((m) => m[1] ?? "");
+		const members = [...source.matchAll(/^\treadonly (\w+): \(ctx: C,/gm)].map((m) => m[1] ?? "");
 		expect(members.length).toBeGreaterThanOrEqual(3);
 		expect(members).toEqual([...new Set(members)]);
 	});

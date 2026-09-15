@@ -95,6 +95,7 @@ interface Measured {
 	readonly refused: number;
 	/** Operations mounted but with a declared media type this emitter cannot validate. */
 	readonly partiallyValidated: number;
+	readonly unvalidatedResponses: number;
 }
 
 async function measure(compiled: CompiledScenario): Promise<Measured | undefined> {
@@ -145,6 +146,7 @@ async function measure(compiled: CompiledScenario): Promise<Measured | undefined
 		registrations,
 		refused: compiled.refusals?.length ?? 0,
 		partiallyValidated: compiled.partiallyValidated ?? 0,
+		unvalidatedResponses: compiled.unvalidatedResponses ?? 0,
 	};
 }
 
@@ -198,6 +200,7 @@ describe("the generated server mounts what the document declares", () => {
 			registrations: measured.reduce((sum, entry) => sum + entry.registrations, 0),
 			refused: measured.reduce((sum, entry) => sum + entry.refused, 0),
 			partiallyValidated: measured.reduce((sum, entry) => sum + entry.partiallyValidated, 0),
+			unvalidatedResponses: measured.reduce((sum, entry) => sum + entry.unvalidatedResponses, 0),
 		};
 		const recorded = JSON.parse(readFileSync(join(here, "baseline.json"), "utf8")) as typeof totals;
 		if (process.env["UPDATE_ROUTE_BASELINE"] === "1") {
@@ -221,6 +224,16 @@ describe("the generated server mounts what the document declares", () => {
 		 */
 		expect(totals.partiallyValidated, JSON.stringify(totals)).toBeLessThanOrEqual(
 			recorded.partiallyValidated,
+		);
+		/**
+		 * **The response-side twin, and it may only shrink as well.** Each is a response whose body the
+		 * handler supplies as text and the route serves unvalidated: a model under `application/xml`,
+		 * in the Swagger Petstore and `payload/xml`. Those bodies were never validated before this was
+		 * counted either - the application's own `respond` served them - so the number is newly
+		 * visible rather than newly true.
+		 */
+		expect(totals.unvalidatedResponses, JSON.stringify(totals)).toBeLessThanOrEqual(
+			recorded.unvalidatedResponses,
 		);
 		expect(totals.slots, JSON.stringify(totals)).toBeGreaterThanOrEqual(recorded.slots);
 		// The arithmetic that makes an exclusion visible rather than cancelling out.

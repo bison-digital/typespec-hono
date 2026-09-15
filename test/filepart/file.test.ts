@@ -70,6 +70,7 @@ export const upload: Operations["upload"] = async (_ctx, input) => {
 	const repeated: string = input.pages.map((page) => page.name).join(",");
 	const bytes: ArrayBuffer = await input.file.arrayBuffer();
 	void [required, optional, repeated, input.file.type, bytes.byteLength];
+	return { status: 204 };
 };
 `);
 		expect(output, output).toBe("");

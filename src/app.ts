@@ -3,10 +3,278 @@ import {
 	isRawBinaryMediaType,
 	jsDocComment,
 	objectKey,
+	type EmittedResponse,
 	type EmittedRoute,
 	type EmittedService,
 	type RouteSchemaNames,
+	type StatusKey,
 } from "typespec-http-zod";
+
+/**
+ * Hono's status codes, group by group, exactly as `hono/utils/http-status` declares them.
+ *
+ * **The generated route needs the LITERALS, not only the type.** A range arm is served from a
+ * `switch` on the result's status, and TypeScript narrows the result to one member only through a
+ * `case` label per literal: a type guard narrows the status and leaves the result a union, and
+ * merging the range into `default` pairs every body with every status. Both measured on hono 4.13.1.
+ *
+ * `test/status-codes.test.ts` holds these equal to Hono's own unions, so a status Hono adds fails a
+ * test rather than silently falling out of a range.
+ */
+export const STATUS_GROUPS = {
+	1: { type: "InfoStatusCode", codes: [100, 101, 102, 103] },
+	2: { type: "SuccessStatusCode", codes: [200, 201, 202, 203, 204, 205, 206, 207, 208, 226] },
+	3: { type: "RedirectStatusCode", codes: [300, 301, 302, 303, 304, 305, 306, 307, 308] },
+	4: {
+		type: "ClientErrorStatusCode",
+		codes: [
+			400, 401, 402, 403, 404, 405, 406, 407, 408, 409, 410, 411, 412, 413, 414, 415, 416, 417, 418,
+			421, 422, 423, 424, 425, 426, 428, 429, 431, 451,
+		],
+	},
+	5: {
+		type: "ServerErrorStatusCode",
+		codes: [500, 501, 502, 503, 504, 505, 506, 507, 508, 510, 511],
+	},
+} as const;
+
+/** Hono's `ContentlessStatusCode`: a status that cannot carry a body, so `c.json` refuses it. */
+export const CONTENTLESS_STATUS_CODES = [101, 204, 205, 304] as const;
+
+/** A media type whose body is a JSON value, served with `c.json`. The library's own rule. */
+function isJsonMediaType(type: string): boolean {
+	return /^application\/(json|.*\+json)$/.test(type);
+}
+
+/**
+ * One thing a handler may return: a declared status, and where that status offers several media
+ * types, one of them.
+ *
+ * **A status offering several media types is several members**, because the body differs by media
+ * type: the Swagger Petstore answers `getPetById` with a `Pet` as `application/json` and with text as
+ * `application/xml`. One member with a union body could not say which body goes with which type.
+ */
+interface ResultMember {
+	readonly response: EmittedResponse;
+	/** The identifier the library declared this status's body under. */
+	readonly schemaName: string | undefined;
+	/** The media type served, or `undefined` where the response has no body. */
+	readonly mediaType: string | undefined;
+	/** Whether the handler names the media type, because the status offers more than one. */
+	readonly choosesMediaType: boolean;
+}
+
+/** How a member's body is served, which decides both its type and the call that serves it. */
+type BodyServing = "none" | "stream" | "binary" | "json" | "text" | "unvalidated";
+
+function bodyServingOf(member: ResultMember): BodyServing {
+	const { response, mediaType } = member;
+	if (response.schema === undefined || mediaType === undefined) return "none";
+	if (response.streamed) return "stream";
+	if (response.binary) return "binary";
+	if (isJsonMediaType(mediaType)) return "json";
+	/**
+	 * **A string body under a non-JSON media type IS the text**, so it is validated and served as is.
+	 * Any other body under one - a model as `application/xml` - has no serialisation this emitter can
+	 * derive, so the handler supplies the text and it is served unvalidated, which the
+	 * `unvalidated-response-media-type` warning says out loud.
+	 */
+	return response.textual ? "text" : "unvalidated";
+}
+
+function membersOf(entry: AppRoute): ResultMember[] {
+	return entry.route.responses.flatMap((response, index): ResultMember[] => {
+		const schemaName = entry.names.arms[index]?.schema;
+		if (response.contentTypes.length === 0) {
+			return [{ response, schemaName, mediaType: undefined, choosesMediaType: false }];
+		}
+		/**
+		 * The handler names the media type where the status offers several, and where the document names
+		 * only a wildcard range, which is not a type a response can be sent as.
+		 */
+		const choosesMediaType =
+			response.contentTypes.length > 1 || response.contentTypes.some((type) => type.includes("*"));
+		return response.contentTypes.map((mediaType) => ({
+			response,
+			schemaName,
+			mediaType,
+			choosesMediaType,
+		}));
+	});
+}
+
+/** The Hono group a status key's codes belong to. */
+function groupOf(
+	status: number | StatusKey,
+): (typeof STATUS_GROUPS)[1 | 2 | 3 | 4 | 5] | undefined {
+	const digit = typeof status === "number" ? Math.floor(status / 100) : Number(String(status)[0]);
+	return digit >= 1 && digit <= 5 ? STATUS_GROUPS[digit as 1 | 2 | 3 | 4 | 5] : undefined;
+}
+
+/**
+ * The codes a status key answers with, as `case` labels, or `"default"` for the catch-all.
+ *
+ * **A range excludes what is declared more precisely**, because OpenAPI resolves an exact code before
+ * its range and `armFor` does the same: a `404` beside a `4XX` is the `404`'s. A bodied range also
+ * excludes the statuses that cannot carry a body.
+ */
+function caseLabelsOf(
+	response: EmittedResponse,
+	route: EmittedRoute,
+): readonly number[] | "default" {
+	const { status } = response;
+	if (status === "default") return "default";
+	if (typeof status === "number") return [status];
+	const exact = new Set(
+		route.responses.flatMap((candidate) =>
+			typeof candidate.status === "number" ? [candidate.status] : [],
+		),
+	);
+	const contentless = new Set<number>(
+		response.schema === undefined ? [] : CONTENTLESS_STATUS_CODES,
+	);
+	return (groupOf(status)?.codes ?? []).filter(
+		(code) => !exact.has(code) && !contentless.has(code),
+	);
+}
+
+/** What the rendered routes use from the runtime, collected as they are rendered. */
+interface Uses {
+	readonly runtime: Set<string>;
+}
+
+/**
+ * Serve a handler's `result` for every response the operation declares, as statements at `depth`.
+ *
+ * **One `case` per status literal, and one Hono call per declared response.** `c.json(body, 404)` is
+ * what gives `hc` a typed body for a 404, so the route serves each status through its own call rather
+ * than through one call over the union, which measured as a single endpoint pairing every body with
+ * every status.
+ *
+ * **Every served body is the PARSED body.** `servedBody` checks it against the schema the document
+ * publishes for that status and throws `ResponseContractError` when it does not match, failures
+ * included, and what is sent is the parse result - so a field the schema does not declare does not
+ * reach the wire.
+ */
+function servingLines(entry: AppRoute, depth: number, uses: Uses): string[] {
+	const indent = "\t".repeat(depth);
+	const operationId = JSON.stringify(entry.route.operationId);
+	const members = membersOf(entry);
+	const lines = [`${indent}switch (result.status) {`];
+	let servesDefault = false;
+	for (const response of entry.route.responses) {
+		const labels = caseLabelsOf(response, entry.route);
+		if (labels !== "default" && labels.length === 0) continue;
+		if (labels === "default") {
+			servesDefault = true;
+			lines.push(`${indent}\tdefault: {`);
+		} else {
+			lines.push(...labels.map((code) => `${indent}\tcase ${code}:`));
+			lines[lines.length - 1] = `${lines.at(-1) ?? ""} {`;
+		}
+		const status =
+			labels !== "default" && labels.length === 1 ? String(labels[0]) : "result.status";
+		const own = members.filter((member) => member.response === response);
+		const choosing = own.length > 1;
+		if (choosing) lines.push(`${indent}\t\tswitch (result.contentType) {`);
+		for (const member of own) {
+			const at = choosing ? `${indent}\t\t\t` : `${indent}\t\t`;
+			if (choosing) lines.push(`${indent}\t\t\tcase ${JSON.stringify(member.mediaType)}:`);
+			lines.push(`${choosing ? `${at}\t` : at}${serveCall(member, status, operationId, uses)}`);
+		}
+		if (choosing) {
+			uses.runtime.add("UndeclaredStatusError");
+			lines.push(`${indent}\t\t\tdefault:`);
+			lines.push(`${indent}\t\t\t\tthrow new UndeclaredStatusError(${operationId}, result);`);
+			lines.push(`${indent}\t\t}`);
+		}
+		lines.push(`${indent}\t}`);
+	}
+	if (!servesDefault) {
+		/**
+		 * **Unreachable from a typed handler**: every declared status has a `case`, so `result` is
+		 * `never` here. A cast, or untyped data from a service binding, is what arrives - and serving
+		 * it would publish a status the document does not declare.
+		 */
+		uses.runtime.add("UndeclaredStatusError");
+		lines.push(`${indent}\tdefault:`);
+		lines.push(`${indent}\t\tthrow new UndeclaredStatusError(${operationId}, result);`);
+	}
+	lines.push(`${indent}}`);
+	return lines;
+}
+
+/** The one Hono call that serves one member, as a `return` statement. */
+function serveCall(member: ResultMember, status: string, operationId: string, uses: Uses): string {
+	const { response, mediaType } = member;
+	const serving = bodyServingOf(member);
+	const headers: string[] = [];
+	/**
+	 * **`Content-Type` wherever `c.json` would not already say it.** `c.json` writes
+	 * `application/json`; a `+json` type such as `application/problem+json` has to be stated, and
+	 * `c.body` states nothing. The key is spelled `Content-Type` because Hono merges its own default
+	 * under exactly that key, so a lowercase spelling would send both.
+	 */
+	if (mediaType !== undefined && serving !== "none" && mediaType !== "application/json") {
+		const value =
+			member.choosesMediaType || mediaType.includes("*")
+				? "result.contentType"
+				: JSON.stringify(mediaType);
+		headers.push(`"Content-Type": ${value}`);
+	}
+	const allOptional = response.headers.every((header) => header.optional);
+	for (const header of response.headers) {
+		const key = JSON.stringify(header.name);
+		headers.push(`${key}: result.headers${allOptional ? "?." : ""}[${key}]`);
+	}
+	if (headers.length > 0) uses.runtime.add("headersOf");
+	const headersArgument = headers.length === 0 ? "" : `, headersOf({ ${headers.join(", ")} })`;
+	const validated = (): string => {
+		uses.runtime.add("servedBody");
+		return `servedBody(${member.schemaName ?? "undefined"}, result.body, ${operationId}, ${status})`;
+	};
+	switch (serving) {
+		case "none":
+			return `return c.body(null, ${status}${headersArgument});`;
+		case "json":
+			return `return c.json(${validated()}, ${status}${headersArgument});`;
+		case "text":
+			return `return c.body(${validated()}, ${status}${headersArgument});`;
+		default:
+			return `return c.body(result.body, ${status}${headersArgument});`;
+	}
+}
+
+/**
+ * A member's status as a TypeScript type: disjoint from every other member's, by construction.
+ *
+ * **Disjoint is the property that makes a wrong body a compile error.** Were `default` allowed to
+ * overlap a declared status, `{ status: 404, body: <the default arm's body> }` would type-check
+ * through the `default` member; measured, and the generated switch stopped compiling as well.
+ */
+function statusTypeOf(response: EmittedResponse, route: EmittedRoute): string {
+	const { status } = response;
+	if (typeof status === "number") return String(status);
+	const exact = route.responses.flatMap((candidate) =>
+		typeof candidate.status === "number" ? [String(candidate.status)] : [],
+	);
+	if (status !== "default") {
+		const group = groupOf(status);
+		if (group === undefined) return "never";
+		const excluded = [
+			...exact.filter((code) => groupOf(Number(code)) === group),
+			...(response.schema === undefined ? [] : ["ContentlessStatusCode"]),
+		];
+		return excluded.length === 0 ? group.type : `Exclude<${group.type}, ${excluded.join(" | ")}>`;
+	}
+	const ranges = route.responses.flatMap((candidate) =>
+		typeof candidate.status === "string" && candidate.status !== "default"
+			? [groupOf(candidate.status)?.type ?? "never"]
+			: [],
+	);
+	const base = response.schema === undefined ? "StatusCode" : "ContentfulStatusCode";
+	return `Exclude<${base}, ${["InfoStatusCode", "UnofficialStatusCode", ...exact, ...ranges].join(" | ")}>`;
+}
 
 /**
  * The header every emitted file carries.
@@ -187,9 +455,9 @@ function bodyValidationFor(contentTypes: readonly string[]): BodyValidation {
  * The request-body middleware, emitted INTO the generated file rather than imported from the runtime
  * module.
  *
- * **Because the runtime module is a contract too, and it is the one that breaks quietly.** An
- * application may point `runtime-module` at a module of its own, and everything the generated file
- * imports from there is something that application has to supply. A required, single-media-type body
+ * **Because the runtime module was a contract too, and it was the one that broke quietly.** An
+ * application could point `runtime-module` at a module of its own, and everything the generated file
+ * imported from there was something that application had to supply. A required, single-media-type body
  * used to be mounted by `zValidator`, which throws `HTTPException` on a body it cannot read - a
  * `text/plain` 400 raised before `deps.invalid` is called, so an API whose document declares a JSON
  * error envelope answered a shape its own contract forbids. Routing those through the runtime's
@@ -403,6 +671,49 @@ function validateOptionalBody<E extends Env, S extends z.ZodType>(
 
 `;
 
+/**
+ * The caller context, established in middleware and handed to the handler.
+ *
+ * **Middleware, because a refusal returned inside the final handler erases the route's typed
+ * responses** - see `registrations`. **A per-request `WeakMap`, because `c.set` cannot carry it
+ * without leaking into the application's types.** Setting a variable needs the route's environment to
+ * declare it, and Hono's `Context` is invariant in its environment through `set`: a generated
+ * extension made every \`deps\` hook the application wrote against its own environment unassignable,
+ * measured as \`TS2345\` at the application's call site. The map keys on the request's own
+ * \`Context\`, which Hono passes unchanged from middleware to handler, including through a mounted
+ * sub-app.
+ */
+const CONTEXT_MIDDLEWARE = `\tconst contexts = new WeakMap<object, { readonly value: C }>();
+	const contextFor =
+		(authentication: "none" | "required"): MiddlewareHandler<AppEnv> =>
+		async (c, next) => {
+			const ctx = deps.context(c, authentication);
+			if (ctx === null) return deps.noContext(c);
+			contexts.set(c, { value: ctx });
+			await next();
+			return undefined;
+		};
+	const contextOf = (c: object): C => {
+		const held = contexts.get(c);
+		if (held === undefined) throw new Error("typespec-hono: no caller context was established for this request");
+		return held.value;
+	};
+
+`;
+
+/** A caller accepting none of the media types a negotiated route offers is refused here. */
+const ACCEPTABLE_MIDDLEWARE = `\tconst acceptable =
+		(offered: readonly string[]): MiddlewareHandler<AppEnv> =>
+		async (c, next) => {
+			if (selectContentType(c.req.header("accept"), offered) === undefined) {
+				return deps.notAcceptable(c, offered);
+			}
+			await next();
+			return undefined;
+		};
+
+`;
+
 interface AppRoute {
 	readonly route: EmittedRoute;
 	readonly names: RouteSchemaNames;
@@ -570,6 +881,11 @@ function capitaliseId(operationId: string): string {
 export interface RenderRefusals {
 	readonly unsupportedPathTemplate: (route: EmittedRoute, template: string, name: string) => void;
 	readonly unvalidatableMediaType: (route: EmittedRoute, types: readonly string[]) => void;
+	readonly unvalidatedResponseMediaType: (
+		route: EmittedRoute,
+		status: StatusKey,
+		types: readonly string[],
+	) => void;
 }
 
 /**
@@ -761,8 +1077,88 @@ type Fields<T> = string extends keyof T ? ([T[string]] extends [never] ? unknown
 			).length > 0,
 	);
 	const syncHelper = validates ? SYNC_PARSE : "";
+	/**
+	 * **One result type per operation: the union of every response its document declares.**
+	 *
+	 * A handler returns `{ status, body, headers }` for whichever response it means, success or
+	 * failure. That is `c.json(body, status, headers)` as data - what `@hono/zod-openapi` requires of a
+	 * handler as a union of typed responses - and the document's own Responses Object: keyed by status,
+	 * each with its body and its headers.
+	 *
+	 * **The return type used to be the SUCCESS body alone.** The arms named every failure the document
+	 * declares and no handler could return one, so failures were thrown past the generated code into
+	 * `onError`, where no declared status or body was checked. Nine of a real operation's ten arms were
+	 * unreachable that way.
+	 *
+	 * Data rather than a `Response`, so a handler stays transport-neutral: the same object can cross a
+	 * Workers service binding and serve `typespec-http-mcp`'s tools.
+	 */
+	const resultTypes = entries.map((entry) => {
+		for (const response of entry.route.responses) {
+			const unvalidated = membersOf(entry)
+				.filter((member) => member.response === response && bodyServingOf(member) === "unvalidated")
+				.flatMap((member) => (member.mediaType === undefined ? [] : [member.mediaType]));
+			if (unvalidated.length > 0) {
+				refuse.unvalidatedResponseMediaType(entry.route, response.status, unvalidated);
+			}
+		}
+		const members = membersOf(entry).map((member) => {
+			const { response } = member;
+			const fields = [`readonly status: ${statusTypeOf(response, entry.route)}`];
+			if (member.choosesMediaType && member.mediaType !== undefined) {
+				fields.push(
+					`readonly contentType: ${member.mediaType.includes("*") ? "string" : JSON.stringify(member.mediaType)}`,
+				);
+			}
+			/**
+			 * **What the handler SUPPLIES for this body, which is not always what the schema infers.** A
+			 * stream or raw binary body is handed to Hono unread, a model under a non-JSON media type is text
+			 * the handler serialised, and everything else is the producer's view of the schema.
+			 */
+			switch (bodyServingOf(member)) {
+				case "none":
+					fields.push("readonly body?: undefined");
+					break;
+				case "stream":
+					fields.push("readonly body: ReadableStream");
+					break;
+				case "binary":
+					fields.push("readonly body: ReadableStream | Uint8Array<ArrayBuffer> | ArrayBuffer");
+					break;
+				case "unvalidated":
+					fields.push("readonly body: string");
+					break;
+				default:
+					fields.push(`readonly body: Produced<z.infer<typeof ${member.schemaName}>>`);
+			}
+			if (response.headers.length > 0) {
+				/**
+				 * Keyed by the WIRE name, as the document publishes it. `headers` itself is optional only
+				 * when every header in it is, so a response declaring a required header cannot be returned
+				 * without one.
+				 */
+				const every = response.headers.every((header) => header.optional);
+				const rendered = response.headers
+					.map((header) =>
+						header.optional
+							? `readonly ${objectKey(header.name)}?: ${header.type} | undefined`
+							: `readonly ${objectKey(header.name)}: ${header.type}`,
+					)
+					.join("; ");
+				fields.push(`readonly headers${every ? "?" : ""}: { ${rendered} }`);
+			}
+			return `{ ${fields.join("; ")} }`;
+		});
+		const name = `${capitaliseId(entry.route.operationId)}Result`;
+		const body =
+			members.length <= 1
+				? ` ${members[0] ?? "never"}`
+				: members.map((member) => `\n\t| ${member}`).join("");
+		return `export type ${name} =${body};`;
+	});
+
 	const methods = entries.map((entry) => {
-		const { route, names } = entry;
+		const { route } = entry;
 		/**
 		 * A negotiated member's `accept` is not in its validator (the negotiation supplies it) but it
 		 * IS in the operation's declared input, so the interface has to keep it. The literal is known
@@ -780,83 +1176,21 @@ type Fields<T> = string extends keyof T ? ([T[string]] extends [never] ? unknown
 					? negotiated
 					: `${validated} & ${negotiated}`;
 		/**
-		 * **The RETURN type is the producer's view; the input type is left exactly as it arrives.**
-		 *
-		 * A handler receives whatever the validator let through, so an input carrying
-		 * `[key: string]: unknown`, `T | undefined` on an optional, and mutable arrays is an honest
-		 * description of the value in hand. Returning is the opposite direction: the handler supplies
-		 * something the application already holds, and each of those becomes an obligation rather than
-		 * a description. See `Produced` below for what that cost, measured.
-		 *
-		 * `typespec-http-zod` fixes the same three things on its contract types. None of it reaches
-		 * here on its own, because this signature is derived from `z.infer` rather than from those
-		 * types - which is exactly the half-fix `test/openmodel/` exists to catch.
+		 * **A PROPERTY signature, not a method signature, and the difference is a check.** TypeScript
+		 * compares a method signature's parameters bivariantly, so a handler declaring a richer caller
+		 * context than `deps.context` produces compiled against the method form - measured - and failed
+		 * against this one.
 		 */
-		/**
-		 * **The ENVELOPE a handler has to be able to say, beside the body it returns.**
-		 *
-		 * `@statusCode` and `@header` properties are stripped from the body schema - correctly, they
-		 * are not body - so a return type derived from that schema alone could not carry them. The arms
-		 * name them anyway: `{ headers: [{ property: "correlationId" }] }` tells `respond` to read a
-		 * property off the returned value, and `when: { property: "statusCode" }` tells it which arm
-		 * the handler meant. Measured before this existed, on `payload__head`:
-		 * `Awaitable<Result<void>>` against an arm naming two header properties, so the emitter
-		 * published an envelope contract nothing could satisfy.
-		 *
-		 * Only the SUCCESS statuses count. `responseHeaders` covers error responses too, and a header
-		 * declared on a 404 is the error body's business rather than something a handler returns.
-		 */
-		const successStatuses = route.statusSelector?.statuses ?? [route.statusCode];
-		const envelope: string[] = [];
-		if (route.statusSelector !== undefined) {
-			envelope.push(
-				`${objectKey(route.statusSelector.property)}: ${route.statusSelector.statuses.join(" | ")}`,
-			);
-		}
-		const headerEntries = route.responseHeaders.filter((entry) =>
-			successStatuses.includes(entry.status as number),
-		);
-		const declaredOn = new Map<string, { count: number; type: string }>();
-		for (const entry of headerEntries) {
-			for (const header of entry.headers) {
-				const seen = declaredOn.get(header.property);
-				declaredOn.set(header.property, {
-					count: (seen?.count ?? 0) + 1,
-					type: header.type,
-				});
-			}
-		}
-		for (const [property, { count, type }] of declaredOn) {
-			// Required only where EVERY success status declares it; otherwise the handler cannot know
-			// which status it is answering with until it has chosen one.
-			const optional =
-				count === headerEntries.length && headerEntries.length === successStatuses.length;
-			envelope.push(`${objectKey(property)}${optional ? "" : "?"}: ${type}`);
-		}
-		const envelopeType = envelope.length === 0 ? undefined : `{ ${envelope.join("; ")} }`;
-		const body =
-			names.response === undefined ? undefined : `Produced<z.infer<typeof ${names.response}>>`;
-		const output =
-			body === undefined
-				? (envelopeType ?? "void")
-				: envelopeType === undefined
-					? body
-					: `${body} & ${envelopeType}`;
-		const signature = `ctx: Ctx, input: ${input ?? EMPTY_INPUT}`;
 		const doc = jsDocComment(route.summary, "\t");
-		return `${doc}\t${route.operationId}(${signature}): Awaitable<Result<${output}>>;`;
+		return `${doc}\treadonly ${objectKey(route.operationId)}: (ctx: C, input: ${input ?? EMPTY_INPUT}) => Awaitable<${capitaliseId(route.operationId)}Result>;`;
 	});
 
-	/**
-	 * Emitted only when an operation actually returns something, because a generated file has to pass
-	 * `noUnusedLocals` like any other - the lint that has already failed this emitter twice over an
-	 * import written for a construct the service did not use.
-	 *
-	 * **Decided from the routes, not by searching the rendered text.** Asking whether the output
-	 * mentions a name is how this package lost the `byContentType` import: the call gained an argument
-	 * and the substring stopped matching, so a module referenced a function it no longer imported.
-	 */
-	const returnsAnything = entries.some((entry) => entry.names.response !== undefined);
+	const returnsAnything = entries.some((entry) =>
+		membersOf(entry).some((member) => {
+			const serving = bodyServingOf(member);
+			return serving === "json" || serving === "text";
+		}),
+	);
 	const declaredHelper = returnsAnything
 		? `/**
  * What a handler must SUPPLY, as opposed to what it receives.
@@ -917,7 +1251,7 @@ type Produced<T> = T extends (...args: never[]) => unknown
 
 	const aliases = entries.map(
 		(entry) =>
-			`export type ${capitaliseId(entry.route.operationId)}Handler = Operations[${JSON.stringify(entry.route.operationId)}];`,
+			`export type ${capitaliseId(entry.route.operationId)}Handler<C = unknown> = Operations<C>[${JSON.stringify(entry.route.operationId)}];`,
 	);
 
 	/**
@@ -962,8 +1296,9 @@ type Produced<T> = T extends (...args: never[]) => unknown
 		slots.set(slot, [...(slots.get(slot) ?? []), group]);
 	}
 
+	const uses: Uses = { runtime: new Set() };
 	const registrations = [...slots.values()].map(
-		(groupsInSlot): { target: string; text: string; headOnly: boolean } => {
+		(groupsInSlot): { target: string; path: string; text: string; headOnly: boolean } => {
 			const headGroups = groupsInSlot.filter((g) => (g[0] as AppRoute).route.verb === "HEAD");
 			const plainGroups = groupsInSlot.filter((g) => (g[0] as AppRoute).route.verb !== "HEAD");
 			/**
@@ -1049,6 +1384,33 @@ type Produced<T> = T extends (...args: never[]) => unknown
 							),
 							"\t\t]),",
 						];
+			/**
+			 * Whether the operation requires a caller, and NOTHING else about the caller.
+			 *
+			 * **This used to pass `"account"` or `"resource"`, chosen by how many path parameters the
+			 * route had, and that was a rule no document states.** `@useAuth(NoAuth)` reaches OpenAPI as
+			 * `security: []`, so "does this need a caller" is a contract fact and is generated. "Is this
+			 * account-scoped or resource-scoped" is not: no OpenAPI keyword expresses it, and the
+			 * path-parameter heuristic happened to fit the first consumer.
+			 *
+			 * **Middleware, after the validators, and never inline in the handler.** Hono reads a route's
+			 * response types from its final handler, and one plain `Response` returned there collapses
+			 * every typed response `hc` would otherwise see - measured, `res.json()` fell back to
+			 * `unknown` for every status. A plain `Response` from middleware contributes nothing to those
+			 * types, so the refusal moves there and the handler returns typed responses only.
+			 */
+			const authentication = route.noAuth === true ? "none" : "required";
+			/**
+			 * Several operations, one route: the caller's `Accept` chooses which one answers, and a caller
+			 * accepting none of them is refused in middleware for the same reason the context is.
+			 */
+			const offers =
+				group.length > 1
+					? group.flatMap((member) =>
+							member.route.responseContentTypes.map((contentType) => ({ contentType, member })),
+						)
+					: [];
+			const offered = `[${offers.map((offer) => JSON.stringify(offer.contentType)).join(", ")}]`;
 			const middleware = [
 				...(headOnly ? ["\t\theadOnly,"] : []),
 				...gate,
@@ -1061,42 +1423,12 @@ type Produced<T> = T extends (...args: never[]) => unknown
 							`\t\tzValidator(${JSON.stringify(target)}, ${name}, deps.invalid, SYNC),`,
 					),
 				...bodyMiddleware,
+				`\t\tcontextFor(${JSON.stringify(authentication)}),`,
+				...(offers.length > 0 ? [`\t\tacceptable(${offered}),`] : []),
 			];
-			/**
-			 * Whether the operation requires a caller, and NOTHING else about the caller.
-			 *
-			 * **This used to pass `"account"` or `"resource"`, chosen by how many path parameters the
-			 * route had, and that was a rule no document states.** `@useAuth(NoAuth)` reaches OpenAPI as
-			 * `security: []`, so "does this need a caller" is a contract fact and is generated. "Is this
-			 * account-scoped or resource-scoped" is not: no OpenAPI keyword expresses it, and the
-			 * path-parameter heuristic happened to fit the first consumer.
-			 */
 			const body: string[] = [];
-			if (route.noAuth !== true) {
-				body.push(`\t\t\tconst ctx = deps.context(c, "required");`);
-				body.push("\t\t\tif (ctx === null) return deps.noContext(c);");
-			} else {
-				/**
-				 * **The same null check as an authenticated route, and it is what removes a CAST from
-				 * generated output.** This used to emit `deps.context(c, "none") as Ctx`, because one
-				 * signature returning `C | null` cannot express "this argument makes null impossible". A cast
-				 * in generated code is worse than one in hand-written code: nobody reviews it, and it
-				 * reappears on every compile.
-				 *
-				 * **Overloading `context` was tried and is worse.** It removes the cast from here and puts
-				 * one in every consumer's `deps`, because an overloaded property type stops contextually
-				 * typing a single implementation. Measured, the wiring consumer lost inference on every
-				 * hook. Trading a cast in generated code for a cast in hand-written code is the wrong
-				 * direction.
-				 *
-				 * Checking is also more honest than asserting: an app that returns null here has said it
-				 * could not build a context, and the old cast handed the handler that null typed as `Ctx`.
-				 */
-				body.push(`\t\t\tconst ctx = deps.context(c, "none");`);
-				body.push("\t\t\tif (ctx === null) return deps.noContext(c);");
-			}
 			// A dispatched body is in `validators` under the body target like any other, so there is
-			// nothing extra to spread: `byContentType` published it there whichever parser ran.
+			// nothing extra to spread: the body middleware published it there whichever parser ran.
 			// Same rule as `inputTypeOf`: the body is identified by its schema, not by its target.
 			const bodyTarget = validators.find(([, name]) => name === entry.names.body)?.[0];
 			const pieces = validators.map(([target]) =>
@@ -1115,7 +1447,16 @@ type Produced<T> = T extends (...args: never[]) => unknown
 				const reader = rawBodyReaderFor(route.requestContentTypes);
 				pieces.push(`${objectKey(route.rawBodyProperty)}: ${reader.call}`);
 			}
-			const invoke = (member: AppRoute): string => {
+			/**
+			 * Call one operation's handler and serve what it returns, as statements at `depth` tabs.
+			 *
+			 * **Broken across lines rather than emitted as one.** Generated code is read far more often
+			 * than it is written (in review, in a stack trace, in a diff) and a single call reached 219
+			 * characters on a real service, against the 60-to-80 of every example in Hono's own
+			 * documentation. A call with no input stays on one line.
+			 */
+			const serve = (member: AppRoute, depth: number): string[] => {
+				const indent = "\t".repeat(depth);
 				// The member's own `accept` literal, which its input type requires and which the shared
 				// validator no longer supplies. We know it exactly: it is the branch we are in.
 				const own =
@@ -1125,44 +1466,22 @@ type Produced<T> = T extends (...args: never[]) => unknown
 							]
 						: [];
 				const input = [...pieces, ...own];
-				/**
-				 * **Broken across lines rather than emitted as one.** Generated code is read far more often
-				 * than it is written (in review, in a stack trace, in a diff) and a single call reached 219
-				 * characters on a real service, against the 60-to-80 of every example in Hono's own
-				 * documentation. Nothing about the behaviour changes; a reader's ability to see it does.
-				 *
-				 * A call with no input stays on one line, because wrapping it would add ceremony to something
-				 * already short.
-				 */
-				/**
-				 * **Indented literally, because the surrounding `+1 tab` only reaches the FIRST physical
-				 * line.** A multi-line fragment keeps whatever tabs it was written with, so the depths here
-				 * are absolute: the `return` sits at four, its arguments at five, and the handler's input
-				 * properties at six.
-				 */
-				const call =
+				const call = `handlersFor(c).${member.route.operationId}(contextOf(c), {`;
+				const invocation =
 					input.length === 0
 						? // An empty object, because every operation takes `(ctx, input)`. See `EMPTY_INPUT`.
-							`handlersFor(c).${member.route.operationId}(ctx, {})`
+							[`${indent}const result = await ${call}});`]
 						: [
-								`handlersFor(c).${member.route.operationId}(ctx, {`,
-								...input.map((piece) => `\t\t\t\t\t\t${piece},`),
-								"\t\t\t\t\t})",
-							].join("\n");
-				return input.length === 0
-					? `deps.respond(c, ${member.names.responses}, await ${call})`
-					: [
-							`deps.respond(`,
-							`\t\t\t\t\tc,`,
-							`\t\t\t\t\t${member.names.responses},`,
-							`\t\t\t\t\tawait ${call},`,
-							"\t\t\t\t)",
-						].join("\n");
+								`${indent}const result = await ${call}`,
+								...input.map((piece) => `${indent}\t${piece},`),
+								`${indent}});`,
+							];
+				return [...invocation, ...servingLines(member, depth, uses)];
 			};
 
 			/**
 			 * Both verbs on one path: `c.req.method` still reads `HEAD` after Hono's rewrite, so one
-			 * registration serves both and each operation keeps its own handler and its own response arms.
+			 * registration serves both and each operation keeps its own handler and its own responses.
 			 * Hono strips the body on the HEAD branch itself.
 			 *
 			 * The HEAD branch is emitted FIRST because it is the narrower condition, and it returns, so the
@@ -1171,35 +1490,33 @@ type Produced<T> = T extends (...args: never[]) => unknown
 			if (headBranch !== undefined) {
 				const headEntry = headBranch[0] as AppRoute;
 				body.push(`\t\t\tif (c.req.method === "HEAD") {`);
-				body.push(`\t\t\t\treturn ${invoke(headEntry).replaceAll("\n", "\n\t")};`);
+				body.push(...serve(headEntry, 4));
 				body.push("\t\t\t}");
 			}
 
 			if (group.length === 1) {
-				body.push(`\t\t\treturn ${invoke(entry)};`);
+				body.push(...serve(entry, 3));
 			} else {
 				/**
-				 * Several operations, one route: the caller's `Accept` chooses which one answers.
-				 *
 				 * The offered list and which operation serves each type are both read from the document.
-				 * `selectContentType` applies RFC 9110 section 12.5.1 to them. It lives in the runtime rather than
-				 * in `deps` because both halves are derivable, and an app forced to supply it would be
+				 * `selectContentType` applies RFC 9110 section 12.5.1 to them. It lives in the runtime rather
+				 * than in `deps` because both halves are derivable, and an app forced to supply it would be
 				 * re-implementing the standard.
 				 */
-				const offers = group.flatMap((member) =>
-					member.route.responseContentTypes.map((contentType) => ({ contentType, member })),
-				);
-				const offered = `[${offers.map((offer) => JSON.stringify(offer.contentType)).join(", ")}]`;
 				body.push(`\t\t\tconst served = selectContentType(c.req.header("accept"), ${offered});`);
-				body.push(`\t\t\tif (served === undefined) return deps.notAcceptable(c, ${offered});`);
 				for (const offer of offers) {
-					body.push(
-						`\t\t\tif (served === ${JSON.stringify(offer.contentType)}) return ${invoke(offer.member)};`,
-					);
+					body.push(`\t\t\tif (served === ${JSON.stringify(offer.contentType)}) {`);
+					body.push(...serve(offer.member, 4));
+					body.push("\t\t\t}");
 				}
-				// `selectContentType` only ever returns a member of the list it was given, so this is
-				// unreachable, and stating that is cheaper than a cast that would hide it if it were not.
-				body.push(`\t\t\treturn deps.notAcceptable(c, ${offered});`);
+				/**
+				 * Unreachable: `acceptable` refused every request whose `Accept` matches none of these, and
+				 * `selectContentType` only returns a member of the list it was given. Thrown rather than
+				 * answered, because a plain `Response` here would erase every typed response on the route.
+				 */
+				body.push(
+					`\t\t\tthrow new Error(${JSON.stringify(`typespec-hono: no operation on ${route.verb} ${route.path} serves the negotiated media type`)});`,
+				);
 			}
 			/**
 			 * **`app.on` takes the METHOD first, and we were not passing one.** Only five verbs have a
@@ -1226,7 +1543,7 @@ type Produced<T> = T extends (...args: never[]) => unknown
 				"\t\t\t},",
 				"\t\t)",
 			].join("\n");
-			return { target, text, headOnly };
+			return { target, path: registeredPath, text, headOnly };
 		},
 	);
 
@@ -1249,7 +1566,12 @@ type Produced<T> = T extends (...args: never[]) => unknown
 	 * Splitting on the language's own identifier rule and testing membership has neither failure: no
 	 * metacharacter can be misread, and `Foo` cannot match `FooExtra`.
 	 */
-	const rendered = [...registrations.map((r) => r.text), ...methods, ...aliases].join("\n");
+	const rendered = [
+		...registrations.map((r) => r.text),
+		...resultTypes,
+		...methods,
+		...aliases,
+	].join("\n");
 	const mentioned = new Set(rendered.match(/[A-Za-z_$][A-Za-z0-9_$]*/g) ?? []);
 	const referenced = [
 		...new Set(
@@ -1259,8 +1581,7 @@ type Produced<T> = T extends (...args: never[]) => unknown
 					entry.names.query,
 					entry.names.header,
 					entry.names.body,
-					entry.names.response,
-					entry.names.responses,
+					...entry.names.arms.map((arm) => arm.schema),
 				].filter((name): name is string => name !== undefined),
 			),
 		),
@@ -1292,6 +1613,26 @@ type Produced<T> = T extends (...args: never[]) => unknown
 	 * bottom". A rule a reordering could break. A single expression cannot be reordered wrongly: the
 	 * sub-app is complete at the point it is mounted because it is its own initialiser.
 	 */
+	/**
+	 * **A concrete path is registered before a templated one it would otherwise lose to.**
+	 *
+	 * Hono runs the first registered handler that matches, so `GET /items/:id` registered before
+	 * `GET /items/plain` answered every request for `/items/plain` - measured, with the wrong handler's
+	 * body. OpenAPI's Paths Object states the opposite rule: "concrete (non-templated) paths would be
+	 * matched before their templated counterparts". Ordering the registrations is how a router that
+	 * matches in order applies it. Otherwise the document's own order is kept, because the sort is
+	 * stable.
+	 */
+	registrations.sort((a, b) => {
+		const left = a.path.split("/");
+		const right = b.path.split("/");
+		for (let index = 0; index < Math.min(left.length, right.length); index++) {
+			const leftTemplated = (left[index] ?? "").startsWith(":");
+			const rightTemplated = (right[index] ?? "").startsWith(":");
+			if (leftTemplated !== rightTemplated) return leftTemplated ? 1 : -1;
+		}
+		return 0;
+	});
 	const byTarget = new Map<string, string[]>();
 	for (const registration of registrations) {
 		byTarget.set(registration.target, [
@@ -1369,7 +1710,8 @@ type Produced<T> = T extends (...args: never[]) => unknown
 		mountsBody ||
 		// `SYNC` annotates its schema parameter `z.ZodType`, so the value import is load-bearing.
 		validates ||
-		entries.some((entry) => inputTypeOf(entry) !== undefined || entry.names.response !== undefined);
+		entries.some((entry) => inputTypeOf(entry) !== undefined) ||
+		returnsAnything;
 	const runtimeModule = JSON.stringify(emitted.options.runtimeModule);
 
 	/**
@@ -1382,17 +1724,59 @@ type Produced<T> = T extends (...args: never[]) => unknown
 	const usesBasePath = basePaths.length > 0;
 	const needsHonoValue = subApps.size > 0 || usesBasePath;
 
+	/**
+	 * Hono's status-code types the result unions name, read from the rendered unions by TOKEN, the
+	 * same way the validator identifiers above are: an identifier absent from the text is genuinely
+	 * not needed, so the check cannot be wrong in the direction that breaks a build.
+	 */
+	const renderedResults = new Set(resultTypes.join("\n").match(/[A-Za-z_$][A-Za-z0-9_$]*/g) ?? []);
+	const statusTypes = [
+		"ClientErrorStatusCode",
+		"ContentfulStatusCode",
+		"ContentlessStatusCode",
+		"InfoStatusCode",
+		"RedirectStatusCode",
+		"ServerErrorStatusCode",
+		"StatusCode",
+		"SuccessStatusCode",
+		"UnofficialStatusCode",
+	].filter((name) => renderedResults.has(name));
+	const operates = entries.length > 0;
+	const honoTypes = [
+		"Context",
+		...(mountsBody ? ["Env"] : []),
+		...(needsHonoValue ? [] : ["Hono"]),
+		"Input",
+		...(operates || mountsBody ? ["MiddlewareHandler"] : []),
+	];
+	const runtimeValues = [
+		...uses.runtime,
+		...(negotiates ? ["selectContentType"] : []),
+		...(guardsHead ? ["headOnly"] : []),
+	].toSorted();
+	const runtimeTypes = ["AppEnv", ...(operates ? ["Awaitable"] : []), "RouteDeps"];
+
 	return `${generatedBanner(emitted.options.regenerateHint)}
-${validates ? 'import { zValidator } from "@hono/zod-validator";\n' : ""}${needsHonoValue ? 'import { Hono } from "hono";\nimport type { Context, Input } from "hono";' : 'import type { Context, Hono, Input } from "hono";'}${mountsBody ? '\nimport type { Env, MiddlewareHandler } from "hono";' : ""}
-${usesZod ? 'import { z } from "zod";\n' : ""}import type { AppEnv, Awaitable, Ctx, Result, RouteDeps } from ${runtimeModule};${negotiates ? `\nimport { selectContentType } from ${runtimeModule};` : ""}${guardsHead ? `\nimport { headOnly } from ${runtimeModule};` : ""}
+${validates ? 'import { zValidator } from "@hono/zod-validator";\n' : ""}${needsHonoValue ? 'import { Hono } from "hono";\n' : ""}import type { ${honoTypes.join(", ")} } from "hono";
+${statusTypes.length > 0 ? `import type { ${statusTypes.join(", ")} } from "hono/utils/http-status";\n` : ""}${usesZod ? 'import { z } from "zod";\n' : ""}import type { ${runtimeTypes.join(", ")} } from ${runtimeModule};${runtimeValues.length > 0 ? `\nimport { ${runtimeValues.join(", ")} } from ${runtimeModule};` : ""}
 ${imports}
-/**
- * One method per operation, each concretely typed from the schemas it validates against.
+${syncHelper}${bodyHelper}${fieldsHelper}${declaredHelper}/**
+ * What each operation may answer with: one member per response the document declares.
  *
- * There is no cast anywhere in this file, and no dynamic lookup: the generated call sites name the
- * method, so an implementation whose input or output does not match the contract fails to compile.
+ * A handler returns \`{ status, body, headers }\` for whichever response it means. The generated route
+ * serves it with the Hono call for that status, so \`hc\` sees a typed body per status, and a status
+ * or body the document does not declare does not compile.
  */
-${syncHelper}${bodyHelper}${fieldsHelper}${declaredHelper}export interface Operations {
+${resultTypes.join("\n\n")}
+
+/**
+ * One handler per operation, each concretely typed from the schemas it validates against.
+ *
+ * \`C\` is the caller context, inferred by \`registerRoutes\` from \`deps.context\`. There is no cast
+ * anywhere in this file, and no dynamic lookup: the generated call sites name the handler, so an
+ * implementation whose input or result does not match the contract fails to compile.
+ */
+export interface Operations<C = unknown> {
 ${methods.join("\n")}
 }
 
@@ -1433,12 +1817,12 @@ ${aliases.join("\n")}
 export type Exhaustive<T> = T & Record<Exclude<keyof T, keyof Operations>, never>;
 
 /** Mount every operation the service declares. */
-export function registerRoutes<T extends Operations>(
+export function registerRoutes<C, T extends Operations<C>>(
 	app: Hono<AppEnv>,
 	handlersFor: <P extends string, I extends Input>(c: Context<AppEnv, P, I>) => Exhaustive<T>,
-	deps: RouteDeps,
+	deps: RouteDeps<AppEnv, C>,
 ) {
-${subAppDeclarations}${
+${operates ? CONTEXT_MIDDLEWARE : ""}${negotiates ? ACCEPTABLE_MIDDLEWARE : ""}${subAppDeclarations}${
 		usesBasePath
 			? `\tconst basePathRoutes = new Hono<AppEnv>()\n${rootChain.join("\n")};\n\n\treturn app${basePaths.map((prefix) => `\n\t\t.route(${JSON.stringify(prefix)}, basePathRoutes)`).join("")};`
 			: `\treturn app\n${rootChain.join("\n")};`

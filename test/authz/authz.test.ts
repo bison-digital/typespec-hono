@@ -121,11 +121,11 @@ describe("an anonymous caller where anonymous access is one alternative", () => 
 			req: { header: (name: string) => string | undefined };
 			json: (body: unknown, status: number) => Response;
 		};
-		const widget = () => ({ id: "1" });
+		const widget = () => ({ status: 200, body: { id: "1" } });
 		server.registerRoutes(
 			app,
 			() => ({
-				listWidgets: widget,
+				listWidgets: () => ({ status: 200, body: [{ id: "1" }] }),
 				getWidget: widget,
 				health: widget,
 				auditWidget: widget,
@@ -150,7 +150,6 @@ describe("an anonymous caller where anonymous access is one alternative", () => 
 				notAcceptable: (c: Context) => c.json({}, 406),
 				invalid: (result: { success: boolean }, c: Context) =>
 					result.success ? undefined : c.json({}, 400),
-				respond: (c: Context, _arms: unknown, value: unknown) => c.json(value, 200),
 			},
 		);
 		expect((await app.request("/widgets/1/preview")).status).toBe(200);

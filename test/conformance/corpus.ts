@@ -1,5 +1,5 @@
 import { readdirSync, rmSync, statSync } from "node:fs";
-import { join, relative } from "node:path";
+import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { NodeHost, compile, listServices } from "@typespec/compiler";
 import { getVersions } from "@typespec/versioning";
@@ -112,6 +112,8 @@ export interface CompiledScenario {
 	readonly refusals?: readonly string[];
 	/** Operations mounted with at least one declared media type this emitter cannot validate. */
 	readonly partiallyValidated?: number;
+	/** Responses served as text the handler supplies, because no serialisation derives from the schema. */
+	readonly unvalidatedResponses?: number;
 	/**
 	 * The LAST version the service declares, when it is versioned.
 	 *
@@ -198,14 +200,6 @@ export async function compileScenario(
 					// about the same models and neither can read the other's options; setting one and not
 					// the other is a contradiction, and this differential is precisely what reports it.
 					"seal-object-schemas": true,
-					/**
-					 * **Without this the emitted files import `typespec-hono/runtime` by name**, which
-					 * resolves for a consumer and not from this package's own `.out/`. The suite would emit
-					 * output it cannot load, and would be measuring nothing while looking green.
-					 */
-					"runtime-module": relative(dirs.serverDir, join(packageRoot, "src", "runtime.ts"))
-						.replaceAll("\\", "/")
-						.replace(/\.ts$/, ".js"),
 				},
 				"@typespec/openapi3": {
 					"emitter-output-dir": dirs.openapiDir,
@@ -290,13 +284,24 @@ export async function compileScenario(
 	 * `declared` by 27 while every one of those 27 operations was mounted and working.
 	 */
 	const PARTIAL = "typespec-hono/unvalidatable-media-type";
+	/**
+	 * **Its response-side twin is not a refusal either.** The operation is mounted and served; the
+	 * warning names a response whose body the handler supplies as text, unvalidated, because nothing
+	 * derives a serialisation for a model under `application/xml`. Counted separately from requests,
+	 * because the two may move independently.
+	 */
+	const PARTIAL_RESPONSE = "typespec-hono/unvalidated-response-media-type";
 	const refusalCodes = new Set(
 		Object.keys($lib.diagnostics)
 			.map((code) => `typespec-hono/${code}`)
-			.filter((code) => code !== PARTIAL),
+			.filter((code) => code !== PARTIAL && code !== PARTIAL_RESPONSE),
 	);
 	/** Operations mounted but with at least one declared media type left unvalidated. */
 	const partiallyValidated = program.diagnostics.filter((d) => d.code === PARTIAL).length;
+	/** Responses served as text the handler supplies, unvalidated. */
+	const unvalidatedResponses = program.diagnostics.filter(
+		(d) => d.code === PARTIAL_RESPONSE,
+	).length;
 	const refusals = program.diagnostics
 		.filter((diagnostic) => refusalCodes.has(diagnostic.code))
 		.map((diagnostic) => diagnostic.code);
@@ -316,6 +321,7 @@ export async function compileScenario(
 				diagnostic.code.startsWith("typespec-hono/") &&
 				diagnostic.severity === "warning" &&
 				diagnostic.code !== PARTIAL &&
+				diagnostic.code !== PARTIAL_RESPONSE &&
 				!refusalCodes.has(diagnostic.code),
 		)
 		.map((diagnostic) => `${scenario.name} :: ${diagnostic.code}`);
@@ -329,8 +335,16 @@ export async function compileScenario(
 	);
 	if (error === undefined) {
 		return latestVersion === undefined
-			? { scenario, ...dirs, emitterWarnings, refusals, partiallyValidated }
-			: { scenario, ...dirs, emitterWarnings, latestVersion, refusals, partiallyValidated };
+			? { scenario, ...dirs, emitterWarnings, refusals, partiallyValidated, unvalidatedResponses }
+			: {
+					scenario,
+					...dirs,
+					emitterWarnings,
+					latestVersion,
+					refusals,
+					partiallyValidated,
+					unvalidatedResponses,
+				};
 	}
 	return {
 		scenario,

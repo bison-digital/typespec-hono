@@ -58,7 +58,8 @@ beforeAll(async () => {
 			{
 				get: (_t, name: string) => (): unknown => {
 					if (name === "uploadBlob") throw new Error("boom");
-					return { id: "1", label: "ok" };
+					const item = { id: "1", label: "ok" };
+					return { status: 200, body: name.startsWith("list") ? [item] : item };
 				},
 			},
 		);
@@ -73,7 +74,6 @@ beforeAll(async () => {
 				result: { success: boolean },
 				c: { json: (b: unknown, s: number) => Response },
 			): Response | undefined => (result.success ? undefined : c.json(result, 400)),
-			respond: (c: { json: (b: unknown) => Response }, _a: unknown, v: unknown) => c.json(v),
 		});
 		app.onError((error, c) => {
 			trace.push(`onError=${error.message}`);
@@ -125,7 +125,7 @@ describe("an application can wrap the routes this emitter mounts", () => {
 	});
 
 	it("lets a handler's throw reach an app-level onError", async () => {
-		// Nothing in the generated file swallows it: `deps.respond` is only reached on success.
+		// Nothing in the generated file swallows it: a throw is not a response, so it is the app's to answer.
 		const { app, trace } = build();
 		const response = await app.request("/items/blob", {
 			method: "POST",

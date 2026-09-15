@@ -1,6 +1,10 @@
-import { Hono } from "hono";
-import { armFor, type AppEnv, type Ctx, type Result, type RouteDeps } from "./runtime.fixture.js";
+import { Hono, type Context } from "hono";
 import { registerRoutes, type Operations } from "../reference/.out/service-wired/app.gen.js";
+import {
+	ResponseContractError,
+	type AppEnv,
+	type RouteDeps,
+} from "../reference/.out/service-wired/runtime.gen.js";
 
 /**
  * **An application built on both packages, question 3 of three.**
@@ -9,8 +13,12 @@ import { registerRoutes, type Operations } from "../reference/.out/service-wired
  * `registerRoutes` signature had never been checked by a typed consumer for most of this emitter's
  * life: the equivalence suite cast the app to `unknown`, so a signature no application could satisfy
  * passed every other test. The first time a real consumer was compiled against it, there were
- * nineteen errors, and `runtime-module`, the option whose entire purpose is letting an app
- * substitute its own types, had never once been pointed at a module that substituted anything.
+ * nineteen errors.
+ *
+ * **It uses the runtime the emitter WROTE, and substitutes nothing.** Its environment is an
+ * augmentation of `AppEnv`, its caller context is whatever `deps.context` returns, and its handlers
+ * return declared failures as well as successes. Each of those used to need a hand-maintained module
+ * replacing the emitted runtime.
  *
  * **Nothing here casts.** A cast anywhere in this file would hide exactly the defect it exists to
  * find. If a handler cannot be written without one, the emitted signature is wrong.
@@ -21,7 +29,21 @@ import { registerRoutes, type Operations } from "../reference/.out/service-wired
  * once did precisely this and silently disabled the exhaustiveness check sitting beside it.
  */
 
-const ok = <T>(value: T): Result<T> => ({ ok: true, value });
+declare module "../reference/.out/service-wired/runtime.gen.js" {
+	interface AppEnv {
+		readonly Bindings: { readonly TENANT?: string };
+		readonly Variables: { readonly requestId: string };
+	}
+}
+
+/** What `deps.context` establishes, and therefore what every handler receives. */
+interface Caller {
+	readonly accountId: string;
+	readonly scopes: readonly string[];
+}
+
+/** Proof the augmentation reached the environment: a binding read off `c.env` with no cast. */
+export const tenantOf = (c: Context<AppEnv>): string | undefined => c.env.TENANT;
 
 /** A handful of fixed values. This is a wiring proof, not a data layer. */
 const widget = {
@@ -35,77 +57,92 @@ const widget = {
 /**
  * Written as an object literal so the excess-property check applies: a key for an operation the spec
  * no longer declares is refused here, which is the change the type system otherwise misses entirely.
+ * `satisfies` keeps each status a literal, which is what selects the response it belongs to.
  */
 const operations = {
-	readWidget: (_ctx: Ctx, input) => {
+	readWidget: (_ctx: Caller, input) => {
 		// The wire names, not the TypeSpec property names, proof the validator keys on what arrives.
-		void input["widget-id"];
 		void input["x-request-id"];
-		return ok(widget);
+		return input["widget-id"] === "missing"
+			? { status: 404, body: { code: "no-such-widget" } }
+			: { status: 200, body: widget };
 	},
-	listWidgets: (_ctx: Ctx, input) => {
+	listWidgets: (_ctx: Caller, input) => {
 		// `?tags=a,b,c` arrives as ONE string and reaches here as an array, because the emitted
 		// validator undoes the flattening the document's `style` describes.
 		void input.tags;
-		return ok([widget]);
+		return { status: 200, body: [widget] };
 	},
-	createWidget: (_ctx: Ctx, input) => ok(input),
-	deleteWidget: (_ctx: Ctx, _input) => ok(undefined),
+	createWidget: (_ctx: Caller, input) => ({ status: 201, body: input }),
+	deleteWidget: (_ctx: Caller, _input) => ({ status: 204 }),
 	/**
-	 * `widgetExists` is `@head`. It used to be absent from `Operations` entirely, because the emitter
-	 * refused it: Hono rewrites HEAD to GET before matching, so a route registered under HEAD is
-	 * unreachable. It is served now, registered under GET and told apart by `c.req.method`, and Hono
-	 * strips the response body itself -- so the handler returns the headers-only success the document
+	 * `widgetExists` is `@head`. Registered under GET and told apart by `c.req.method`, and Hono
+	 * strips the response body itself -- so the handler returns the bodyless success the document
 	 * declares and does not have to know it is a HEAD at all.
 	 */
-	widgetExists: (_ctx: Ctx, _input) => ok(undefined),
-	setFlags: (_ctx: Ctx, _input) => ok(widget),
-	addShape: (_ctx: Ctx, input) => ok(input),
-	addTree: (_ctx: Ctx, input) =>
-		ok({ node: input, attributes: {}, open: { id: "o-1" }, typed: { id: "t-1" } }),
-	health: (_ctx: Ctx) => ok({ status: "ok" }),
-	Report_asJson: (_ctx: Ctx, _input) => ok(widget),
-	Report_asText: (_ctx: Ctx, _input) => ok("plain text"),
-} satisfies Operations;
+	widgetExists: (_ctx: Caller, _input) => ({ status: 204 }),
+	/**
+	 * **Every response the document declares for `setFlags`, returned rather than thrown**: the
+	 * success, the exact `404`, a status inside the `4XX` range, and one the `default` arm governs. The
+	 * revision the caller sends picks which, so each one can be requested.
+	 */
+	setFlags: (_ctx: Caller, input) => {
+		switch (input.revision) {
+			case 404:
+				return { status: 404, body: { code: "no-such-widget" } };
+			case 429:
+				return { status: 429, body: { retryAfter: 30 } };
+			case 503:
+				return { status: 503, body: { reason: "maintenance" } };
+			case 1:
+				// Every property is the right TYPE, and `name` breaks the `@minLength(1)` the document
+				// publishes: a body only the served-body check can refuse.
+				return { status: 200, body: { ...widget, name: "" } };
+			default:
+				return { status: 200, body: widget };
+		}
+	},
+	addShape: (_ctx: Caller, input) => ({ status: 200, body: input }),
+	addTree: (_ctx: Caller, input) => ({
+		status: 200,
+		body: { node: input, attributes: {}, open: { id: "o-1" }, typed: { id: "t-1" } },
+	}),
+	health: (_ctx: Caller) => ({ status: 200, body: { status: "ok" } }),
+	Report_asJson: (_ctx: Caller, _input) => ({ status: 200, body: widget }),
+	Report_asText: (_ctx: Caller, _input) => ({ status: 200, body: "plain text" }),
+} satisfies Operations<Caller>;
 
 /**
  * What an application supplies. Every hook here answers a question the generated code genuinely
- * cannot: how to build a caller context, how to shape a failure, how to serialise a result.
+ * cannot: how to build a caller context, and what a refusal looks like.
  */
-export const deps: RouteDeps = {
+export const deps: RouteDeps<AppEnv, Caller> = {
 	authorize: () => async (_c, next) => {
 		await next();
 	},
 	context: (_c, caller) =>
 		caller === "none"
-			? ({ accountId: "anonymous", scopes: [] } as Ctx)
+			? { accountId: "anonymous", scopes: [] }
 			: { accountId: "acct-1", scopes: [] },
 	noContext: (c) => c.json({ error: "no caller" }, 401),
 	notAcceptable: (c, offered) => c.json({ error: "not acceptable", offered }, 406),
 	invalid: (result, c) => (result.success ? undefined : c.json({ error: "invalid" }, 400)),
-	/**
-	 * **The status is chosen by the app; the schema for it comes from the document.** `armFor`
-	 * applies the Responses Object's own precedence. An exact code, then a range, then `default`,
-	 * which is the rule an application otherwise re-derives as "the first arm with a status of 400 or more" and
-	 * gets wrong on every range.
-	 */
-	respond: (c, arms, result) => {
-		if (!result.ok) {
-			const arm = armFor(arms, 404);
-			return c.json({ error: result.code, validated: arm?.schema !== undefined }, 404);
-		}
-		const success = arms.find((entry) => typeof entry.status === "number" && entry.status < 400);
-		const status = (success?.status ?? 200) as 200;
-		if (result.value === undefined) return c.body(null, 204);
-		// The document's own schema for this status, applied to what the app produced.
-		const parsed =
-			success?.schema === undefined ? result.value : success.schema.parse(result.value);
-		return typeof parsed === "string" ? c.text(parsed, status) : c.json(parsed, status);
-	},
 };
 
 export function buildApp(): Hono<AppEnv> {
 	const app = new Hono<AppEnv>();
+	/**
+	 * **A body the document forbids is the application's to answer, in `onError`**, which is where
+	 * Hono puts that decision. The generated route throws rather than choosing a status for it.
+	 */
+	app.onError((error, c) =>
+		error instanceof ResponseContractError
+			? c.json(
+					{ error: "response-contract", operationId: error.operationId, status: error.status },
+					500,
+				)
+			: c.json({ error: "internal" }, 500),
+	);
 	// Unannotated on purpose, see the docblock above.
 	const handlersFor = () => operations;
 	registerRoutes(app, handlersFor, deps);

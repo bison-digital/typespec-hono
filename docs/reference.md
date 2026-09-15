@@ -4,8 +4,8 @@
 
 Every option `typespec-http-zod` accepts is forwarded, and the schema is derived from that package's
 rather than restated. See its README for `seal-object-schemas`, `contracts-output-dir`,
-`contracts-package`, `compile-schemas`, `key-vocabularies`, `runtime-module`, `regenerate-hint` and
-`services`.
+`contracts-package`, `compile-schemas`, `key-vocabularies`, `regenerate-hint` and `services`.
+`runtime-module` is accepted by that package and refused by this one; see below.
 
 `compile-schemas` is worth a word here because a SERVER is where it pays. It wraps every emitted
 validator in Zod 4.5's `z.compile()`, and a generated server parses on the synchronous path - the
@@ -22,38 +22,26 @@ compiled fast path while serving.
 every generated banner, so a reader who opens one is told what to run rather than only what not to
 edit.
 
-`runtime-module` is the one to reach for when the identity defaults are not enough. Point it at a
-module of your own that re-declares `Result`, `Ctx`, `AppEnv` and `RouteDeps`, and every generated
-signature carries your types. Setting it also stops `runtime.gen.ts` being written, since your module
-replaces it; that module has to export every name the generated files reference, which is what
-`runtime.gen.ts` is a working example of.
+**`runtime-module` is refused with `runtime-module-removed`, an error.** It used to replace
+`runtime.gen.ts` with an application's own module, and that made the application own a copy of
+generated logic - content negotiation, the HEAD guard, response selection - which aged: a gateway ran
+the `0.10.1` runtime while this emitter reached `0.21.0`, carrying a negotiation defect fixed long
+before. The option is still in the schema so that setting it reports what to do instead, rather than
+"must NOT have additional properties". `runtime.gen.ts` is written on every compile.
 
-**That list of names is a contract, and it is deliberately small.** Everything the generated files
-import from your module is something you have to supply, so the set is kept to what only an
-application can answer - its environment, its caller context, its result envelope, its hooks - plus
-the two helpers that implement a published rule rather than a policy (`selectContentType` implements
-RFC 9110's content negotiation; `headOnly` implements what a `HEAD`-only route answers). Request-body
-validation is emitted into `app.gen.ts` instead: it is pure mechanism with no application types in
-it, and putting it here would have made every substituting application implement body parsing to get
-a correct error envelope. `test/adopter.test.ts` asserts the set as a closed list.
+What the option was used for has a place of its own:
 
-**If you substitute the module, hold your copy current with a test rather than with a habit.**
-`src/runtime.ts` is in the published `files` list, so the authority is on disk in `node_modules`
-rather than in a repository you would have to clone. A consumer who substitutes can diff against it:
+| a substituted module declared | now                                                                         |
+| ----------------------------- | --------------------------------------------------------------------------- |
+| `Ctx`                         | inferred by `registerRoutes` from what `deps.context` returns               |
+| `AppEnv`                      | `declare module "./generated/runtime.gen.js" { interface AppEnv { ... } }`  |
+| `Result<T>`                   | the union of the responses each operation declares, generated per operation |
+| `RouteDeps`                   | `RouteDeps<AppEnv, Caller>`, parameterised by your caller context           |
 
-```ts
-// test/conformance/runtime-copy-is-current.test.ts
-const ours = readFileSync("src/spec-runtime/core.ts", "utf8");
-const published = readFileSync("node_modules/typespec-hono/src/runtime.ts", "utf8");
-expect(bodyOf(ours)).toBe(bodyOf(published));
-expect(ours).toContain(`typespec-hono@${installedVersion()}`);
-```
-
-This is the recommended way, and the reason is measured: a gateway ran the `0.10.1` runtime while
-this emitter reached `0.21.0`, carrying the pre-fix `selectContentType` the whole time, because a
-substituted copy ages silently and nothing compares the two. The contract also SHRANK at `0.21.0`,
-where `byContentType` and `optionalBody` left it, and dead exports compile, so a shrinking contract
-is exactly as invisible as a growing one.
+**What the generated files import from `runtime.gen.ts` is a closed list**, asserted by
+`test/adopter.test.ts`: the types `AppEnv`, `Awaitable`, `RouteDeps` and `ResponseArm`, and the
+helpers `servedBody`, `headersOf`, `UndeclaredStatusError`, `selectContentType` and `headOnly`, each
+emitted only where a route uses it.
 
 **`selectContentType` is emitted only where several operations share one route.** The generated
 server imports it when some route group has more than one member, which is what a route serving
@@ -63,10 +51,12 @@ negotiation fix can tell whether it reached them: if `selectContentType` does no
 
 ## What it refuses, and why
 
-| code                        | why                                                                                                                                                                                                                                                                                                                          |
-| --------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `unvalidatable-media-type`  | The document declares a request media type no `zValidator` target can parse, most commonly `application/xml`. The route is still mounted and still validates every type that can be parsed, chosen from the request's `Content-Type`. Requests carrying the others are refused rather than parsed as something they are not. |
-| `unsupported-path-template` | A path parameter whose wire name carries a character Hono cannot hold in a route parameter: a space, `+` or `!`. Reachable only through `@path("...")` with a non-identifier wire name. The route is registered at the literal template, so it matches nothing rather than matching the wrong requests.                      |
+| code                              | why                                                                                                                                                                                                                                                                                                                          |
+| --------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `unvalidatable-media-type`        | The document declares a request media type no `zValidator` target can parse, most commonly `application/xml`. The route is still mounted and still validates every type that can be parsed, chosen from the request's `Content-Type`. Requests carrying the others are refused rather than parsed as something they are not. |
+| `unsupported-path-template`       | A path parameter whose wire name carries a character Hono cannot hold in a route parameter: a space, `+` or `!`. Reachable only through `@path("...")` with a non-identifier wire name. The route is registered at the literal template, so it matches nothing rather than matching the wrong requests.                      |
+| `unvalidated-response-media-type` | A response declares a model under a media type that is not JSON, most commonly `application/xml`. No serialisation derives from the schema, so the handler returns that body as a string and the route serves it without validating it. Every other response on the operation is validated as usual.                         |
+| `runtime-module-removed`          | `runtime-module` is set. It is an error: the option is ignored and `runtime.gen.ts` is emitted, because an application that substituted the runtime owned a copy of generated logic. See [Upgrading](guides.md#upgrading).                                                                                                   |
 
 RFC 6570 operators are not affected by the second of these. `@typespec/http` resolves them before this
 emitter sees the path and `@typespec/openapi3` strips them from the published document, so
@@ -98,6 +88,15 @@ warn-as-error: true
   and the mapping from XML to a JavaScript object is not canonical. An operation declaring
   `application/xml` alongside a parseable type still validates the parseable ones; requests carrying
   XML are refused, and `unvalidatable-media-type` names it at build time.
+- **XML response bodies are not validated either.** A model declared under `application/xml` is
+  served as the text the handler supplies, and `unvalidated-response-media-type` names each one.
+- **A scalar JSON request body does not compile.** `@body body: string`, an enum or a union is spread
+  into the handler's input as though it were an object, `TS2698`. Five corpus scenarios carry one, and
+  `test/conformance/typecheck.test.ts` lists them. A recursive dictionary body has a related defect,
+  `TS2322`, in a sixth.
+- **Middleware responses are not part of a route's type.** `noContext`, `invalid` and `notAcceptable`
+  answer from middleware, which is also where `@hono/zod-openapi` leaves them, so Hono's RPC client
+  does not see their bodies.
 - **`int64` and `uint64` are validated as JavaScript numbers**, so values above 2^53-1 are refused.
   Above that point an integer is not uniquely representable as a JavaScript number, so a validator
   cannot certify that the value it holds is the value that was sent. Use `@encode(string)`, which is
@@ -112,7 +111,11 @@ warn-as-error: true
 Graded against 62 scenarios of [`@typespec/http-specs`](https://github.com/microsoft/typespec), a
 corpus this project did not write, with route counts read from `app.routes` after mounting the real
 server rather than from the emitted text: 635 declared, 635 mounted, 0 refused, 27 partially
-validated.
+validated, and 29 responses served unvalidated as XML.
+
+Every emitted server is compiled under `strict`, `exactOptionalPropertyTypes` and `noUnusedLocals`,
+and for 619 routes what Hono's RPC client infers is compared with what `@hono/zod-openapi`'s
+`RouteConfigToTypedResponse` derives from the published document.
 
 ## Path parameters that carry slashes
 

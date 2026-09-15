@@ -27,14 +27,11 @@ const referenceDir = join(here, "..", "reference");
 
 beforeAll(async () => {
 	/**
-	 * **Compiled with `runtime-module` pointed at a module that substitutes REAL types.** Left at
-	 * the default, `Result<T>` is `T` and `Ctx` is `unknown`, so the generated interface degrades to
-	 * something almost any function satisfies and the compile below proves nothing.
+	 * **Compiled with the emitted runtime, which an application augments rather than replaces.** A
+	 * consumer typed against `unknown` would prove nothing, so `consumer.fixture.ts` establishes a real
+	 * caller context and an augmented environment, and returns declared failures.
 	 */
-	await compileFixture(referenceDir, "service", {
-		runtimeModule: "../../../wiring/runtime.fixture.js",
-		outName: "service-wired",
-	});
+	await compileFixture(referenceDir, "service", { outName: "service-wired" });
 }, 300_000);
 
 describe("an application compiles against the generated server", () => {
@@ -54,7 +51,7 @@ describe("an application compiles against the generated server", () => {
 					skipLibCheck: true,
 					types: [],
 				},
-				include: ["./consumer.fixture.ts", "./runtime.fixture.ts", "./rpc.fixture.ts"],
+				include: ["./consumer.fixture.ts", "./rpc.fixture.ts"],
 			}),
 		);
 		let output = "";
@@ -182,6 +179,58 @@ describe("the application answers real requests", () => {
 		 */
 		const response = await (await app()).request("/report", { headers: { accept: "image/png" } });
 		expect(response.status).toBe(406);
+	});
+
+	/**
+	 * **A declared failure is RETURNED, and served as the response the document declares.** Before
+	 * this, a handler's return type was the success body alone, so these three could only be thrown
+	 * past the generated code - and the status and body a caller received were checked against nothing.
+	 */
+	it("serves a declared failure a handler returns: an exact status", async () => {
+		const response = await (
+			await app()
+		).request("/widgets/missing", { headers: { "x-request-id": "r-1" } });
+		expect(response.status).toBe(404);
+		expect(await response.json()).toEqual({ code: "no-such-widget" });
+	});
+
+	it("serves every failure setFlags declares: exact, range and default", async () => {
+		const flags = async (revision: number): Promise<Response> =>
+			(await app()).request("/widgets/w-1/flags", {
+				method: "PUT",
+				headers: { "content-type": "application/json" },
+				body: JSON.stringify({ revision }),
+			});
+		const notFound = await flags(404);
+		expect(notFound.status).toBe(404);
+		expect(await notFound.json()).toEqual({ code: "no-such-widget" });
+		const throttled = await flags(429);
+		expect(throttled.status).toBe(429);
+		expect(await throttled.json()).toEqual({ retryAfter: 30 });
+		const unexpected = await flags(503);
+		expect(unexpected.status).toBe(503);
+		expect(await unexpected.json()).toEqual({ reason: "maintenance" });
+	});
+
+	it("refuses to serve a body the document forbids, and hands that to onError", async () => {
+		/**
+		 * `name: ""` is the right type and breaks `@minLength(1)`. The served body is checked against the
+		 * schema the document publishes for the status, so the application's `onError` answers instead
+		 * of a response the contract does not permit.
+		 */
+		const response = await (
+			await app()
+		).request("/widgets/w-1/flags", {
+			method: "PUT",
+			headers: { "content-type": "application/json" },
+			body: JSON.stringify({ revision: 1 }),
+		});
+		expect(response.status).toBe(500);
+		expect(await response.json()).toEqual({
+			error: "response-contract",
+			operationId: "setFlags",
+			status: 200,
+		});
 	});
 
 	it("serves an unauthenticated operation without a caller", async () => {

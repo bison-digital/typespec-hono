@@ -213,7 +213,7 @@ describe("the generated validator says only what the document can say", () => {
 		expect(offenders).toEqual([]);
 	});
 
-	it("imports only frameworks, its own siblings, and the configured runtime module", () => {
+	it("imports only frameworks and its own siblings", () => {
 		/**
 		 * **The dependency points one way, and nothing else enforced it.** The whole wiring design
 		 * turns on the application importing the generated file, implementing what it declares, and
@@ -222,14 +222,19 @@ describe("the generated validator says only what the document can say", () => {
 		 * spec just drops its import and leaves an orphan compiling forever.
 		 */
 		const servers = files.filter((file) => file.endsWith("app.gen.ts"));
+		/**
+		 * **The runtime is a sibling now, and nothing else is.** `runtime-module` used to point the
+		 * generated file anywhere a consumer chose, so this allowed any `runtime*.js`; the option is
+		 * refused and `runtime.gen.ts` is always emitted beside it, so the allowance is gone with it.
+		 * `hono/utils/http-status` is Hono's own published status-code types, which the result unions
+		 * name.
+		 */
 		const allowed = (specifier: string): boolean =>
 			specifier === "hono" ||
+			specifier === "hono/utils/http-status" ||
 			specifier === "zod" ||
 			specifier === "@hono/zod-validator" ||
-			/^\.\/[\w.-]+\.gen\.js$/.test(specifier) ||
-			// Whatever the consumer pointed `runtime-module` at is theirs by definition.
-			/^(\.\.?\/)+.*runtime[\w.-]*\.js$/.test(specifier) ||
-			specifier === "typespec-hono/runtime";
+			/^\.\/[\w.-]+\.gen\.js$/.test(specifier);
 		const strays = servers.flatMap((file) =>
 			[...readFileSync(file, "utf8").matchAll(/from "([^"]+)"/g)]
 				.map((match) => match[1] ?? "")

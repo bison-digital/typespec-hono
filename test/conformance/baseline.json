@@ -6,5 +6,6 @@
 	"served": 638,
 	"registrations": 633,
 	"refused": 0,
-	"partiallyValidated": 27
+	"partiallyValidated": 27,
+	"unvalidatedResponses": 29
 }

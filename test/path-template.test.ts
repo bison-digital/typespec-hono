@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { renderApp } from "../src/app.js";
 import type { EmittedService } from "typespec-http-zod";
+import { ignoreRefusals, serviceWith } from "./support/emitted-service.js";
 
 /**
  * **What `unsupported-path-template` actually refuses.**
@@ -18,47 +19,16 @@ import type { EmittedService } from "typespec-http-zod";
  */
 
 function serviceWithParameter(name: string): EmittedService {
-	return {
-		namespace: undefined as never,
-		operations: [],
-		options: { runtimeModule: "typespec-hono/runtime" },
-		routes: [
-			/**
-			 * **Only the fields this arm is about, and the cast below is what makes that safe.**
-			 *
-			 * It is also what let a runtime `TypeError` in for a field added later: `responseHeaders`
-			 * was read while rendering and this fixture had never supplied it, so eight arms failed
-			 * with `Cannot read properties of undefined` rather than with anything about paths. The
-			 * fields below are the ones the renderer reaches on this path; a new one added to
-			 * `EmittedRoute` will land here the same way, which `render.test.ts` fixed by moving to
-			 * `satisfies` and this file cannot, because it is deliberately partial.
-			 */
-			{
-				operationId: "probe",
-				verb: "GET",
-				path: `/a/{${name}}`,
-				requestContentTypes: [],
-				responseContentTypes: [],
-				responseHeaders: [],
-				responseMediaTypes: [],
-				statusCode: 200,
-				statusCodes: [200],
-				statusSelector: undefined,
-				statusBy: undefined,
-				errorArms: [],
-				scopes: [],
-				noAuth: true,
-			},
-		],
-		schemaNames: new Map([["probe", { responses: "probeResponses" }]]),
-	} as unknown as EmittedService;
+	return serviceWith({ operationId: "probe", verb: "GET", path: `/a/{${name}}` });
 }
 
 function refusalsFor(name: string): string[] {
 	const refused: string[] = [];
 	renderApp(serviceWithParameter(name), {
-		unsupportedPathTemplate: (_route, _template, parameter) => refused.push(parameter),
-		unvalidatableMediaType: () => undefined,
+		...ignoreRefusals,
+		unsupportedPathTemplate: (_route, _template, parameter) => {
+			refused.push(parameter);
+		},
 	});
 	return refused;
 }
@@ -71,10 +41,7 @@ describe("a path parameter name Hono cannot carry", () => {
 		["thing_id", "an underscore"],
 	])("carries %s verbatim (%s)", (name) => {
 		expect(refusalsFor(name)).toEqual([]);
-		const source = renderApp(serviceWithParameter(name), {
-			unsupportedPathTemplate: () => undefined,
-			unvalidatableMediaType: () => undefined,
-		});
+		const source = renderApp(serviceWithParameter(name), ignoreRefusals);
 		expect(source).toContain(`"/a/:${name}"`);
 	});
 
@@ -84,10 +51,7 @@ describe("a path parameter name Hono cannot carry", () => {
 		["thing!id", "an exclamation mark"],
 	])("refuses %s (%s) and leaves the template literal", (name) => {
 		expect(refusalsFor(name)).toEqual([name]);
-		const source = renderApp(serviceWithParameter(name), {
-			unsupportedPathTemplate: () => undefined,
-			unvalidatableMediaType: () => undefined,
-		});
+		const source = renderApp(serviceWithParameter(name), ignoreRefusals);
 		/**
 		 * Left as the literal template on purpose. A guessed substitution would mount a route that
 		 * matches real requests and answers them wrongly, which is worse than one that matches nothing.

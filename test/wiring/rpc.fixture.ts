@@ -19,9 +19,9 @@
 import { Hono } from "hono";
 import { hc } from "hono/client";
 import { registerRoutes } from "../reference/.out/service-wired/app.gen.js";
-import type { AppEnv, RouteDeps } from "./runtime.fixture.js";
+import type { AppEnv, RouteDeps } from "../reference/.out/service-wired/runtime.gen.js";
 
-declare const deps: RouteDeps;
+declare const deps: RouteDeps<AppEnv, { readonly accountId: string }>;
 declare const handlers: never;
 
 const routes = registerRoutes(new Hono<AppEnv>(), () => handlers, deps);
@@ -50,4 +50,31 @@ export async function readsAWidget(): Promise<unknown> {
 export async function refusesAnUndeclaredRoute(): Promise<unknown> {
 	// @ts-expect-error. The service declares no `/nonexistent`, and the client has to know it.
 	return client.nonexistent.$get();
+}
+
+/**
+ * **The client sees a typed body per STATUS, which a server returning plain `Response`s cannot give
+ * it.** Every route used to hand its result to an application `respond` hook returning `Response`,
+ * and Hono reads a route's response types from what its handler returns - so `res.json()` was
+ * `unknown` for every status of every route. The generated route now serves each declared response
+ * with `c.json(body, status)`, and `res.status` narrows the body.
+ *
+ * Both halves are asserted: each narrowed body exposes its own property, and a property belonging to
+ * a different status's body is refused inside the branch.
+ */
+export async function narrowsTheBodyByStatus(): Promise<string> {
+	const response = await client.widgets[":widget-id"].flags.$put({
+		param: { "widget-id": "w-1" },
+		json: {},
+	});
+	if (response.status === 429) {
+		const throttled = await response.json();
+		// @ts-expect-error. A 429 is the `Throttled` body, which has no `id`.
+		void throttled.id;
+		return String(throttled.retryAfter);
+	}
+	if (response.status === 404) return (await response.json()).code;
+	if (response.status === 200) return (await response.json()).name;
+	if (response.status === 503) return (await response.json()).reason;
+	return "";
 }

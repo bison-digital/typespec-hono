@@ -83,7 +83,7 @@ interface DomainParent {
 
 const parent: DomainParent = { code: "c", child: { id: "i" } };
 
-export const nested: Operations["nested"] = () => parent;
+export const nested: Operations["nested"] = () => ({ status: 200, body: parent });
 `);
 		expect(output, output).toBe("");
 	});
@@ -99,7 +99,7 @@ import type { Operations } from "./app.gen.js";
 
 export const both: Operations["both"] = (_ctx, input) => {
 	const extra: unknown = input.body["anything-at-all"];
-	return { code: input.body.code, child: input.body.child, seen: extra };
+	return { status: 200, body: { code: input.body.code, child: input.body.child, seen: extra } };
 };
 `);
 		expect(output, output).toBe("");

@@ -69,18 +69,21 @@ export const upload: Operations["upload"] = async (_ctx, input) => {
 	const named: string = input.body?.file.name ?? "none";
 	const pages: number = input.body?.pages.length ?? 0;
 	void [named, pages];
+	return { status: 204 };
 };
 
 // The control: a REQUIRED multipart body is still MERGED, exactly as test/filepart/ asserts.
 export const required: Operations["required"] = async (_ctx, input) => {
 	const merged: string = input.file.name;
 	void [merged, input.pages.length];
+	return { status: 204 };
 };
 
 // An anonymous parts model still gets a declared name to hang the body off.
 export const anonymous: Operations["anonymous"] = async (_ctx, input) => {
 	const note: string = input.body?.note ?? "none";
 	void note;
+	return { status: 204 };
 };
 `);
 		expect(output, output).toBe("");

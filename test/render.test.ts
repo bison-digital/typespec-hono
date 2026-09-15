@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import type { EmittedRoute, EmittedService, RouteSchemaNames } from "typespec-http-zod";
 import { renderApp, toHonoPath } from "../src/app.js";
+import { ignoreRefusals, noRefusals, serviceWith } from "./support/emitted-service.js";
 
 /**
  * **The renderer, exercised directly where no spec can reach it.**
@@ -18,92 +18,6 @@ import { renderApp, toHonoPath } from "../src/app.js";
  * Hono 4.13.1. The fallback is the right shape for a verb Hono has no helper for; only HEAD is
  * special, and only HEAD is refused.
  */
-
-/**
- * The narrowest `EmittedService` the renderer will accept, everything else is defaulted away.
- *
- * **`satisfies`, never `as`, and the difference is a whole direction of drift.** This was
- * `as EmittedRoute`, which is an assertion: excess-property checking never runs, so the fixture kept
- * a `paramsSchema: undefined` line for as long as it took somebody to notice, inert, and invisible
- * to `tsc`. An assertion catches the interface GAINING a field (insufficient overlap) and is blind to
- * it LOSING one, which is exactly the change a consumer feels and the compiler could have caught.
- *
- * `satisfies` checks the literal against the type without widening it, so both directions fail here:
- * a field removed from `EmittedRoute` leaves a surplus key, and one added leaves a missing property.
- */
-function serviceWith(
-	route: Partial<EmittedRoute> & { operationId: string; verb: string },
-): EmittedService {
-	const full = {
-		bodyProperty: undefined,
-		optionalBody: false,
-		reservedPathParameters: [],
-		responseHeaders: [],
-		responseMediaTypes: [],
-		statusCode: 200,
-		statusCodes: [200],
-		responseContentTypes: ["application/json"],
-		// Added when the request media type became readable; the fixture never supplied it, and
-		// `as` hid that for as long as it took to switch to `satisfies`.
-		requestContentTypes: ["application/json"],
-		summary: undefined,
-		requestSchema: undefined,
-		pathSchema: undefined,
-		querySchema: undefined,
-		headerSchema: undefined,
-		negotiatedHeaderSchema: undefined,
-		accept: undefined,
-		responseSchema: undefined,
-		rawBodyProperty: undefined,
-		errorArms: [],
-		noAuth: true,
-		scopes: [],
-		// Added by `typespec-http-zod@0.25.0`, which publishes the security requirements the document
-		// states rather than the two lossy projections beside it. Supplied here because the fixture
-		// uses `satisfies`, which is what turns a new required field into a compile error naming the
-		// fixture instead of a runtime one naming something else.
-		security: [],
-		statusBy: undefined,
-		statusSelector: undefined,
-		alternateResponseSchema: undefined,
-		path: "/thing",
-		...route,
-	} satisfies EmittedRoute;
-	const names: RouteSchemaNames = {
-		operationId: full.operationId,
-		path: undefined,
-		query: undefined,
-		header: undefined,
-		body: undefined,
-		response: undefined,
-		alternateResponse: undefined,
-		responses: `${full.operationId}Responses`,
-	};
-	return {
-		service: { operations: [], namespace: {} } as unknown as EmittedService["service"],
-		routes: [full],
-		schemaNames: new Map([[full.operationId, names]]),
-		outputDir: "/nowhere",
-		options: {
-			contractsOutputDir: undefined,
-			contractsPackage: undefined,
-			sealObjectSchemas: false,
-			compileSchemas: false,
-			keyVocabularies: [],
-			runtimeModule: "typespec-hono/runtime",
-			regenerateHint: undefined,
-		},
-	};
-}
-
-const noRefusals = {
-	unsupportedPathTemplate: (): void => {
-		throw new Error("unexpected path refusal");
-	},
-	unvalidatableMediaType: (): void => {
-		throw new Error("unexpected media-type refusal");
-	},
-};
 
 describe("a verb with no dedicated Hono helper goes through `app.on(method, ...)`", () => {
 	it("passes the METHOD first, which is the whole defect this branch once had", () => {
@@ -123,10 +37,10 @@ describe("a verb with no dedicated Hono helper goes through `app.on(method, ...)
 	});
 
 	it("registers HEAD under GET, guarded, because that is the only verb Hono dispatches", () => {
-		const source = renderApp(serviceWith({ operationId: "headThing", verb: "HEAD" }), {
-			unsupportedPathTemplate: () => undefined,
-			unvalidatableMediaType: () => undefined,
-		});
+		const source = renderApp(
+			serviceWith({ operationId: "headThing", verb: "HEAD" }),
+			ignoreRefusals,
+		);
 		// Registered under GET, not under a verb Hono rewrites away before matching.
 		expect(source).toMatch(/\.get\(/);
 		expect(source).not.toMatch(/\.head\(/);
@@ -136,7 +50,7 @@ describe("a verb with no dedicated Hono helper goes through `app.on(method, ...)
 		 * so a real GET has to get the 404 it would have got if nothing were registered there at all.
 		 */
 		expect(source).toMatch(/^\t\t\theadOnly,$/m);
-		expect(source).toMatch(/import \{ headOnly \} from/);
+		expect(source).toMatch(/import \{ [^}]*\bheadOnly\b[^}]*\} from/);
 		// And the operation is actually served, rather than merely registered.
 		expect(source).toMatch(/handlersFor\(c\)\.headThing\(/);
 	});

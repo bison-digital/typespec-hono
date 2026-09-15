@@ -199,7 +199,11 @@ describe("the emitter is written against the published API", () => {
 		 * additionally told (`defaultRuntimeModule`, or whatever a wrapper needs next) is this
 		 * package's business and not a fact this test should be pinning.
 		 */
-		const delegations = [...source.matchAll(/emitHttpZod\(\s*(\w+)/g)];
+		/**
+		 * **Handed the context with `runtime-module` removed**, which is the one thing this package
+		 * takes away from what the library would otherwise read - see `runtime-module-removed`.
+		 */
+		const delegations = [...source.matchAll(/emitHttpZod\(\s*(?:withoutRuntimeModule\()?(\w+)/g)];
 		expect(delegations.length).toBe(1);
 		expect(delegations[0]?.[1]).toBe("context");
 	});

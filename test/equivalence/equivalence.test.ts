@@ -34,39 +34,31 @@ import { createReferenceApp, THE_WIDGET } from "./reference-app.js";
 
 const here = fileURLToPath(new URL(".", import.meta.url));
 
-/** Both apps answer from the same data, so a difference is never about the handler. */
+/**
+ * Both apps answer from the same data, so a difference is never about the handler.
+ *
+ * Each handler names the status it answers with, as the hand-written app names it in `c.json(body,
+ * 201)`: the document declares it, and choosing among a document's statuses is the handler's to do.
+ */
 const OPERATIONS = {
-	getWidget: (_ctx: unknown, input: { id: string }) => ({ ...THE_WIDGET, id: input.id }),
-	createWidget: (_ctx: unknown, input: { name: string; weight: number }) => ({
-		id: THE_WIDGET.id,
-		name: input.name,
-		weight: input.weight,
+	getWidget: (_ctx: unknown, input: { id: string }) => ({
+		status: 200,
+		body: { ...THE_WIDGET, id: input.id },
 	}),
-	listWidgets: () => [THE_WIDGET],
-	deleteWidget: () => undefined,
+	createWidget: (_ctx: unknown, input: { name: string; weight: number }) => ({
+		status: 201,
+		body: { id: THE_WIDGET.id, name: input.name, weight: input.weight },
+	}),
+	listWidgets: () => ({ status: 200, body: [THE_WIDGET] }),
+	deleteWidget: () => ({ status: 204 }),
 };
 
-/**
- * What the app supplies to the generated server. This fixture has no auth and no result envelope,
- * so `context` hands back a token nobody reads and `respond` answers the arm's status directly.
- */
+/** What the app supplies to the generated server. This fixture has no auth, so `context` hands back a token nobody reads. */
 const DEPS = {
 	context: () => ({}),
 	noContext: (c: { text: (body: string, status: 401) => Response }) => c.text("no context", 401),
 	invalid: (result: { success: boolean }, c: { json: (body: unknown, status: 400) => Response }) =>
 		result.success ? undefined : c.json({ error: "invalid" }, 400),
-	respond: (
-		c: {
-			json: (body: unknown, status: number) => Response;
-			body: (b: null, s: number) => Response;
-		},
-		arms: readonly { status: number; schema?: unknown }[],
-		result: unknown,
-	) => {
-		const arm = arms.at(-1) ?? { status: 200, schema: undefined };
-		if (arm.schema === undefined) return c.body(null, arm.status);
-		return c.json(result, arm.status);
-	},
 };
 
 interface Exchange {

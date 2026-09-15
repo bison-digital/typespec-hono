@@ -26,12 +26,12 @@ beforeAll(async () => {
 
 describe("a request body with an indexer", () => {
 	it("emits both operations, so the arms below compare something", () => {
-		expect(source).toContain("x(ctx:");
-		expect(source).toContain("y(ctx:");
+		expect(source).toContain("readonly x: (ctx:");
+		expect(source).toContain("readonly y: (ctx:");
 	});
 
 	it("names the body in the handler's input type rather than intersecting it", () => {
-		expect(source).toMatch(/x\(ctx: Ctx, input: [^)]*\{ body: z\.infer<typeof xBody> \}/);
+		expect(source).toMatch(/x: \(ctx: C, input: [^)]*\{ body: z\.infer<typeof xBody> \}/);
 	});
 
 	it("assigns the body at the call site rather than spreading it", () => {
@@ -51,7 +51,7 @@ describe("a request body with an indexer", () => {
 	 * which is where a claim about behaviour belongs.
 	 */
 	it("names a FORM body too, and reads it from the one body slot", () => {
-		expect(source).toMatch(/z\(ctx: Ctx, input: [^)]*\{ body: z\.infer<typeof zBody> \}/);
+		expect(source).toMatch(/z: \(ctx: C, input: [^)]*\{ body: z\.infer<typeof zBody> \}/);
 		expect(source).toContain('body: c.req.valid("json")');
 		expect(source).not.toContain('c.req.valid("form")');
 	});
@@ -61,7 +61,7 @@ describe("a request body with an indexer", () => {
 		// `Fields<>` wraps each intersected member so an EMPTY validator cannot poison the rest; the
 		// claim here is unchanged, that an ordinary body is intersected rather than named.
 		expect(source).toMatch(
-			/y\(ctx: Ctx, input: Fields<z\.infer<typeof yQuery>> & Fields<z\.infer<typeof thingSchema>>/,
+			/y: \(ctx: C, input: Fields<z\.infer<typeof yQuery>> & Fields<z\.infer<typeof thingSchema>>/,
 		);
 	});
 });

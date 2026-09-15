@@ -81,7 +81,10 @@ export const handlers: Operations = {
 		const output = withConsumer(`
 import type { Operations } from "./app.gen.js";
 
-export const listPages: Operations["listPages"] = () => ({ claims: {}, entries: [], tags: [] });
+export const listPages: Operations["listPages"] = () => ({
+	status: 200,
+	body: { claims: {}, entries: [], tags: [] },
+});
 `);
 		expect(output, output).toBe("");
 	});
@@ -109,7 +112,7 @@ interface ImmutablePage {
 
 const view: ImmutablePage = { claims: { a: 1 }, entries: [{ id: "a" }], tags: ["t"] };
 
-export const listPages: Operations["listPages"] = () => view;
+export const listPages: Operations["listPages"] = () => ({ status: 200, body: view });
 `);
 		expect(output, output).toBe("");
 	});
@@ -118,8 +121,14 @@ export const listPages: Operations["listPages"] = () => view;
 		const output = withConsumer(`
 import type { Operations } from "./app.gen.js";
 
-export const listPages: Operations["listPages"] = () => ({ claims: {}, entries: [], tags: [] });
-export const withNote: Operations["listPages"] = () => ({ claims: {}, entries: [], tags: [], note: "n" });
+export const listPages: Operations["listPages"] = () => ({
+	status: 200,
+	body: { claims: {}, entries: [], tags: [] },
+});
+export const withNote: Operations["listPages"] = () => ({
+	status: 200,
+	body: { claims: {}, entries: [], tags: [], note: "n" },
+});
 `);
 		expect(output, output).toBe("");
 	});

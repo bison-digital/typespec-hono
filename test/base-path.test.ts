@@ -62,7 +62,7 @@ describe("a service declaring a base path is served under it", () => {
 		};
 		const app = server.registerRoutes(
 			new Hono(),
-			() => new Proxy({}, { get: () => () => [{ id: "1" }] }),
+			() => new Proxy({}, { get: () => () => ({ status: 200, body: [{ id: "1" }] }) }),
 			{
 				authorize: () => async (_c: unknown, next: () => Promise<void>) => {
 					await next();
@@ -74,7 +74,6 @@ describe("a service declaring a base path is served under it", () => {
 					r: { success: boolean },
 					c: { json: (b: unknown, s: number) => Response },
 				): Response | undefined => (r.success ? undefined : c.json(r, 400)),
-				respond: (c: { json: (b: unknown) => Response }, _a: unknown, v: unknown) => c.json(v),
 			},
 		);
 		expect((await app.request("/api/v1/things")).status).toBe(200);

@@ -37,7 +37,7 @@ beforeAll(async () => {
 				(_t, name: string) =>
 				(_ctx: unknown, input: unknown): unknown => {
 					received[name] = input;
-					return { path: "p", body: "b" };
+					return { status: 200, body: { path: "p", body: "b" } };
 				},
 		},
 	);
@@ -50,7 +50,6 @@ beforeAll(async () => {
 		notAcceptable: (c: { json: (b: unknown, s: number) => Response }) => c.json({}, 406),
 		invalid: (r: { success: boolean }, c: { json: (b: unknown, s: number) => Response }) =>
 			r.success ? undefined : c.json(r, 400),
-		respond: (c: { json: (b: unknown) => Response }, _a: unknown, v: unknown) => c.json(v),
 	});
 }, 600_000);
 

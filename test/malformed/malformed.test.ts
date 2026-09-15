@@ -34,7 +34,7 @@ beforeAll(async () => {
 				(_target, name: string) =>
 				(_ctx: unknown, input: unknown): unknown => {
 					received[name] = input;
-					return undefined;
+					return { status: 204 };
 				},
 		},
 	);
@@ -54,7 +54,6 @@ beforeAll(async () => {
 			result: { success: boolean },
 			c: { json: (b: unknown, s: number) => Response },
 		): Response | undefined => (result.success ? undefined : c.json({ envelope: true }, 400)),
-		respond: (c: { body: (b: null, s: number) => Response }) => c.body(null, 204),
 	});
 }, 600_000);
 

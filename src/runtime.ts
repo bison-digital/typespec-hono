@@ -1,5 +1,5 @@
 import type { Context, Env, Input, MiddlewareHandler } from "hono";
-import type { ZodType } from "zod";
+import type { output, ZodError, ZodType } from "zod";
 
 /**
  * One arm of an operation's declared response set, as the document publishes it.
@@ -14,36 +14,14 @@ export interface ResponseArm {
 	readonly status: number | "default" | `${1 | 2 | 3 | 4 | 5}XX`;
 	readonly schema: ZodType | undefined;
 	/**
-	 * The media types this response offers, where the document names MORE than one.
-	 *
-	 * Absent where it names one, which is what an application already assumes, so "one type" and
-	 * "not carried" are the same state rather than two to tell apart. Present, it is the set to
-	 * negotiate against: `selectContentType` takes the caller's `Accept` and these.
+	 * Every media type this response offers, including a single one. Absent where there is no body.
 	 */
 	readonly contentTypes?: readonly string[];
 	/**
-	 * The headers this response declares, as the document publishes them.
-	 *
-	 * **Two names, because two different things need them.** `name` is the WIRE name, which is what
-	 * the response sets; `property` is the name on the value the handler returned, which is where the
-	 * value is read from. `@header("x-correlation-id") correlationId: string` is `x-correlation-id`
-	 * on the wire and `correlationId` in the result, and they differ for any header with a hyphen.
-	 *
-	 * Absent where the response declares none.
+	 * The headers this response declares, by the WIRE name the response sets. `optional` is the
+	 * document's `required: false`. Absent where the response declares none.
 	 */
-	readonly headers?: readonly { readonly name: string; readonly property: string }[];
-	readonly when?: {
-		readonly property: string;
-		/**
-		 * **A number too, because a `@statusCode` union selects by the status itself.**
-		 *
-		 * `model Created { @statusCode statusCode: 200 | 201 }` names the property that chooses, and
-		 * its values are the statuses. The discriminator case carries a boolean or string literal off
-		 * the body instead; both are the same question - which arm did the handler mean - so both use
-		 * this one field.
-		 */
-		readonly value: boolean | number | string;
-	};
+	readonly headers?: readonly { readonly name: string; readonly optional: boolean }[];
 }
 
 /**
@@ -85,32 +63,39 @@ export type SecurityRequirement = Readonly<Record<string, readonly string[]>>;
  * assertion invented to put the guarantee back.
  *
  * What is left for the app to supply is genuinely app-specific: how a request becomes a caller's
- * context, and how a result becomes a response. Everything else, routing, validation, which
- * validator applies to which target, what status each arm answers, is generated.
+ * context, and what a refusal looks like. Everything else, routing, validation, which validator
+ * applies to which target, which statuses an operation may answer with and how each one is served,
+ * is generated.
  */
 
 /**
- * How an operation's return value is wrapped.
+ * The Hono environment the generated server mounts on.
  *
- * Identity by default, so an operation may simply return its value. An app with a result envelope
- * points `runtime-module` at its own module and re-declares this as, say, `ServiceResult<T>`, which
- * is what keeps the generated `Operations` interface concretely typed end to end instead of falling
- * back to `unknown` and reintroducing the cast this whole change exists to delete.
- */
-export type Result<T> = T;
-
-/**
- * The Hono environment the generated server mounts on, and the caller context its operations take.
+ * **An interface, so an application AUGMENTS it rather than replacing this module.**
  *
- * **Concrete on purpose.** Making `registerRoutes` generic over the environment does not work:
- * Hono narrows `Context` per route and its conditional types cannot reduce
- * `IfAnyThenEmptyObject<E extends Env ? ...>` while `E` is an unbound parameter, so nothing the app
- * supplies is ever assignable and every call site needs a cast. Naming the types here instead, an
- * app points `runtime-module` at its own module and re-declares them, keeps every generated call
- * site concrete and cast-free. Identity defaults, so an app with neither can ignore both.
+ * ```ts
+ * declare module "./generated/runtime.gen.js" {
+ * 	interface AppEnv {
+ * 		Bindings: { BACKEND: Service<Backend> };
+ * 		Variables: { principal: Principal };
+ * 	}
+ * }
+ * ```
+ *
+ * That is the idiom Hono itself uses for `ContextVariableMap`, and it is what lets this module be
+ * emitted beside the generated code on every compile instead of being copied into an application and
+ * aged there. A copy was the only other way to name an environment: a gateway ran a runtime from
+ * `0.10.1` while the emitter reached `0.21.0`, carrying a content-negotiation defect fixed eleven
+ * releases earlier.
+ *
+ * **Concrete rather than a type parameter of `registerRoutes`, and that was measured twice.** Hono
+ * narrows `Context` per route, and its conditional types cannot reduce
+ * `IfAnyThenEmptyObject<E extends Env ? ...>` while `E` is an unbound parameter, so nothing an
+ * application supplies is ever assignable and every call site needs a cast. Confirmed again on hono
+ * 4.13.1 with TypeScript 7.0.2: three `TS2345`s on a three-route probe.
  */
-export type AppEnv = Env;
-export type Ctx = unknown;
+// oxlint-disable-next-line typescript/no-empty-interface -- augmented by the application.
+export interface AppEnv extends Env {}
 
 /** Anything an operation may hand back: the value, or a promise of it. */
 export type Awaitable<T> = T | Promise<T>;
@@ -214,20 +199,89 @@ export const headOnly: MiddlewareHandler = async (c, next) =>
 	c.req.method === "HEAD" ? next() : c.notFound();
 
 /**
- * **The request-body middleware used to live here, and it moved into `app.gen.ts`.**
+ * A response body that does not match the schema the document publishes for its status.
  *
- * `byContentType` and `optionalBody` were exported from this module and imported by the generated
- * server, which made them part of a SECOND contract this package has: what an application that
- * points `runtime-module` at a module of its own must export. That contract is easy to break without
- * noticing, and it was the reason a required single-media-type body kept `zValidator` - whose
- * `HTTPException` on an unreadable body is a `text/plain` 400 raised before `deps.invalid`, escaping
- * the app's error envelope. Routing those through `byContentType` closed the gap in one line and
- * made that export mandatory for every substituting app: measured, 15 arms red.
+ * **Thrown, so an application decides what a contract failure answers with in `app.onError`**,
+ * which is where Hono puts that decision. Before this existed every consumer made the same check in
+ * its own `respond` and answered differently - a 500, a 502, a 502 with the issues in the body, a 502
+ * with them redacted - and only one of them checked failure bodies at all.
  *
- * Emitting the middleware instead closes the gap and SHRINKS the runtime contract by these two
- * names. Nothing generated imports them, so keeping them here would leave a second implementation of
- * body reading that nothing exercises - which is how two copies of one rule drift apart.
+ * `issues` are Zod's, so they carry paths and codes. They also carry the offending VALUES; an
+ * application that logs them should decide whether its responses may contain anything it would not
+ * log.
  */
+export class ResponseContractError extends Error {
+	constructor(
+		readonly operationId: string,
+		readonly status: number,
+		readonly issues: ZodError["issues"],
+	) {
+		super(`${operationId} answered ${status} with a body its document does not permit`);
+		this.name = "ResponseContractError";
+	}
+}
+
+/**
+ * A handler answered with a status its operation does not declare.
+ *
+ * **Unreachable from a typed handler.** The generated `Operations` interface types every result as
+ * the union of the declared statuses, so a literal outside it does not compile. This is what a CAST
+ * produces, or a result that crossed a boundary the type system cannot see into, such as untyped
+ * data from a service binding. Thrown rather than served, because serving it would publish a status
+ * the contract does not state.
+ */
+export class UndeclaredStatusError extends Error {
+	constructor(
+		readonly operationId: string,
+		readonly result: unknown,
+	) {
+		const status =
+			typeof result === "object" && result !== null && "status" in result
+				? String(result.status)
+				: "no status";
+		super(`${operationId} answered ${status}, which its document does not declare`);
+		this.name = "UndeclaredStatusError";
+	}
+}
+
+/**
+ * The body a response SERVES: what the handler returned, parsed against the schema the document
+ * publishes for that status.
+ *
+ * **What is served is the PARSED value, not the one the handler returned.** A schema that strips
+ * undeclared keys therefore strips them from the wire too, which is how an internal field such as a
+ * tenant id is kept out of a response the document does not publish it in. Seven of the nine
+ * consumer surfaces surveyed relied on exactly that, each in its own hand-written `respond`.
+ *
+ * Synchronous, because nothing this emitter writes is asynchronous - `test/sync.test.ts` asserts it
+ * over the whole corpus - and the asynchronous path costs 2.6x per parse.
+ */
+export function servedBody<S extends ZodType>(
+	schema: S,
+	value: unknown,
+	operationId: string,
+	status: number,
+): output<S> {
+	const parsed = schema.safeParse(value);
+	if (!parsed.success) throw new ResponseContractError(operationId, status, parsed.error.issues);
+	return parsed.data;
+}
+
+/**
+ * Declared response headers, as the strings a response carries.
+ *
+ * An optional header the handler did not supply is omitted rather than sent as `"undefined"`, and a
+ * typed value - a `retry-after` declared `int32` - is written as its text. Hono's `HeaderRecord`
+ * refuses `undefined`, so dropping it here is also what keeps the generated call sites free of a
+ * conditional per header.
+ */
+export function headersOf(declared: Readonly<Record<string, unknown>>): Record<string, string> {
+	const headers: Record<string, string> = {};
+	for (const [name, value] of Object.entries(declared)) {
+		if (value !== undefined) headers[name] = String(value);
+	}
+	return headers;
+}
 
 /**
  * What the app provides. One object, passed once, rather than a module the generated file imports by
@@ -239,26 +293,25 @@ export const headOnly: MiddlewareHandler = async (c, next) =>
  * so a hook typed against a single `Context<E>` is not assignable at any real call site. Making the
  * hooks generic lets the app write functions that ignore both, without a cast anywhere.
  *
- * **`E` and `C` are PARAMETERS, and they have to be.** The defaults keep the bare `RouteDeps` the
- * generated server writes working for an app that substitutes nothing. An app that substitutes
- * anything binds them once, `export type RouteDeps = BaseRouteDeps<AppEnv, Ctx>` in the module it
- * points `runtime-module` at, and every hook is then typed against its own environment and its own
- * caller context.
+ * **`C` is the caller context, and `registerRoutes` INFERS it from `context`.** An application that
+ * returns a `Caller` from `context` has handlers typed `(ctx: Caller, input)`, with nothing to
+ * declare. It used to be a type an application re-declared in a substituted copy of this module.
  *
- * Re-exporting this interface unparameterised instead does not work, and the reason is not obvious:
- * **Hono's `Context` is INVARIANT in its environment**, because `Context.set` takes `E` as an
- * argument. So `Context<AppEnv, ...>` is not assignable to `Context<Env, ...>` however plain the
- * substituted environment is, and every generated `deps.*` call site fails. Separately, `context`
- * would keep returning the identity `Ctx` (`unknown`) which the app's own handlers then reject.
- * Measured before this was parameterised: **19 errors on a four-operation service.**
+ * **Nothing here renders a successful response, and that is the point.** Which statuses an operation
+ * may answer with, which body each one carries and how it is serialised are all things the document
+ * states, so the generated route does them. A `respond` hook used to be handed every arm and the
+ * handler's result, and every application re-implemented the choice by hand: five status-mapping
+ * tables across the consumers surveyed, none consulting the arms, one sending a declared 404 as 400.
+ * What remains are the refusals that happen before a handler runs, whose envelope only the
+ * application knows.
  */
-export interface RouteDeps<E extends Env = AppEnv, C = Ctx> {
+export interface RouteDeps<E extends Env = AppEnv, C = unknown> {
 	/**
 	 * The gate the DOCUMENT publishes, as middleware.
 	 *
 	 * **Which scopes an operation demands is a contract fact; how a token is verified is not.**
 	 * `@useAuth(OAuth2Auth<...>)` reaches OpenAPI as `security` per operation, so the requirement is
-	 * generated and this implements the check. The same split as `context` and `respond`. Emitted
+	 * generated and this implements the check. The same split as `context`. Emitted
 	 * only where the operation declares scopes, which is why an internal surface with none is
 	 * unaffected.
 	 *
@@ -318,13 +371,4 @@ export interface RouteDeps<E extends Env = AppEnv, C = Ctx> {
 		result: { readonly success: boolean },
 		c: Context<E, P, I>,
 	) => Response | undefined;
-	/**
-	 * Turn an operation's result into a response, checked against the schema the document publishes
-	 * for the arm that applies. A bodyless success is an arm whose `schema` is `undefined`.
-	 */
-	readonly respond: <P extends string, I extends Input>(
-		c: Context<E, P, I>,
-		arms: readonly ResponseArm[],
-		result: unknown,
-	) => Awaitable<Response>;
 }

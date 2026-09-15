@@ -10,7 +10,65 @@ consumer feels, and is treated as such here rather than as an implementation det
 
 ## [Unreleased]
 
+Requires the unreleased `typespec-http-zod` per-status response records.
+
+### Changed, breaking
+
+**A handler returns any response its operation declares, and the generated route serves it the way
+Hono serves a response.** A handler's return type was the success body alone, so eight of a typical
+operation's nine declared failures could only be thrown past the generated code into `onError`, where
+no declared status or body was checked. An application that wanted its own caller context or result
+shape had to replace the whole runtime with `runtime-module`, and so owned a copy of the negotiation,
+HEAD guard and arm selection logic: consumers carried copies as old as `0.7`.
+
+- **A handler returns `{ status, body, headers }`**, typed per operation as the union of the declared
+  responses: one member per status, a range excluding the statuses declared more precisely, `default`
+  excluding every declared status. A status or body the document does not declare does not compile.
+- **The generated route serves each response with its own Hono call** - `c.json(body, 404)`,
+  `c.body(stream, 200)` - after parsing the body against the schema the document publishes for that
+  status, failures included. What is served is the parse result. Hono's RPC client narrows a body by
+  its status, which it could not do before for any route: `respond` returned a plain `Response`.
+- **`deps.respond` is removed.** A body the schema refuses throws `ResponseContractError` and a status
+  outside the declared set throws `UndeclaredStatusError`, both for `app.onError`.
+- **`runtime-module` is refused** with the error `runtime-module-removed`, and `runtime.gen.ts` is
+  always written. `Ctx` is inferred from `deps.context`; `AppEnv` is an interface an application
+  augments; `Result<T>` is gone. `Operations<C>` and every `XHandler<C>` take the caller context.
+- **The caller context and content negotiation are established in middleware**, because a plain
+  `Response` returned from a route's final handler erases every typed response on the route. The
+  context reaches the handler through a per-request map: `c.set` on a generated environment makes
+  every `deps` hook unassignable, because Hono's `Context` is invariant in its environment.
+- **Handler signatures are property signatures**, so a handler asking for a richer caller context than
+  `deps.context` establishes is refused. As a method signature it compiled.
+
+`docs/guides.md` carries the upgrade, including the adapter a gateway over a service binding writes.
+
+**Graded:**
+
+- `test/envelope/` serves every kind of response by request: a chosen status, a header, a range, the
+  catch-all, a problem document, text, XML, bytes, a status offering two media types, no body, the
+  parsed projection, and both errors.
+- `test/envelope/refusals.test.ts` compiles eight consumers that must not compile, beside a control
+  that must.
+- `test/wiring/` builds a typed application with no casts, an augmented environment and returned
+  failures, and `rpc.fixture.ts` narrows a body by status.
+- `test/conformance/typecheck.test.ts` compiles every corpus server.
+- `test/conformance/goldstandard.test.ts` compares what `hc` infers for 619 corpus routes with what
+  `@hono/zod-openapi`'s `RouteConfigToTypedResponse` derives from the published document.
+
+Each guard was broken and watched go red: status 999 (261 errors across the corpus), 200 for every
+JSON response (the oracle), a plain `Response` (`hc` bodies become `unknown`), method signatures (a
+richer context compiles), no range exclusion in `default` (the switch stops compiling), and
+`runtime-module` passed through (both refusal arms).
+
 ### Fixed
+
+- **A concrete path is served before a templated one.** `GET /items/plain` was answered by the handler
+  for `/items/{id}` whenever the templated operation was declared first, because Hono runs the first
+  registered match. Measured by request, with the wrong handler's body. Routes are now registered
+  concrete-first, which is OpenAPI's rule.
+- **`unvalidated-response-media-type`** names a response served as text the handler supplies, because
+  no serialisation derives from its schema: a model under `application/xml`. 29 across the corpus,
+  counted in the route baseline, and served before this by whatever an application's `respond` did.
 
 - **An operation that allows anonymous access as one alternative no longer demands a credential.**
   `@useAuth(NoAuth | BearerAuth)` publishes `security: [{}, { "BearerAuth": [] }]`, where `{}` is the
@@ -23,6 +81,14 @@ consumer feels, and is treated as such here rather than as an implementation det
 
   **Felt by an `authorize` that assumed every requirement names a scheme.** One written to the rule in
   `docs/guides.md` (any one requirement, every scheme within it) admits `{}` with no change.
+
+### Recorded, not fixed
+
+- **A scalar JSON request body emits a server that does not compile.** `@body body: string`, an enum
+  or a union is spread into the handler's input, `TS2698`, in five corpus scenarios; a recursive
+  dictionary body reads as `unknown`, `TS2322`, in a sixth. Both are request-side and older than this
+  release; they were found when the corpus was compiled for the first time, and
+  `test/conformance/typecheck.test.ts` lists them exactly.
 
 ## [0.22.0] - 2026-09-12
 

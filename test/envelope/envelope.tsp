@@ -3,20 +3,13 @@ import "@typespec/http";
 using Http;
 
 /**
- * The response ENVELOPE: which status was chosen, and the headers that go with it.
+ * **Every kind of response a handler can return, and how each one is served.**
  *
- * **Both are published in the emitted arms and neither could be reached from a handler.**
- *
- * `create` declares two success statuses. `@typespec/openapi3` publishes both; the emitter wrote one
- * arm, so `armFor` could never select the second and a route that answers 201 on create and 200 on
- * update had no way to say so. The only mechanism for a second arm was `statusDiscriminatorOf`,
- * which needs a required literal property on the body - measured across the whole conformance
- * corpus, it fires ZERO times, so the path had never been emitted at all.
- *
- * `tagged` declares a response header beside a body. An arm names the property to read the header
- * value from, and `@header` properties are stripped from the body schema (correctly - they are not
- * body), so the handler's return type did not carry them. Measured on `payload__head`:
- * `Awaitable<Result<void>>` against an arm naming two header properties.
+ * A handler returns `{ status, body, headers }` for any response its document declares, and the
+ * generated route serves it with the Hono call for that response. Each operation below is one way a
+ * declared response differs from a plain JSON 200: a status chosen from several, a header, a status
+ * RANGE, the catch-all, a problem document, text, a model served as XML, raw bytes, a status offering
+ * two media types, and no body at all.
  */
 @service(#{ title: "Envelope" })
 namespace Envelope;
@@ -26,12 +19,7 @@ model Item {
   label: string;
 }
 
-/**
- * Two success statuses chosen by the handler.
- *
- * `@statusCode` typed as a union IS the selector: the handler says which one it means by returning
- * that property, so nothing has to be inferred from the body's shape.
- */
+/** Two success statuses. The handler names the one it means. */
 model Created {
   @statusCode statusCode: 200 | 201;
   @body body: Item;
@@ -41,7 +29,7 @@ model Created {
 @post
 op create(@body body: Item): Created;
 
-/** A response header beside a body, so the arm names a property the handler has to be able to set. */
+/** A response header beside a body. */
 model Tagged {
   @statusCode statusCode: 200;
   @header("x-correlation-id") correlationId: string;
@@ -52,7 +40,71 @@ model Tagged {
 @get
 op tagged(@path id: string): Tagged;
 
-/** The control: an ordinary single-status operation with no envelope at all. */
+/** The control: an ordinary single-status operation. */
 @route("/items/plain")
 @get
 op plain(): Item;
+
+model Problem {
+  title: string;
+}
+
+/** A failure RANGE, as a problem document, with an optional header. */
+@error
+model Throttled {
+  @minValue(400)
+  @maxValue(499)
+  @statusCode
+  code: int32;
+
+  @header("retry-after") retryAfter?: int32;
+  @header contentType: "application/problem+json";
+  @body problem: Problem;
+}
+
+/** The catch-all. It declares no status, so it is the document's `default`. */
+@error
+model Unexpected {
+  reason: string;
+}
+
+@route("/items/{id}/throttle")
+@get
+op throttle(@path id: string): Item | Throttled | Unexpected;
+
+/** A string under a non-JSON media type: the body is the text, and it is validated. */
+@route("/text")
+@get
+op text(): {
+  @header contentType: "text/plain";
+  @body body: string;
+};
+
+/** A model under a non-JSON media type: the handler supplies the text, served unvalidated. */
+@route("/xml")
+@get
+op xml(): {
+  @header contentType: "application/xml";
+  @body body: Item;
+};
+
+/** Raw bytes, handed to Hono unread. */
+@route("/blob")
+@get
+op blob(): {
+  @header contentType: "application/octet-stream";
+  @body body: bytes;
+};
+
+/** One status offering two media types. The handler names which one it answers with. */
+@route("/either")
+@get
+op either(): {
+  @header contentType: "application/json" | "application/xml";
+  @body body: Item;
+};
+
+/** No response body at all. */
+@route("/items/{id}")
+@delete
+op remove(@path id: string): void;

@@ -96,34 +96,34 @@ describe("output emitted with no options but the output directory", () => {
 	});
 
 	/**
-	 * **The SECOND contract this package has, asserted as a closed set.**
+	 * **What the generated files reach for in the runtime, asserted as a closed set.**
 	 *
-	 * Emitted output is not the only thing a consumer is held to. An application may point
-	 * `runtime-module` at a module of its own, and every name the generated files import from there is
-	 * something that application must export. That contract has no file to read and nothing was
-	 * comparing it, so it could grow by one import in an unrelated change and break every substituting
-	 * app at once - which is exactly what happened when a required body was routed through
-	 * `byContentType`: 15 arms red, every one an app whose module had no such export.
+	 * This used to be a contract an APPLICATION was held to: `runtime-module` let it substitute the
+	 * module, and every name imported from there was something it had to export. It grew by one import
+	 * in an unrelated change once and broke every substituting app at once. The option is refused now
+	 * and the runtime is always the one this package emits, so no application is held to the list -
+	 * but the list is still the runtime's surface the generated code depends on, and growing it is
+	 * still a decision rather than an accident.
 	 *
 	 * Written out literally rather than derived from the source, so the oracle does not take its
-	 * expectation from the code it grades. Adding a name here is a deliberate act with a reason beside
-	 * it; adding one by accident fails this arm.
+	 * expectation from the code it grades.
 	 *
-	 * `byContentType` and `optionalBody` were on this list and are not any more: the body middleware is
-	 * emitted into `app.gen.ts`, so closing the error-envelope gap made this set SMALLER rather than
-	 * larger.
+	 * `Ctx`, `Result` and `armFor` left this list: the caller context is a type parameter, a result is
+	 * the union of declared responses, and the generated route selects a response by its status
+	 * literal rather than by scanning arms. `servedBody`, `headersOf` and `UndeclaredStatusError`
+	 * joined it, because serving a declared response is now the generated route's job.
 	 */
-	it("imports only the runtime names a substituting application is told to supply", () => {
+	it("imports only the runtime names this package's runtime is known to export for it", () => {
 		const allowed = new Set([
 			"AppEnv",
 			"Awaitable",
-			"Ctx",
-			"Result",
 			"RouteDeps",
 			"ResponseArm",
-			"armFor",
+			"UndeclaredStatusError",
 			"headOnly",
+			"headersOf",
 			"selectContentType",
+			"servedBody",
 		]);
 		const imported = new Set<string>();
 		for (const name of readdirSync(outDir).filter((entry) => entry.endsWith(".gen.ts"))) {

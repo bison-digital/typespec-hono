@@ -26,10 +26,10 @@ import {
  * accepted and silently dropped, which produces output that is wrong in a way no test of either
  * package would see. `test/options.test.ts` asserts the forwarding as a CLASS.
  *
- * There is currently nothing to add: `runtime-module` belongs to the library, because the library is
- * what emits the annotated response arms that need it. This type exists as the seam rather than
- * because it carries anything today. The moment a Hono-only option appears it goes here, and the
- * derivation keeps the rest honest.
+ * `runtime-module` arrives here with the rest and is REFUSED by the emitter (`runtime-module-removed`)
+ * rather than deleted from the schema. A schema that no longer lists it would report only "must NOT
+ * have additional properties", which tells a consumer upgrading from a version that documented the
+ * option neither why nor what to do instead.
  */
 export type EmitterOptions = HttpZodOptions & {
 	/**
@@ -119,6 +119,41 @@ const diagnostics = {
 			default: paramMessage`'${"operationId"}' declares request media types this emitter cannot validate (${"types"}). Requests carrying them are refused rather than validated. Declare a media type with a parser -- JSON, multipart or urlencoded -- or handle the body yourself with '@body body: bytes'.`,
 		},
 	},
+	/**
+	 * `runtime-module` is set, and this emitter no longer substitutes its runtime.
+	 *
+	 * **The option made an application OWN a copy of generated logic**, because the generated server
+	 * imported the application's types from the same module as content negotiation, the HEAD guard and
+	 * arm selection. So every consumer that needed its own caller context or result shape copied those
+	 * too, and the copies aged: one gateway ran a runtime eleven releases behind the emitter, carrying a
+	 * negotiation defect long since fixed.
+	 *
+	 * Nothing the option was for needs it now. The caller context is inferred from `deps.context`, the
+	 * Hono environment is an interface an application augments, and what a handler returns is the union
+	 * of the responses the document declares. **An error rather than a warning**, because the option's
+	 * value is ignored, and an emitter that silently ignores a setting produces output its author did
+	 * not ask for.
+	 */
+	"runtime-module-removed": {
+		severity: "error",
+		messages: {
+			default: paramMessage`'runtime-module' is set to '${"value"}', and typespec-hono no longer substitutes its runtime: 'runtime.gen.ts' is always emitted. Remove the option and delete the module it pointed at. The caller context is inferred from 'deps.context', the Hono environment is augmented with 'declare module "./runtime.gen.js" { interface AppEnv { ... } }', and a handler returns '{ status, body, headers }' for any response the document declares. See the Upgrading section of docs/guides.md.`,
+		},
+	},
+	/**
+	 * A response the handler supplies as text, served without being checked against its schema.
+	 *
+	 * A model declared under a media type that is not JSON - a `Pet` as `application/xml` - has no
+	 * serialisation this emitter can derive from the document, so the handler returns the text and the
+	 * route serves it as is. Reported for the same reason as its request-side twin: a route should not
+	 * look validated when it is not.
+	 */
+	"unvalidated-response-media-type": {
+		severity: "warning",
+		messages: {
+			default: paramMessage`'${"operationId"}' answers ${"status"} as ${"types"}, which this emitter cannot serialise from the schema. The handler returns that body as text and it is served without being validated. Declare a JSON media type, or a string body, to have it checked.`,
+		},
+	},
 	"unsupported-path-template": {
 		severity: "warning",
 		messages: {
@@ -144,8 +179,12 @@ const diagnostics = {
  * exists only in the arrangement that BUILDS the package, and would ship silently.
  */
 type Diagnostics = {
+	"runtime-module-removed": { readonly default: CallableMessage<["value"]> };
 	"unsupported-path-template": { readonly default: CallableMessage<["template", "name"]> };
 	"unvalidatable-media-type": { readonly default: CallableMessage<["operationId", "types"]> };
+	"unvalidated-response-media-type": {
+		readonly default: CallableMessage<["operationId", "status", "types"]>;
+	};
 };
 
 /**

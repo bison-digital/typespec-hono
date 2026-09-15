@@ -75,7 +75,9 @@ beforeAll(async () => {
 				(_target, name: string) =>
 				async (_ctx: unknown, input: unknown): Promise<unknown> => {
 					received[name] = await drained(input);
-					return { id: "1", label: "ok" };
+					const item = { id: "1", label: "ok" };
+					// Every operation here declares one success, `200`, carrying an `Item` or a list of them.
+					return { status: 200, body: name.startsWith("list") ? [item] : item };
 				},
 		},
 	);
@@ -90,8 +92,6 @@ beforeAll(async () => {
 			result: { success: boolean },
 			c: { json: (b: unknown, s: number) => Response },
 		): Response | undefined => (result.success ? undefined : c.json(result, 400)),
-		respond: (c: { json: (b: unknown) => Response }, _arms: unknown, value: unknown) =>
-			c.json(value),
 	});
 }, 600_000);
 
