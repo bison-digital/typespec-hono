@@ -8,9 +8,14 @@ published types; a patch will not. The **emitted output is part of the API**, a 
 `registerRoutes` returns, to a validator's shape, or to what a handler receives is a change a
 consumer feels, and is treated as such here rather than as an implementation detail.
 
-## [Unreleased]
+## [0.23.0] - 2026-09-16
 
-Requires the unreleased `typespec-http-zod` per-status response records.
+Requires `typespec-http-zod` 0.26.0.
+
+A minor carrying four things, the first of them breaking for every consumer: **a handler returns any
+response its operation declares, served the way Hono serves one**, **every URI `@typespec/http-specs`
+declares now reaches its operation**, **`context` is told whether a caller is optional**, and **a
+`text/plain` request body reaches the handler**, which it never did.
 
 ### Changed, breaking
 
