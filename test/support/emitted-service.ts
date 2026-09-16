@@ -120,6 +120,9 @@ export const noRefusals: RenderRefusals = {
 	unvalidatedResponseMediaType: (): void => {
 		throw new Error("unexpected response media-type refusal");
 	},
+	regexpRouterUnsupported: (): void => {
+		throw new Error("unexpected RegExpRouter refusal");
+	},
 };
 
 /** Refusals that are recorded nowhere, for an arm about something else. */
@@ -127,4 +130,5 @@ export const ignoreRefusals: RenderRefusals = {
 	unsupportedPathTemplate: () => undefined,
 	unvalidatableMediaType: () => undefined,
 	unvalidatedResponseMediaType: () => undefined,
+	regexpRouterUnsupported: () => undefined,
 };

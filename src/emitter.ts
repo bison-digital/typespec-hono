@@ -173,6 +173,17 @@ export async function $onEmit(context: EmitContext): Promise<void> {
 							target: targetFor(emitted, route.verb, route.path),
 						});
 					},
+					/**
+					 * Reported against the service rather than an operation: which routes `RegExpRouter`
+					 * refuses is a property of the route SET, so no single operation is the one at fault.
+					 */
+					regexpRouterUnsupported: (path, reason) => {
+						reportDiagnostic(context.program, {
+							code: "regexp-router-unsupported",
+							format: { path, reason },
+							target: emitted.service.namespace,
+						});
+					},
 				},
 				base.basePaths,
 			),

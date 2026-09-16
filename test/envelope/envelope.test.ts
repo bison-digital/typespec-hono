@@ -100,9 +100,16 @@ beforeAll(async () => {
 }, 600_000);
 
 describe("the fixture compiles into what these arms read", () => {
-	it("raises nothing but the one warning it is built to raise", () => {
+	it("raises nothing but the warnings it is built to raise", () => {
+		/**
+		 * **The `regexp-router-unsupported` warning is the fixture's own shape, not a regression.**
+		 * It declares `/items/plain` beside `/items/{id}`, which is what the concrete-before-templated
+		 * ordering exists for, and which is exactly the set Hono's `RegExpRouter` refuses to compile.
+		 * The fixture serves correctly here because these arms mount it with the default router.
+		 */
 		expect(compiled.diagnostics.filter((d) => d.severity === "error")).toEqual([]);
-		expect(compiled.diagnostics.map((d) => d.code)).toEqual([
+		expect(compiled.diagnostics.map((d) => d.code).toSorted()).toEqual([
+			"typespec-hono/regexp-router-unsupported",
 			"typespec-hono/unvalidated-response-media-type",
 			"typespec-hono/unvalidated-response-media-type",
 		]);

@@ -115,6 +115,13 @@ export interface CompiledScenario {
 	/** Responses served as text the handler supplies, because no serialisation derives from the schema. */
 	readonly unvalidatedResponses?: number;
 	/**
+	 * Whether this scenario's composed route set is one a bare `RegExpRouter` refuses to compile.
+	 *
+	 * Nothing is refused and every operation is served; this counts specs whose host application must
+	 * keep Hono's default router. See `regexp-router-unsupported`.
+	 */
+	readonly routerUnsupported?: number;
+	/**
 	 * The LAST version the service declares, when it is versioned.
 	 *
 	 * **Not the last document by filename, which is what this used to mean.** `versioning/removed`
@@ -291,11 +298,24 @@ export async function compileScenario(
 	 * because the two may move independently.
 	 */
 	const PARTIAL_RESPONSE = "typespec-hono/unvalidated-response-media-type";
+	/**
+	 * **Not a refusal and not a partial validation: a caveat about the HOST application's choice.**
+	 *
+	 * Every operation is mounted, validated and served. What the warning says is that the route set is
+	 * one Hono's `RegExpRouter` cannot compile, so an application that constructs its app with a bare
+	 * `RegExpRouter` would not start. Counted as a refusal it would make `mounted + refused` overshoot
+	 * `declared` while nothing was refused; folded into either partial it would claim something about
+	 * validation, which it says nothing about. So it is its own count.
+	 */
+	const ROUTER_ADVISORY = "typespec-hono/regexp-router-unsupported";
+	const ADVISORY_CODES = new Set([PARTIAL, PARTIAL_RESPONSE, ROUTER_ADVISORY]);
 	const refusalCodes = new Set(
 		Object.keys($lib.diagnostics)
 			.map((code) => `typespec-hono/${code}`)
-			.filter((code) => code !== PARTIAL && code !== PARTIAL_RESPONSE),
+			.filter((code) => !ADVISORY_CODES.has(code)),
 	);
+	/** Scenarios whose composed route set a bare `RegExpRouter` would refuse to compile. */
+	const routerUnsupported = program.diagnostics.filter((d) => d.code === ROUTER_ADVISORY).length;
 	/** Operations mounted but with at least one declared media type left unvalidated. */
 	const partiallyValidated = program.diagnostics.filter((d) => d.code === PARTIAL).length;
 	/** Responses served as text the handler supplies, unvalidated. */
@@ -320,8 +340,7 @@ export async function compileScenario(
 			(diagnostic) =>
 				diagnostic.code.startsWith("typespec-hono/") &&
 				diagnostic.severity === "warning" &&
-				diagnostic.code !== PARTIAL &&
-				diagnostic.code !== PARTIAL_RESPONSE &&
+				!ADVISORY_CODES.has(diagnostic.code) &&
 				!refusalCodes.has(diagnostic.code),
 		)
 		.map((diagnostic) => `${scenario.name} :: ${diagnostic.code}`);
@@ -335,7 +354,15 @@ export async function compileScenario(
 	);
 	if (error === undefined) {
 		return latestVersion === undefined
-			? { scenario, ...dirs, emitterWarnings, refusals, partiallyValidated, unvalidatedResponses }
+			? {
+					scenario,
+					...dirs,
+					emitterWarnings,
+					refusals,
+					partiallyValidated,
+					unvalidatedResponses,
+					routerUnsupported,
+				}
 			: {
 					scenario,
 					...dirs,
@@ -344,11 +371,19 @@ export async function compileScenario(
 					refusals,
 					partiallyValidated,
 					unvalidatedResponses,
+					routerUnsupported,
 				};
 	}
 	return {
 		scenario,
 		...dirs,
+		/**
+		 * **Carried even here, because the router verdict does not depend on the document.**
+		 * `routes` is refused by openapi3 itself, and it is also the one corpus scenario whose route
+		 * set `RegExpRouter` cannot compile. Dropping the count on this branch hid it from the arm
+		 * built to check it, which then passed by comparing nothing.
+		 */
+		routerUnsupported,
 		failure: {
 			owner: ownerOfCode(error.code),
 			code: error.code,

@@ -1,3 +1,4 @@
+import { RegExpRouter } from "hono/router/reg-exp-router";
 import type { SecurityRequirement } from "./runtime.js";
 import {
 	type EmittedPathSegment,
@@ -968,6 +969,42 @@ function capitaliseId(operationId: string): string {
 	return `${operationId.charAt(0).toUpperCase()}${operationId.slice(1)}`;
 }
 
+/**
+ * Whether Hono's `RegExpRouter` can compile this route set, and the route it names if not.
+ *
+ * **Hono's own router, imported statically.** `hono` is a required peer - `runtime.ts` imports it and
+ * the generated server cannot run without it - so there is nothing to degrade gracefully around, and
+ * a guarded import would claim a resilience this package does not need. Running the real router is
+ * what stops the check drifting from a rule Hono never documented.
+ *
+ * **`match` as well as `add`.** `RegExpRouter` builds its expressions lazily, so a conflict added
+ * through `add` alone can go unreported until the first request. One `match` forces the build.
+ */
+function regExpRouterRefusal(
+	routes: readonly (readonly [string, string])[],
+): { path: string; reason: string } | undefined {
+	const first = routes[0];
+	if (first === undefined) return undefined;
+	const router = new RegExpRouter<() => undefined>();
+	const noop = (): undefined => undefined;
+	try {
+		for (const [method, path] of routes) router.add(method, path, noop);
+		router.match("GET", first[1]);
+		return undefined;
+	} catch (error) {
+		/**
+		 * **The CONSTRUCTOR name, not `.name`.** Hono's `UnsupportedPathError` extends `Error` without
+		 * setting `this.name`, so the inherited `.name` reads `"Error"` and says nothing. Its `message`
+		 * is the offending path and is the whole of what it reports.
+		 */
+		const thrown = error as { constructor?: { name?: string }; message?: string };
+		return {
+			path: thrown.message ?? "(unnamed)",
+			reason: thrown.constructor?.name ?? "the router refused it",
+		};
+	}
+}
+
 /** The one thing a Hono server cannot express, handed back rather than thrown. */
 export interface RenderRefusals {
 	readonly unsupportedPathTemplate: (route: EmittedRoute, template: string, name: string) => void;
@@ -977,6 +1014,16 @@ export interface RenderRefusals {
 		status: StatusKey,
 		types: readonly string[],
 	) => void;
+	/**
+	 * This route set is one Hono's `RegExpRouter` refuses to compile, with the path it named.
+	 *
+	 * **Asked of Hono's real router rather than a reimplementation of its rule.** Which paths
+	 * `RegExpRouter` refuses is undocumented, version-specific and subtle: a static segment beside a
+	 * parameter at the same position is refused, while two parameters with different names at one
+	 * position are not. A copy of that rule here would be a second invariant to keep honest against a
+	 * library that never promised to hold still.
+	 */
+	readonly regexpRouterUnsupported: (path: string, reason: string) => void;
 }
 
 /**
@@ -1378,7 +1425,17 @@ type Produced<T> = T extends (...args: never[]) => unknown
 
 	const uses: Uses = { runtime: new Set() };
 	const registrations = [...slots.values()].map(
-		(groupsInSlot): { target: string; path: string; text: string; headOnly: boolean } => {
+		(
+			groupsInSlot,
+		): {
+			target: string;
+			path: string;
+			/** The path a ROUTER sees: before the sub-app prefix is stripped off `path`. */
+			mountedPath: string;
+			method: string;
+			text: string;
+			headOnly: boolean;
+		} => {
 			const headGroups = groupsInSlot.filter((g) => (g[0] as AppRoute).route.verb === "HEAD");
 			const plainGroups = groupsInSlot.filter((g) => (g[0] as AppRoute).route.verb !== "HEAD");
 			/**
@@ -1636,7 +1693,7 @@ type Produced<T> = T extends (...args: never[]) => unknown
 				"\t\t\t},",
 				"\t\t)",
 			].join("\n");
-			return { target, path: registeredPath, text, headOnly };
+			return { target, path: registeredPath, mountedPath: path, method, text, headOnly };
 		},
 	);
 
@@ -1726,6 +1783,25 @@ type Produced<T> = T extends (...args: never[]) => unknown
 		}
 		return 0;
 	});
+	/**
+	 * Whether the router the application may choose can hold what was just mounted.
+	 *
+	 * **`mountedPath`, not `path`.** The second is relative to whichever sub-app holds it, which is
+	 * what the emitted text says and not what any router is given. Judging the relative forms reports
+	 * conflicts between routes that are not siblings at all: measured on five fixtures, two were
+	 * called unmountable that mount perfectly.
+	 */
+	const refusal = regExpRouterRefusal(
+		registrations.flatMap((registration) => {
+			// `app.on` covers verbs with no dedicated helper; the rest name their verb directly.
+			const method = registration.method === "on" ? "GET" : registration.method.toUpperCase();
+			return (basePaths.length === 0 ? [""] : basePaths).map(
+				(prefix) => [method, `${prefix}${registration.mountedPath}` || "/"] as const,
+			);
+		}),
+	);
+	if (refusal !== undefined) refuse.regexpRouterUnsupported(refusal.path, refusal.reason);
+
 	const byTarget = new Map<string, string[]>();
 	for (const registration of registrations) {
 		byTarget.set(registration.target, [
