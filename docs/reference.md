@@ -95,6 +95,13 @@ warn-as-error: true
   into the handler's input as though it were an object, `TS2698`. Five corpus scenarios carry one, and
   `test/conformance/typecheck.test.ts` lists them. A recursive dictionary body has a related defect,
   `TS2322`, in a sixth.
+- **A request body nested deeper than the runtime's stack is refused, not served.** Zod recurses once
+  per level and has no depth guard, so a recursive model meets a `RangeError` at around 1,700 levels
+  on `workerd` (roughly 36 KB of JSON; the exact point depends on the runtime and on what else is on
+  the stack). The document permits it - JSON Schema has no depth keyword and Ajv accepts the same
+  value - so this is a divergence, and the alternative was a 500 that an application could not tell
+  from a bug of its own. The refusal reaches `deps.invalid` carrying the issue
+  `input is nested too deeply for this runtime to validate`.
 - **Middleware responses are not part of a route's type.** `noContext`, `invalid` and `notAcceptable`
   answer from middleware, which is also where `@hono/zod-openapi` leaves them, so Hono's RPC client
   does not see their bodies.

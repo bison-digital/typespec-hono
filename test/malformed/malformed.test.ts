@@ -27,6 +27,7 @@ beforeAll(async () => {
 		registerRoutes: (app: unknown, handlersFor: unknown, deps: unknown) => void;
 	};
 	app = new Hono();
+	refusals.length = 0;
 	const handlers = new Proxy(
 		{},
 		{
@@ -53,9 +54,16 @@ beforeAll(async () => {
 		invalid: (
 			result: { success: boolean },
 			c: { json: (b: unknown, s: number) => Response },
-		): Response | undefined => (result.success ? undefined : c.json({ envelope: true }, 400)),
+		): Response | undefined => {
+			if (result.success) return undefined;
+			refusals.push(result);
+			return c.json({ envelope: true }, 400);
+		},
 	});
 }, 600_000);
+
+/** Every result `deps.invalid` was handed, so an arm can read what a refusal TELLS the caller. */
+const refusals: { success: boolean; error?: { issues?: { message?: string }[] } }[] = [];
 
 /** A body that is not the JSON its content type claims. */
 const malformedJson = {
@@ -148,6 +156,72 @@ describe("a body that cannot be read is refused through the app's envelope", () 
  * **Non-vacuity.** Every arm above would pass for a server that answered `{envelope: true}` to
  * everything, or that never validated a body at all.
  */
+describe("a media type the document does not publish is refused", () => {
+	/**
+	 * **The route used to accept the body whatever the header said.** `bodyTarget` fell through to the
+	 * first declared branch, and the emitter's own comment claimed the body would then "simply fail to
+	 * parse" - which it does not: `c.req.json()` reads the bytes regardless. Measured on a generated
+	 * server under `workerd`, an operation publishing `application/json` alone answered **200** to the
+	 * same JSON body sent as `text/plain`, as `multipart/form-data`, and with no `Content-Type` at all.
+	 *
+	 * `@typespec/http-server-js`, TypeSpec's own reference server, refuses the identical case through
+	 * its `onInvalidRequest` hook, which is what `deps.invalid` is here.
+	 */
+	const body = JSON.stringify({ note: "ok" });
+
+	it("refuses a declared body sent as a media type the operation does not accept", async () => {
+		for (const contentType of ["text/plain", "multipart/form-data", "application/xml"]) {
+			const response = await app.request("/required", {
+				method: "POST",
+				headers: { "content-type": contentType },
+				body,
+			});
+			expect(response.status, contentType).toBe(400);
+			// Through the app's envelope, like every other refusal, rather than Hono's own answer.
+			expect(await response.json(), contentType).toEqual({ envelope: true });
+		}
+	});
+
+	it("refuses one carrying no content type at all", async () => {
+		const response = await app.request("/required", { method: "POST", body });
+		expect(response.status).toBe(400);
+		expect(await response.json()).toEqual({ envelope: true });
+	});
+
+	it("still accepts the media type the document DOES publish, parameters and all", async () => {
+		/**
+		 * The control, and the half that matters most: a refusal that also refuses conformant requests
+		 * is not a fix. `; charset=utf-8` is not part of the match, which is why it is here.
+		 */
+		for (const contentType of ["application/json", "application/json; charset=utf-8"]) {
+			const response = await app.request("/required", {
+				method: "POST",
+				headers: { "content-type": contentType },
+				body,
+			});
+			expect(response.status, contentType).toBe(204);
+		}
+	});
+
+	it("names what the operation accepts, so a caller can act on the refusal", async () => {
+		/**
+		 * A refusal that says only "no" leaves the caller guessing which of their assumptions was
+		 * wrong. The document knows the answer, so the issue carries it.
+		 */
+		refusals.length = 0;
+		const response = await app.request("/required", {
+			method: "POST",
+			headers: { "content-type": "text/plain" },
+			body,
+		});
+		expect(response.status).toBe(400);
+		const issues = refusals.at(-1)?.error?.issues ?? [];
+		expect(issues.map((issue) => issue.message)).toEqual([
+			"this operation accepts application/json",
+		]);
+	});
+});
+
 describe("the body is still validated", () => {
 	it("accepts a well-formed body and hands it to the handler", async () => {
 		const response = await app.request("/required", {

@@ -193,6 +193,11 @@ Where an operation declares several media types needing different parsers, the v
 from the request's `Content-Type` at request time, since that is the only point at which the answer
 exists.
 
+**A `Content-Type` the operation does not declare is refused**, through `deps.invalid`, with an issue
+naming what the operation does accept. Parameters are not part of the match, so
+`application/json; charset=utf-8` is `application/json`. A request carrying no `Content-Type` at all
+is refused too: the document says which media types an operation takes, and none of them is "absent".
+
 A `bytes` body is handed over as the **unread stream** for binary media types, typed
 `ReadableStream<Uint8Array> | null`, and read with `text()` otherwise, so bytes that are not valid
 UTF-8 reach the handler intact.
@@ -211,6 +216,30 @@ in the isolate, and a Worker gets 128 MB against a request-body limit of 100 MB,
 documented maximum could not be served at all.
 
 ## Upgrading
+
+### To the next release: the media type a request declares is enforced
+
+**A request whose `Content-Type` the operation does not declare is now refused.** It used to be
+parsed as though it carried the first media type the document lists, which meant a route publishing
+`application/json` alone answered 200 to the same body sent as `text/plain`, as `multipart/form-data`,
+or with no `Content-Type` at all.
+
+Nothing in your code changes. What changes is what some callers get:
+
+| the caller sends                            | before | now                      |
+| ------------------------------------------- | ------ | ------------------------ |
+| the declared media type                     | served | served                   |
+| it with `; charset=utf-8`                   | served | served                   |
+| a media type the operation does not declare | served | `deps.invalid`, your 400 |
+| no `Content-Type` at all                    | served | `deps.invalid`, your 400 |
+
+The last two are the ones to check before upgrading. `fetch` with a string body sends `text/plain`
+unless told otherwise, and a hand-written client may send nothing, so a caller that worked by
+accident will stop. `@typespec/http-server-js`, TypeSpec's own reference server, has always refused
+this case; the divergence was ours.
+
+**A body too deeply nested to parse is refused rather than answered 500.** It reaches `deps.invalid`
+like any other bad request. If your `onError` counted `RangeError`s, it will stop seeing them.
 
 ### To `0.23.0`: responses are returned, and the runtime is no longer yours to replace
 

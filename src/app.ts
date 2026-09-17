@@ -597,8 +597,41 @@ function bodyValidationFor(contentTypes: readonly string[], textual: boolean): B
  * synchronously, because `safeParse` THROWS on a schema that cannot - a claim about output this file
  * does not produce is exactly the kind that needs an arm rather than a comment.
  */
+const GUARDED_PARSE = `/**
+ * Parse, and treat input nested deeper than this runtime's stack as a refusal rather than a crash.
+ *
+ * **\`safeParse\` not throwing is the contract everything here rests on, and a deep enough value
+ * breaks it.** Zod recurses once per level, so a recursive model meets a \`RangeError\` that is not a
+ * validation failure and escapes to \`app.onError\` indistinguishable from a bug in the application's
+ * own code. Measured on \`workerd\`: a 40.5 KB body, about 1,925 levels, which Ajv on the published
+ * document calls VALID.
+ *
+ * It cannot be served, so it is refused - through \`deps.invalid\` like every other bad request, with
+ * an issue that says which limit was met rather than a generic failure. Anything that is not a
+ * \`RangeError\` is rethrown: a bug here must still look like one.
+ */
+function parsed(schema: z.ZodType, value: unknown): z.ZodSafeParseResult<unknown> {
+	try {
+		return schema.safeParse(value);
+	} catch (error) {
+		if (!(error instanceof RangeError)) throw error;
+		return {
+			success: false,
+			error: new z.ZodError([
+				{
+					code: "custom",
+					path: [],
+					message: "input is nested too deeply for this runtime to validate",
+				},
+			]),
+		};
+	}
+}
+
+`;
+
 const SYNC_PARSE = `/** Parse synchronously: nothing emitted here is async, and the async path costs 2.6x. */
-const SYNC = { validationFunction: (schema: z.ZodType, value: unknown) => schema.safeParse(value) };
+const SYNC = { validationFunction: (schema: z.ZodType, value: unknown) => parsed(schema, value) };
 
 `;
 
@@ -635,8 +668,8 @@ async function readBody(c: Context, target: BodyTarget): Promise<unknown> {
  * is not a body that validated.
  */
 function unreadableResult(schema: z.ZodType): { readonly success: boolean } {
-	const parsed = schema.safeParse(undefined);
-	return parsed.success ? { success: false } : parsed;
+	const result = parsed(schema, undefined);
+	return result.success ? { success: false } : result;
 }
 
 /**
@@ -647,13 +680,45 @@ function unreadableResult(schema: z.ZodType): { readonly success: boolean } {
  * generated. Parameters (\`; charset=utf-8\`, \`; boundary=...\`) are not part of the match, which
  * matters because a multipart request always carries a boundary.
  *
- * A \`Content-Type\` matching nothing declared falls through to the first branch, so the body simply
- * fails to parse and the app answers. No status is invented that the document does not describe.
+ * **A \`Content-Type\` matching nothing declared is REFUSED, and used to be parsed anyway.** It fell
+ * through to the first branch, and the comment here claimed the body would then "simply fail to
+ * parse" - which is not what happened: \`c.req.json()\` reads the bytes whatever the header says, so a
+ * route publishing \`application/json\` alone answered 200 to the same body sent as \`text/plain\`, as
+ * \`multipart/form-data\`, and with no \`Content-Type\` at all. The document says which media types an
+ * operation accepts, and a server that accepts others is not serving that document.
+ *
+ * \`undefined\` means "nothing declared covers this", and the caller refuses it through
+ * \`deps.invalid\` like any other bad request. No status is invented that the document does not
+ * describe, which is also what \`@typespec/http-server-js\` does with the identical case.
  */
-function bodyTarget(c: Context, branches: readonly (readonly [string, BodyTarget])[]): BodyTarget {
+function bodyTarget(
+	c: Context,
+	branches: readonly (readonly [string, BodyTarget])[],
+): BodyTarget | undefined {
 	const declared = (c.req.header("content-type") ?? "").split(";")[0]?.trim().toLowerCase() ?? "";
-	const matched = branches.find(([mediaType]) => mediaType.toLowerCase() === declared);
-	return matched?.[1] ?? branches[0]?.[1] ?? "json";
+	return branches.find(([mediaType]) => mediaType.toLowerCase() === declared)?.[1];
+}
+
+/**
+ * The failure an undeclared media type produces, in the shape every other rejection has.
+ *
+ * Reported as an issue on the body rather than a bare \`{ success: false }\`, so an application's
+ * \`invalid\` hook can tell a caller WHICH thing was wrong - the same reason \`unreadableResult\` parses
+ * \`undefined\` rather than inventing a result.
+ */
+function unsupportedMediaTypeResult(
+	branches: readonly (readonly [string, BodyTarget])[],
+): z.ZodSafeParseResult<unknown> {
+	return {
+		success: false,
+		error: new z.ZodError([
+			{
+				code: "custom",
+				path: ["content-type"],
+				message: \`this operation accepts \${branches.map(([type]) => type).join(", ")}\`,
+			},
+		]),
+	};
 }
 
 /** The app's rejection hook, as this file needs to name it. */
@@ -696,9 +761,14 @@ function validateBody<E extends Env, S extends z.ZodType>(
 			string,
 			{ in: { json: z.input<S> }; out: { json: z.output<S> } }
 		> = async (ctx, proceed) => {
-			const raw = await readBody(ctx, bodyTarget(ctx, branches));
+			const target = bodyTarget(ctx, branches);
+			const raw = target === undefined ? UNREADABLE : await readBody(ctx, target);
 			const result =
-				raw === UNREADABLE ? unreadableResult(schema) : schema.safeParse(raw);
+				target === undefined
+					? unsupportedMediaTypeResult(branches)
+					: raw === UNREADABLE
+						? unreadableResult(schema)
+						: parsed(schema, raw);
 			const response = invalid(result, ctx);
 			if (response !== undefined) return response;
 			if (!result.success) return ctx.json(result, 400);
@@ -747,9 +817,14 @@ function validateOptionalBody<E extends Env, S extends z.ZodType>(
 				await proceed();
 				return undefined;
 			}
-			const raw = await readBody(ctx, bodyTarget(ctx, branches));
+			const target = bodyTarget(ctx, branches);
+			const raw = target === undefined ? UNREADABLE : await readBody(ctx, target);
 			const result =
-				raw === UNREADABLE ? unreadableResult(schema) : schema.safeParse(raw);
+				target === undefined
+					? unsupportedMediaTypeResult(branches)
+					: raw === UNREADABLE
+						? unreadableResult(schema)
+						: parsed(schema, raw);
 			const response = invalid(result, ctx);
 			if (response !== undefined) return response;
 			if (!result.success) return ctx.json(result, 400);
@@ -1206,6 +1281,12 @@ type Fields<T> = string extends keyof T ? ([T[string]] extends [never] ? unknown
 			).length > 0,
 	);
 	const syncHelper = validates ? SYNC_PARSE : "";
+	/**
+	 * `parsed` is used by `SYNC` and by both body middlewares, so it is emitted where either is, and
+	 * BEFORE them: a generated file is read top to bottom and a helper used above its declaration
+	 * reads as a mistake even where hoisting makes it legal.
+	 */
+	const guardedParse = validates || mountsBody ? GUARDED_PARSE : "";
 	/**
 	 * **One result type per operation: the union of every response its document declares.**
 	 *
@@ -1931,7 +2012,7 @@ type Produced<T> = T extends (...args: never[]) => unknown
 ${validates ? 'import { zValidator } from "@hono/zod-validator";\n' : ""}${needsHonoValue ? 'import { Hono } from "hono";\n' : ""}import type { ${honoTypes.join(", ")} } from "hono";
 ${statusTypes.length > 0 ? `import type { ${statusTypes.join(", ")} } from "hono/utils/http-status";\n` : ""}${usesZod ? 'import { z } from "zod";\n' : ""}import type { ${runtimeTypes.join(", ")} } from ${runtimeModule};${runtimeValues.length > 0 ? `\nimport { ${runtimeValues.join(", ")} } from ${runtimeModule};` : ""}
 ${imports}
-${syncHelper}${bodyHelper}${fieldsHelper}${declaredHelper}/**
+${guardedParse}${syncHelper}${bodyHelper}${fieldsHelper}${declaredHelper}/**
  * What each operation may answer with: one member per response the document declares.
  *
  * A handler returns \`{ status, body, headers }\` for whichever response it means. The generated route
