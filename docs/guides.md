@@ -55,6 +55,12 @@ const setFlags: SetFlagsHandler<Caller> = async (ctx, input) => {
 A status the operation does not declare, a body belonging to another status, a missing required
 header or a body on a response that has none does not compile.
 
+**Declared response headers are checked the same way.** A header whose value the document forbids -
+a `@pattern` it does not match, a bound it exceeds - is not served: the route throws
+`ResponseContractError` with `part: "headers"`, and nothing reaches the wire. Optional headers the
+handler did not supply are absent rather than checked, and headers the emitter sets itself, such as
+`Content-Type`, are not part of the document's constraint and pass through untouched.
+
 **What is served is the body parsed against the schema the document publishes for that status.** A
 schema that strips undeclared keys strips them from the response too, so an internal field does not
 reach a caller by accident. A body the schema refuses is not served: the route throws
@@ -237,6 +243,11 @@ The last two are the ones to check before upgrading. `fetch` with a string body 
 unless told otherwise, and a hand-written client may send nothing, so a caller that worked by
 accident will stop. `@typespec/http-server-js`, TypeSpec's own reference server, has always refused
 this case; the divergence was ours.
+
+**A declared response header whose value the document forbids now throws.** It used to be served. If
+a handler builds a header from user input or from a service binding, check it against what the spec
+says before this release, because `app.onError` will start seeing `ResponseContractError` with
+`part: "headers"` where it saw nothing.
 
 **A body too deeply nested to parse is refused rather than answered 500.** It reaches `deps.invalid`
 like any other bad request. If your `onError` counted `RangeError`s, it will stop seeing them.

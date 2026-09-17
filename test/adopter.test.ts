@@ -124,6 +124,7 @@ describe("output emitted with no options but the output directory", () => {
 			"headersOf",
 			"selectContentType",
 			"servedBody",
+			"servedHeaders",
 		]);
 		const imported = new Set<string>();
 		for (const name of readdirSync(outDir).filter((entry) => entry.endsWith(".gen.ts"))) {

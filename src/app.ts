@@ -67,6 +67,8 @@ interface ResultMember {
 	readonly response: EmittedResponse;
 	/** The identifier the library declared this status's body under. */
 	readonly schemaName: string | undefined;
+	/** The identifier for this status's declared response headers, where it declares any. */
+	readonly headersSchemaName: string | undefined;
 	/** The media type served, or `undefined` where the response has no body. */
 	readonly mediaType: string | undefined;
 	/** Whether the handler names the media type, because the status offers more than one. */
@@ -94,8 +96,11 @@ function bodyServingOf(member: ResultMember): BodyServing {
 function membersOf(entry: AppRoute): ResultMember[] {
 	return entry.route.responses.flatMap((response, index): ResultMember[] => {
 		const schemaName = entry.names.arms[index]?.schema;
+		const headersSchemaName = entry.names.arms[index]?.headers;
 		if (response.contentTypes.length === 0) {
-			return [{ response, schemaName, mediaType: undefined, choosesMediaType: false }];
+			return [
+				{ response, schemaName, headersSchemaName, mediaType: undefined, choosesMediaType: false },
+			];
 		}
 		/**
 		 * The handler names the media type where the status offers several, and where the document names
@@ -106,6 +111,7 @@ function membersOf(entry: AppRoute): ResultMember[] {
 		return response.contentTypes.map((mediaType) => ({
 			response,
 			schemaName,
+			headersSchemaName,
 			mediaType,
 			choosesMediaType,
 		}));
@@ -273,8 +279,19 @@ function serveCall(member: ResultMember, status: string, operationId: string, us
 		const key = JSON.stringify(header.name);
 		headers.push(`${key}: result.headers${allOptional ? "?." : ""}[${key}]`);
 	}
-	if (headers.length > 0) uses.runtime.add("headersOf");
-	const headersArgument = headers.length === 0 ? "" : `, headersOf({ ${headers.join(", ")} })`;
+	/**
+	 * **Declared headers are CHECKED, not only stringified**, which the body beside them always was.
+	 * `headersOf` still serves a response whose only headers this emitter chose itself, such as the
+	 * `Content-Type` a `c.body` call has to state.
+	 */
+	const checksHeaders = response.headers.length > 0 && member.headersSchemaName !== undefined;
+	if (headers.length > 0) uses.runtime.add(checksHeaders ? "servedHeaders" : "headersOf");
+	const headersArgument =
+		headers.length === 0
+			? ""
+			: checksHeaders
+				? `, servedHeaders(${member.headersSchemaName ?? "undefined"}, { ${headers.join(", ")} }, ${operationId}, ${status})`
+				: `, headersOf({ ${headers.join(", ")} })`;
 	const validated = (): string => {
 		uses.runtime.add("servedBody");
 		return `servedBody(${member.schemaName ?? "undefined"}, result.body, ${operationId}, ${status})`;
@@ -1818,6 +1835,7 @@ type Produced<T> = T extends (...args: never[]) => unknown
 					entry.names.cookie,
 					entry.names.body,
 					...entry.names.arms.map((arm) => arm.schema),
+					...entry.names.arms.map((arm) => arm.headers),
 				].filter((name): name is string => name !== undefined),
 			),
 		),

@@ -43,7 +43,12 @@ beforeAll(async () => {
 			status: input.id === "" ? 201 : 200,
 			body: input,
 		}),
-		tagged: () => ({ status: 200, body: item, headers: { "x-correlation-id": "abc-123" } }),
+		tagged: (_ctx: unknown, input: { id: string }) => ({
+			status: 200,
+			body: item,
+			// The document constrains this header; `bad` is a value its own type still permits.
+			headers: { "x-correlation-id": input.id === "bad" ? 'not valid"; injected=1' : "abc-123" },
+		}),
 		// A key the document does not declare, which the served body must not carry.
 		plain: () => ({ status: 200, body: { id: "1", label: "plain", secret: "tenant-7" } }),
 		throttle: (_ctx: unknown, input: { id: string }) => {
@@ -142,6 +147,28 @@ describe("a declared response header reaches the response", () => {
 		const response = await app.request("/items/1");
 		expect(response.status).toBe(200);
 		expect(response.headers.get("x-correlation-id")).toBe("abc-123");
+	});
+
+	it("refuses to serve a declared header whose value the document forbids", async () => {
+		/**
+		 * **The body beside it was always checked and this never was.** `servedBody` parses every
+		 * response body against its status's schema and throws; a declared header went through
+		 * `headersOf`, which is `String(value)` and nothing else. Measured on a generated server, a
+		 * header the document constrains to `^[A-Za-z0-9-]+$` was served as `not valid"; injected=1`
+		 * with a 200, on the same route where a bad body threw.
+		 *
+		 * Not a response-splitting hole: `new Response` refuses CR and LF in a header value on both
+		 * `workerd` and undici. What it is, is a response disagreeing with the document a client was
+		 * generated from.
+		 */
+		thrown.length = 0;
+		const response = await app.request("/items/bad");
+		expect(response.status).toBe(500);
+		expect(thrown.map((error) => (error as Error).name)).toEqual(["ResponseContractError"]);
+		// It says which half of the response broke, because `body` and `headers` are answered differently.
+		expect((thrown[0] as { part?: string }).part).toBe("headers");
+		// And nothing was served: a header the document forbids does not reach the wire.
+		expect(response.headers.has("x-correlation-id")).toBe(false);
 	});
 });
 

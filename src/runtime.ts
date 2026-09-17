@@ -226,8 +226,15 @@ export class ResponseContractError extends Error {
 		readonly operationId: string,
 		readonly status: number,
 		readonly issues: ZodError["issues"],
+		/**
+		 * Which half of the response broke its contract. **Defaulted, so the three-argument form an
+		 * application may already construct or match on keeps working.**
+		 */
+		readonly part: "body" | "headers" = "body",
 	) {
-		super(`${operationId} answered ${status} with a body its document does not permit`);
+		super(
+			`${operationId} answered ${status} with ${part === "body" ? "a body" : "headers"} its document does not permit`,
+		);
 		this.name = "ResponseContractError";
 	}
 }
@@ -292,6 +299,48 @@ export function headersOf(declared: Readonly<Record<string, unknown>>): Record<s
 		if (value !== undefined) headers[name] = String(value);
 	}
 	return headers;
+}
+
+/**
+ * Declared response headers, CHECKED against the schemas the document publishes for them.
+ *
+ * **The body beside them was always checked and these never were.** `servedBody` parses every
+ * response body against its status's schema and throws `ResponseContractError`; a declared header
+ * went through `headersOf`, which is `String(value)` and nothing else. Measured on a generated
+ * server: a header the document constrains to `^[A-Za-z0-9-]+$` was served as
+ * `not a valid id"; injected=1` with a 200, while a body breaking its own schema on the same route
+ * threw. That asymmetry is the whole of what this removes.
+ *
+ * **Not a response-splitting hole, and worth saying so.** `new Response` refuses a header value
+ * containing CR or LF with a `TypeError` on both `workerd` and undici, so the runtime already stops
+ * the injection. What it does not stop is a response that disagrees with its own document, which a
+ * client generated from that document is entitled to rely on.
+ *
+ * **Undefined values are dropped BEFORE the check, not after.** An optional header the handler did
+ * not supply is absent rather than explicitly `undefined`, which is what the emitted schema's
+ * `.exactOptional()` means, and it is also what Hono's `HeaderRecord` requires. The check then runs
+ * on the values as the handler produced them - a `retry-after` declared `int32` is still a number
+ * here - because checking the text would check a different thing than the document describes.
+ *
+ * **What is returned is every header, including ones the schema does not mention.** A response
+ * carries headers the document does not declare, the `Content-Type` this emitter sets among them,
+ * and those are not a contract violation. The schema is a plain object schema, so it ignores them.
+ */
+export function servedHeaders(
+	schema: ZodType,
+	declared: Readonly<Record<string, unknown>>,
+	operationId: string,
+	status: number,
+): Record<string, string> {
+	const present: Record<string, unknown> = {};
+	for (const [name, value] of Object.entries(declared)) {
+		if (value !== undefined) present[name] = value;
+	}
+	const parsed = schema.safeParse(present);
+	if (!parsed.success) {
+		throw new ResponseContractError(operationId, status, parsed.error.issues, "headers");
+	}
+	return headersOf(present);
 }
 
 /** RFC 9110 `token`, less `*`, which names a range rather than a type. */

@@ -29,10 +29,19 @@ model Created {
 @post
 op create(@body body: Item): Created;
 
-/** A response header beside a body. */
+/** A response header beside a body, CONSTRAINED, so a wrong value is something the schema can catch. */
 model Tagged {
   @statusCode statusCode: 200;
-  @header("x-correlation-id") correlationId: string;
+
+  /**
+   * The constraint is what makes this arm possible at all: the handler's type is `string`, so a
+   * value the document forbids is one TypeScript permits, which is exactly the case a runtime check
+   * exists for.
+   */
+  @pattern("^[A-Za-z0-9-]+$")
+  @header("x-correlation-id")
+  correlationId: string;
+
   @body body: Item;
 }
 
