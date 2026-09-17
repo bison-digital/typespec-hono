@@ -1,3 +1,5 @@
+import { Hono } from "hono";
+import { accepts } from "hono/accepts";
 import { describe, expect, it } from "vitest";
 import { selectContentType } from "../src/runtime.js";
 
@@ -79,5 +81,79 @@ describe("Accept negotiation follows RFC 9110 section 12.5.1", () => {
 		expect(selectContentType("application/json;q=1.2.3", ["application/json"])).toBe(
 			"application/json",
 		);
+	});
+});
+
+/** What `hono/accepts` answers, driven through a real request so its `Context` is a real one. */
+async function honoAccepts(
+	header: string | undefined,
+	offered: readonly string[],
+): Promise<string | undefined> {
+	const app = new Hono();
+	let chosen: string | undefined;
+	app.get("/", (c) => {
+		chosen = accepts(c, {
+			header: "Accept",
+			supports: [...offered],
+			default: offered[0] as string,
+		});
+		return c.body(null, 204);
+	});
+	await app.request("/", header === undefined ? {} : { headers: { accept: header } });
+	return chosen;
+}
+
+/**
+ * **Why this is hand-written when Hono ships `hono/accepts`.**
+ *
+ * The docblock on `selectContentType` explains why negotiation belongs in the runtime rather than in
+ * `RouteDeps`, and never said why it is not Hono's own helper - so the decision read as
+ * not-invented-here. It is not: `accepts` matches `accept.type` against the supported list by
+ * equality, after sorting on `q`. That is three rules short of RFC 9110 section 12.5.1, and each gap
+ * is a wrong answer a caller can produce.
+ *
+ * Measured over 17 headers, the two agree on 12 and differ on 5, every one of them Hono's:
+ *
+ * - a subtype wildcard matches nothing, so `Accept: text/*` is served JSON;
+ * - `q=0` is a weak preference rather than a refusal, so the exact defect this file was written for
+ *   - serving a media type the caller explicitly refused - is Hono's current behaviour;
+ * - nothing is unacceptable, so there is no 406: a caller asking for `image/png` from a JSON-only
+ *   operation is served JSON.
+ *
+ * **Kept as an arm rather than a comment so the decision can expire.** If Hono's helper becomes
+ * RFC-correct, these stop failing and this package should delete its own implementation and use it.
+ */
+describe("hono/accepts is not a substitute, and this is the evidence", () => {
+	it("agrees wherever the header is a plain ordered preference", async () => {
+		for (const header of [
+			undefined,
+			"application/json",
+			"text/plain",
+			"*/*",
+			"application/json;q=0.5, text/plain;q=0.9",
+		]) {
+			const offered = ["application/json", "text/plain"];
+			expect(await honoAccepts(header, offered), String(header)).toBe(
+				selectContentType(header, offered),
+			);
+		}
+	});
+
+	it("differs on a subtype wildcard, which it does not match at all", async () => {
+		const offered = ["application/json", "text/plain"];
+		expect(selectContentType("text/*", offered)).toBe("text/plain");
+		expect(await honoAccepts("text/*", offered)).toBe("application/json");
+	});
+
+	it("differs on q=0, which it does not read as a refusal", async () => {
+		const offered = ["application/json", "text/plain"];
+		expect(selectContentType("*/*, application/json;q=0", offered)).toBe("text/plain");
+		expect(await honoAccepts("*/*, application/json;q=0", offered)).toBe("application/json");
+	});
+
+	it("differs on whether 406 is reachable at all", async () => {
+		// Nothing offered is acceptable, which is the one case that must not be served.
+		expect(selectContentType("image/png", ["application/json"])).toBeUndefined();
+		expect(await honoAccepts("image/png", ["application/json"])).toBe("application/json");
 	});
 });

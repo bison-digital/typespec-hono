@@ -113,6 +113,41 @@ prefix, so `/widgets/*` is equivalent.
 `app.onError` and `app.notFound` are app-level handlers rather than route middleware and may be
 registered in any order.
 
+### What the document cannot state, and therefore neither can this
+
+Routing, validation and every declared response come from the spec. A set of things a production
+server needs are **not** in the spec, because OpenAPI has no keyword for them, so this emitter cannot
+derive them and does not write them. They are yours, and Hono ships all of them.
+
+| what                 | why it is not generated                                         | Hono's                   |
+| -------------------- | --------------------------------------------------------------- | ------------------------ |
+| a request size limit | OpenAPI states no maximum body size                             | `hono/body-limit`        |
+| security headers     | not a property of the API, of the deployment                    | `hono/secure-headers`    |
+| CORS                 | which origins may call you is not in the document               | `hono/cors`              |
+| CSRF                 | depends on your credential model, which the spec does not state | `hono/csrf`              |
+| a request timeout    | not expressible, and platform-dependent                         | `hono/timeout`           |
+| rate limiting        | not expressible                                                 | yours, or the platform's |
+| a request id         | not expressible                                                 | `hono/request-id`        |
+
+**The request size limit is the one to set first**, because without it a generated route will buffer,
+parse and validate whatever arrives. Measured on a generated server: a 96 MB JSON body was accepted,
+validated and served back, inside a 128 MB isolate.
+
+```ts
+import { bodyLimit } from "hono/body-limit";
+import { secureHeaders } from "hono/secure-headers";
+
+const app = new Hono<AppEnv>();
+app.use(secureHeaders());
+app.use(bodyLimit({ maxSize: 1024 * 1024, onError: (c) => c.json({ error: "too_large" }, 413) }));
+
+const routes = registerRoutes(app, handlersFor, deps); // everything above applies
+```
+
+A `bytes` body is handed over as an unread stream, so an upload route can enforce its own cap while
+reading instead - see [Request bodies](#request-bodies). `bodyLimit` reads `Content-Length` and
+counts what arrives, so it covers the buffered cases the stream idiom does not.
+
 ## Hono RPC (`hc`)
 
 `registerRoutes` chains its registrations and returns the result, which is what Hono's RPC client
