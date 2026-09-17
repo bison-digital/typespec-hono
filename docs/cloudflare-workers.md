@@ -50,7 +50,7 @@ Hono ships four routers and you choose one when you construct the app. The defau
 valid spec produces, and when it cannot, it throws inside `registerRoutes` at module scope - so the
 Worker does not start and every route answers nothing.
 
-Measured on a generated 360-operation service (120 resources, 3 operations each), Hono 4.13.5, each
+Measured on a generated 360-operation service (120 resources, 3 operations each), Hono 4.13.1, each
 request driven end to end through `app.request` rather than through `router.match` alone:
 
 | router                       | register | first request | 1000 requests |
