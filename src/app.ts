@@ -459,14 +459,18 @@ const HONO_METHOD: Readonly<Record<string, string>> = {
  * A request location, as the DOCUMENT names it, mapped to the target `@hono/zod-validator` reads.
  *
  * **The two vocabularies are not the same, and only one of them is a contract fact.** OpenAPI says
- * `path`, `query`, `header` and a request body; zValidator says `param`, `query`, `header` and
- * `json`. The library publishes the first because that is what the document states; translating is
- * this package's job, and it is a map rather than a coincidence.
+ * `path`, `query`, `header`, `cookie` and a request body; zValidator says `param`, `query`,
+ * `header`, `cookie` and `json`. The library publishes the first because that is what the document
+ * states; translating is this package's job, and it is a map rather than a coincidence.
+ *
+ * `cookie` is the one location whose two spellings agree, and it is a first-class Hono target:
+ * `ValidationTargets` declares it and Hono's own validator reads it with `getCookie`.
  */
 const VALIDATOR_TARGET = {
 	path: "param",
 	query: "query",
 	header: "header",
+	cookie: "cookie",
 	body: "json",
 } as const;
 
@@ -1166,7 +1170,7 @@ export function renderApp(
 		if (names === undefined) return [];
 		const validators: (readonly [string, string])[] = [];
 		let body: AppRoute["body"];
-		for (const location of ["path", "query", "header", "body"] as const) {
+		for (const location of ["path", "query", "header", "cookie", "body"] as const) {
 			const identifier = names[location];
 			if (identifier === undefined) continue;
 			if (location !== "body") {
@@ -1811,6 +1815,7 @@ type Produced<T> = T extends (...args: never[]) => unknown
 					entry.names.path,
 					entry.names.query,
 					entry.names.header,
+					entry.names.cookie,
 					entry.names.body,
 					...entry.names.arms.map((arm) => arm.schema),
 				].filter((name): name is string => name !== undefined),
