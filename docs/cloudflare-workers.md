@@ -50,22 +50,23 @@ Hono ships four routers and you choose one when you construct the app. The defau
 valid spec produces, and when it cannot, it throws inside `registerRoutes` at module scope - so the
 Worker does not start and every route answers nothing.
 
-Measured on a generated 580-operation service (58 resources, 10 operations each), three runs, Hono
-4.13.1:
+Measured on a generated 360-operation service (120 resources, 3 operations each), Hono 4.13.5, each
+request driven end to end through `app.request` rather than through `router.match` alone:
 
-| router                       | register   | first request | 1000 requests |
-| ---------------------------- | ---------- | ------------- | ------------- |
-| SmartRouter (Hono's default) | 5.4-6.1 ms | 18.5-18.9 ms  | 24-26 ms      |
-| RegExpRouter                 | 2.6-4.4 ms | 2.2-2.6 ms    | 16-18 ms      |
-| LinearRouter                 | 1.1-1.2 ms | 0.6 ms        | 66-70 ms      |
-| PatternRouter                | 2.7-2.9 ms | 2.5 ms        | 36-39 ms      |
+| router                       | register | first request | 1000 requests |
+| ---------------------------- | -------- | ------------- | ------------- |
+| SmartRouter (Hono's default) | 14.0 ms  | 39.4 ms       | 170 ms        |
+| RegExpRouter                 | 2.8 ms   | 4.3 ms        | 128 ms        |
+| PatternRouter                | 3.0 ms   | 4.4 ms        | 135 ms        |
+| LinearRouter                 | 1.4 ms   | 0.8 ms        | 199 ms        |
 
-SmartRouter chooses a router by trying one, and it does that on the **first request** rather than at
-registration. At this scale that is around 18.8 ms of CPU. The Workers free plan allows 10 ms of CPU
+SmartRouter picks a router by trying `RegExpRouter` first, and it does that on the **first request**
+rather than at registration. At this scale that is around 39 ms, which is the attempt plus the
+fallback, against 4 ms for either router chosen outright. The Workers free plan allows 10 ms of CPU
 per request, so the first request into each new isolate can be killed with `exceededCpu`.
 
-SmartRouter chooses by trying `RegExpRouter` first, so the 18.8 ms above is that attempt plus the
-fallback. Skipping it is what a bare router buys, and whether you may is a property of your spec.
+Skipping the attempt is what naming a router buys. Which one you may name is a property of your
+spec, and the compile tells you.
 
 ### `RegExpRouter` only when the compile says so
 
@@ -84,11 +85,19 @@ compile time. If `tsp compile` says nothing, a bare `RegExpRouter` is safe:
 const app = new Hono<AppEnv>({ router: new RegExpRouter() });
 ```
 
-If it raises `regexp-router-unsupported`, use the default:
+If it raises `regexp-router-unsupported`, use `PatternRouter`:
 
 ```ts
-const app = new Hono<AppEnv>();
+import { PatternRouter } from "hono/router/pattern-router";
+
+const app = new Hono<AppEnv>({ router: new PatternRouter() });
 ```
+
+**`PatternRouter` rather than the default, and that is measured.** It mounts the route set
+`RegExpRouter` refuses - `/items/plain` beside `/items/{id}` routes correctly under it - and it costs
+5% more than `RegExpRouter` in steady state against `SmartRouter`'s 33%, with a first request nine
+times cheaper. The default is still correct and still safe; it is simply the slowest of the three,
+because trying `RegExpRouter` and falling back is what it does on the first request.
 
 The warning names the route that conflicts. Adding one operation to a spec can turn a safe route set
 into an unsafe one, so the check runs on every compile rather than once.

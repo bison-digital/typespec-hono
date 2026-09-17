@@ -7,7 +7,26 @@ rather than restated. See its README for `seal-object-schemas`, `contracts-outpu
 `contracts-package`, `compile-schemas`, `key-vocabularies`, `regenerate-hint` and `services`.
 `runtime-module` is refused; see below.
 
-`compile-schemas` is worth a word here because a SERVER is where it pays. It wraps every emitted
+`compile-schemas` is worth more than a word here because a SERVER is where it pays.
+
+Measured on a generated 360-operation service (481 compiled schemas) under `workerd`, against the
+same service with the option off:
+
+|                                            | off        | on         |
+| ------------------------------------------ | ---------- | ---------- |
+| module evaluation, isolated processes      | 154-177 ms | 183-203 ms |
+| 30,000 parses of an ordinary object schema | 8-12 ms    | 1-4 ms     |
+| 30,000 parses of a RECURSIVE schema        | 18-28 ms   | 16-23 ms   |
+
+So the startup cost is around 25-30 ms at that scale, against a 1 second budget, and the parse is
+three to four times faster. A recursive schema gains nothing, because a deferred declaration is never
+wrapped in `z.compile()` - it cannot be, since the declaration is not complete when the wrapper would
+run.
+
+It stays off by default because it changes startup for every consumer and the right answer depends on
+a service's shape, but at this scale the numbers argue for turning it on.
+
+It wraps every emitted
 validator in Zod 4.5's `z.compile()`, and a generated server parses on the synchronous path - the
 only path the compiled fast path is available on, since Zod bypasses it for any async parse. It costs
 startup time in proportion to the number of schemas, so it is off by default.

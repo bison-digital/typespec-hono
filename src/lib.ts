@@ -185,7 +185,7 @@ const diagnostics = {
 	"regexp-router-unsupported": {
 		severity: "warning",
 		messages: {
-			default: paramMessage`This service mounts '${"path"}', which Hono's 'RegExpRouter' cannot compile: ${"reason"}. Construct the app as 'new Hono()' (the default is 'SmartRouter', which falls back for this case) rather than 'new Hono({ router: new RegExpRouter() })'. A bare 'RegExpRouter' throws inside 'registerRoutes' at module scope, so the Worker would not start at all.`,
+			default: paramMessage`This service mounts '${"path"}', which Hono's 'RegExpRouter' cannot compile: ${"reason"}. A bare 'RegExpRouter' throws inside 'registerRoutes' at module scope, so the Worker would not start at all. Use 'new Hono({ router: new PatternRouter() })', which mounts this route set and is within a few percent of 'RegExpRouter' in steady state, or 'new Hono()' for the default 'SmartRouter', which falls back but pays for the attempt on the first request.`,
 		},
 	},
 	"unsupported-path-template": {
