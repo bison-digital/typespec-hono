@@ -2,7 +2,7 @@ import { execFileSync } from "node:child_process";
 import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { compileEmittedSet } from "./support/emitted-set.js";
 import { DEFAULT_RUNTIME_MODULE } from "../src/emitter.js";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -137,6 +137,45 @@ describe("the package declares what it needs to run outside this checkout", () =
 		 * behaviour this package does not have.
 		 */
 		expect(optional.toSorted()).toEqual([...guarded].toSorted());
+	});
+
+	it("leaves no compiled file in dist whose source has gone", () => {
+		/**
+		 * **A stale `dist/` masks a deletion.** `tsc` writes into the output directory and never prunes
+		 * it, so a module deleted from `src/` keeps its compiled copy, and a build that should fail
+		 * because something still imports it passes locally instead. Measured: `src/security.ts` was
+		 * deleted in `a53d8f3` and `dist/src/security.js` survived every build after it.
+		 *
+		 * Nothing shipped - CI builds from a fresh checkout and the published 0.23.0 tarball carries no
+		 * such file - which is exactly why it needs an arm rather than a note: the failure is invisible
+		 * on the machine where the mistake is made and invisible in the artefact it produces.
+		 */
+		const compiled = readdirSync(join(packageRoot, "dist", "src")).filter((name) =>
+			name.endsWith(".js"),
+		);
+		// Non-vacuity: an empty dist would satisfy the check below without proving anything.
+		expect(compiled.length).toBeGreaterThanOrEqual(5);
+		const orphans = compiled.filter(
+			(name) => !existsSync(join(packageRoot, "src", `${name.slice(0, -3)}.ts`)),
+		);
+		expect(orphans.toSorted(), `dist/src has files src/ does not: ${orphans.join(", ")}`).toEqual(
+			[],
+		);
+	});
+
+	it("resolves its own runtime source from the layout it publishes", () => {
+		/**
+		 * `emitter.ts` copies `src/runtime.ts` beside the generated code by reading it off disk, at
+		 * `../../src/runtime.ts` relative to `dist/src/emitter.js`. That is a file-layout dependency
+		 * between two entries of the `files` list, and nothing checked that the list keeps them in the
+		 * right relation - a build that emitted to a different directory would break every consumer
+		 * and no test here.
+		 */
+		const files = manifest.files ?? [];
+		expect(files).toContain("src/runtime.ts");
+		expect(files.some((entry) => entry.startsWith("dist/"))).toBe(true);
+		const from = pathToFileURL(join(packageRoot, "dist", "src", "emitter.js"));
+		expect(existsSync(fileURLToPath(new URL("../../src/runtime.ts", from)))).toBe(true);
 	});
 
 	it("keeps the runtime free of every build-time import", () => {
