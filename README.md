@@ -132,8 +132,20 @@ export interface Caller {
 }
 
 export const deps: RouteDeps<AppEnv, Caller> = {
+	// The requirements are the document's, verbatim: `[{ BearerAuth: [] }]`. Satisfying any ONE of
+	// them authorises; every scheme within one must be satisfied together. Waving a scheme through
+	// because you do not check it is how a gated route ends up ungated.
 	authorize: (requirements) => async (c, next) => {
+		const bearer = /^Bearer\s+(\S+)$/i.exec(c.req.header("authorization") ?? "")?.[1];
+		const satisfied = requirements.some((requirement) =>
+			Object.entries(requirement).every(
+				([scheme, scopes]) =>
+					scheme === "BearerAuth" && bearer !== undefined && scopes.length === 0,
+			),
+		);
+		if (!satisfied) return c.json({ error: "unauthorized" }, 401);
 		await next();
+		return undefined;
 	},
 	context: (c) => {
 		const userId = c.req.header("x-user");
@@ -144,6 +156,11 @@ export const deps: RouteDeps<AppEnv, Caller> = {
 	invalid: (result, c) => (result.success ? undefined : c.json({ error: "invalid" }, 400)),
 };
 ```
+
+**`authorize` is the gate the document publishes, and an empty one is an open door.** A requirement
+naming a scheme you do not check must not be satisfied: `[{}]`, which `@useAuth(NoAuth | X)` publishes
+for its anonymous alternative, is the only requirement every caller satisfies, and it is satisfied by
+`Object.entries({}).every(...)` being vacuously true rather than by a special case.
 
 `context` is told `"none"` (the operation needs nobody), `"optional"` (anonymous access is one
 alternative, so read a credential if one was presented) or `"required"`. Whatever it returns is what
