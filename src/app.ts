@@ -599,17 +599,22 @@ function bodyValidationFor(contentTypes: readonly string[], textual: boolean): B
  * the single permitted `.refine()` is a synchronous predicate on a multipart file part. So the async
  * path was buying nothing and costing on every request.
  *
- * Measured on an emitted five-property model, zod 4.5.2, 200k iterations:
+ * Measured on an emitted five-property model, zod 4.6.5, 200k iterations after a 20k warm-up:
  *
  * | call | ns/parse |
  * | --- | --- |
- * | `safeParseAsync` | 958 |
- * | `safeParse` | 371 |
+ * | `safeParseAsync` | 444 |
+ * | `safeParse` | 130 |
  *
- * **2.6x, on every parameter group of every request**, for a promise nothing awaited a result from.
+ * **3.4x, on every parameter group of every request**, for a promise nothing awaited a result from.
  * It also unblocks `z.compile()`, whose fast path is bypassed for any async parse - measured from
  * `zod/compile`'s own shim, which returns the uncompiled run for `ctx.async`, and confirmed on the
- * same fixture: compiled `safeParse` is 51 ns and compiled `safeParseAsync` is 923 ns.
+ * same fixture: compiled `safeParse` is 64 ns and compiled `safeParseAsync` is 489 ns.
+ *
+ * **Zod 4.6's `.validate()` does not apply here**, though it looks as though it should. It is 121 ns
+ * against 130 ns on the success path, and its advantage is on the FAILURE path, where it skips
+ * building a `ZodError`. This runtime needs that error: it is what `deps.invalid` receives and what
+ * `ResponseContractError` carries. The numbers on zod 4.5.2 were 958 and 371.
  *
  * `validationFunction` is `@hono/zod-validator`'s published option and its return type admits a
  * synchronous result, so this is the package's own seam rather than a way around it.
@@ -651,7 +656,7 @@ function parsed(schema: z.ZodType, value: unknown): z.ZodSafeParseResult<unknown
 
 `;
 
-const SYNC_PARSE = `/** Parse synchronously: nothing emitted here is async, and the async path costs 2.6x. */
+const SYNC_PARSE = `/** Parse synchronously: nothing emitted here is async, and the async path costs 3.4x. */
 const SYNC = { validationFunction: (schema: z.ZodType, value: unknown) => parsed(schema, value) };
 
 `;
@@ -717,7 +722,25 @@ function bodyTarget(
 	branches: readonly (readonly [string, BodyTarget])[],
 ): BodyTarget | undefined {
 	const declared = (c.req.header("content-type") ?? "").split(";")[0]?.trim().toLowerCase() ?? "";
-	return branches.find(([mediaType]) => mediaType.toLowerCase() === declared)?.[1];
+	if (declared === "") return undefined;
+	/**
+	 * A declared media RANGE matches the types inside it, which a string comparison cannot do.
+	 * \`@typespec/http\` reports a bare \`string\`-typed \`contentType\` as the wildcard range, and an author
+	 * may write a subtype wildcard such as text-slash-star outright. Comparing the range TEXT refuses
+	 * every real request, because no caller sends the range itself as its \`Content-Type\`. This is the
+	 * request-side counterpart of \`mediaTypeWithin\` in the runtime module, inlined because the branch
+	 * list is emitted here.
+	 */
+	const covers = (range: string): boolean => {
+		if (range === "*/*") return true;
+		if (!range.endsWith("/*")) return false;
+		const slash = declared.indexOf("/");
+		return slash > 0 && declared.slice(0, slash) === range.slice(0, -2);
+	};
+	return branches.find(([mediaType]) => {
+		const lowered = mediaType.toLowerCase();
+		return lowered === declared || covers(lowered);
+	})?.[1];
 }
 
 /**
@@ -1076,7 +1099,7 @@ function capitaliseId(operationId: string): string {
  * **`match` as well as `add`.** `RegExpRouter` builds its expressions lazily, so a conflict added
  * through `add` alone can go unreported until the first request. One `match` forces the build.
  */
-function regExpRouterRefusal(
+export function regExpRouterRefusal(
 	routes: readonly (readonly [string, string])[],
 ): { path: string; reason: string } | undefined {
 	const first = routes[0];
@@ -1101,6 +1124,37 @@ function regExpRouterRefusal(
 	}
 }
 
+/**
+ * **The `[method, path]` pairs a router is given for one service**, exactly as the emitted server
+ * registers them.
+ *
+ * One definition, used by the `regexp-router-unsupported` linter rule, so the rule judges the route
+ * set the generated server really mounts. Built from the same helpers the render uses - the verb a
+ * route registers under, `app.on` falling back to `GET` as Hono itself does, and `toHonoPath` on the
+ * route's segments - and prefixed with each base path the service is served under.
+ *
+ * **The full path, never the one relative to a sub-app.** The relative form is what the emitted
+ * text says and not what any router is given. Judging it reports conflicts between routes that are
+ * not siblings at all: measured on five fixtures, two were called unmountable that mount perfectly.
+ */
+export function routerTableFor(
+	routes: readonly {
+		readonly verb: string;
+		readonly pathSegments: readonly EmittedPathSegment[];
+	}[],
+	basePaths: readonly string[],
+): (readonly [string, string])[] {
+	const noRefusal = (): void => undefined;
+	return routes.flatMap((route) => {
+		const verb = registrationVerbOf(route.verb);
+		const method = HONO_METHOD[verb] === undefined ? "GET" : verb;
+		const path = toHonoPath(route.pathSegments, noRefusal);
+		return (basePaths.length === 0 ? [""] : basePaths).map(
+			(prefix) => [method, `${prefix}${path}` || "/"] as const,
+		);
+	});
+}
+
 /** The one thing a Hono server cannot express, handed back rather than thrown. */
 export interface RenderRefusals {
 	readonly unsupportedPathTemplate: (route: EmittedRoute, template: string, name: string) => void;
@@ -1110,16 +1164,6 @@ export interface RenderRefusals {
 		status: StatusKey,
 		types: readonly string[],
 	) => void;
-	/**
-	 * This route set is one Hono's `RegExpRouter` refuses to compile, with the path it named.
-	 *
-	 * **Asked of Hono's real router rather than a reimplementation of its rule.** Which paths
-	 * `RegExpRouter` refuses is undocumented, version-specific and subtle: a static segment beside a
-	 * parameter at the same position is refused, while two parameters with different names at one
-	 * position are not. A copy of that rule here would be a second invariant to keep honest against a
-	 * library that never promised to hold still.
-	 */
-	readonly regexpRouterUnsupported: (path: string, reason: string) => void;
 }
 
 /**
@@ -1887,24 +1931,6 @@ type Produced<T> = T extends (...args: never[]) => unknown
 		}
 		return 0;
 	});
-	/**
-	 * Whether the router the application may choose can hold what was just mounted.
-	 *
-	 * **`mountedPath`, not `path`.** The second is relative to whichever sub-app holds it, which is
-	 * what the emitted text says and not what any router is given. Judging the relative forms reports
-	 * conflicts between routes that are not siblings at all: measured on five fixtures, two were
-	 * called unmountable that mount perfectly.
-	 */
-	const refusal = regExpRouterRefusal(
-		registrations.flatMap((registration) => {
-			// `app.on` covers verbs with no dedicated helper; the rest name their verb directly.
-			const method = registration.method === "on" ? "GET" : registration.method.toUpperCase();
-			return (basePaths.length === 0 ? [""] : basePaths).map(
-				(prefix) => [method, `${prefix}${registration.mountedPath}` || "/"] as const,
-			);
-		}),
-	);
-	if (refusal !== undefined) refuse.regexpRouterUnsupported(refusal.path, refusal.reason);
 
 	const byTarget = new Map<string, string[]>();
 	for (const registration of registrations) {

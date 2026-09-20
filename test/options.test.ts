@@ -67,10 +67,13 @@ describe("runtime-module is refused", () => {
 
 	/** What a refused `runtime-module` must leave behind, wherever it was set. */
 	function expectRefused(compiled: CompiledFixture): void {
-		expect(compiled.diagnostics).toContainEqual({
-			code: "typespec-hono/runtime-module-removed",
-			severity: "error",
-		});
+		// `objectContaining`: the fixture also carries each diagnostic's message, which this does not read.
+		expect(compiled.diagnostics).toContainEqual(
+			expect.objectContaining({
+				code: "typespec-hono/runtime-module-removed",
+				severity: "error",
+			}),
+		);
 		// Ignored, not honoured: the generated server still imports the runtime this package emits.
 		expect(existsSync(join(compiled.outDir, "runtime.gen.ts"))).toBe(true);
 		const server = readFileSync(join(compiled.outDir, "app.gen.ts"), "utf8");

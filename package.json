@@ -1,6 +1,6 @@
 {
 	"name": "typespec-hono",
-	"version": "0.23.0",
+	"version": "0.24.0",
 	"description": "TypeSpec emitter: generate a Hono server, and the Zod validators it enforces, from an HTTP service definition, agreeing with the OpenAPI document @typespec/openapi3 publishes from the same source.",
 	"keywords": [
 		"cloudflare-workers",
@@ -69,19 +69,19 @@
 		"@typespec/streams": "0.86.0",
 		"@typespec/versioning": "0.86.0",
 		"@typespec/xml": "0.86.0",
-		"hono": "^4.12.26",
+		"hono": "^4.13.8",
 		"oxfmt": "^0.63.0",
 		"oxlint": "^1.78.0",
 		"typescript": "~7.0.2",
 		"typespec-hono": "link:.",
 		"vitest": "^4.1.9",
-		"zod": "^4.5.2"
+		"zod": "^4.6.5"
 	},
 	"peerDependencies": {
 		"@hono/zod-validator": "^0.8.0 || ^0.9.0",
 		"@typespec/compiler": "^1.15.0",
 		"@typespec/http": "^1.15.0",
-		"hono": "^4.12.0",
+		"hono": "^4.13.5",
 		"zod": "^4.5.0"
 	},
 	"engines": {

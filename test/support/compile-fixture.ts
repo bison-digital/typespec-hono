@@ -1,6 +1,6 @@
 import { rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { compile, NodeHost } from "@typespec/compiler";
+import { compile, type LinterRuleSet, NodeHost } from "@typespec/compiler";
 
 /**
  * Compile one `.tsp` fixture with this emitter, and hand back where it landed.
@@ -13,12 +13,22 @@ export interface CompiledFixture {
 	readonly outDir: string;
 	/** Where `@typespec/openapi3` wrote, when `withDocument` was set. */
 	readonly documentDir: string;
-	readonly diagnostics: readonly { readonly code: string; readonly severity: string }[];
+	readonly diagnostics: readonly {
+		readonly code: string;
+		readonly severity: string;
+		readonly message: string;
+	}[];
 }
 
 const CONTRACTS_BARREL = "contracts.barrel";
 
 export interface FixtureOptions {
+	/**
+	 * A linter ruleset to enable, exactly as a consumer's `tspconfig.yaml` would. Absent by default,
+	 * because a linter is opt-in: a suite that names none grades what a consumer gets before enabling
+	 * anything, which is where everyone starts.
+	 */
+	readonly linter?: LinterRuleSet;
 	/**
 	 * The output directory's name, when it must differ from the spec's.
 	 *
@@ -81,6 +91,7 @@ export async function compileFixture(
 	rmSync(outDir, { recursive: true, force: true });
 	const program = await compile(NodeHost, join(dir, `${name}.tsp`), {
 		outputDir: outDir,
+		...(options.linter === undefined ? {} : { linterRuleSet: options.linter }),
 		emit:
 			options.withDocument === true ? ["typespec-hono", "@typespec/openapi3"] : ["typespec-hono"],
 		options: {
@@ -111,6 +122,10 @@ export async function compileFixture(
 	return {
 		outDir,
 		documentDir: join(outDir, "openapi"),
-		diagnostics: program.diagnostics.map((d) => ({ code: d.code, severity: d.severity })),
+		diagnostics: program.diagnostics.map((d) => ({
+			code: d.code,
+			severity: d.severity,
+			message: d.message,
+		})),
 	};
 }

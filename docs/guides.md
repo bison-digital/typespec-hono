@@ -130,8 +130,9 @@ derive them and does not write them. They are yours, and Hono ships all of them.
 | a request id         | not expressible                                                 | `hono/request-id`        |
 
 **The request size limit is the one to set first**, because without it a generated route will buffer,
-parse and validate whatever arrives. Measured on a generated server: a 96 MB JSON body was accepted,
-validated and served back, inside a 128 MB isolate.
+parse and validate whatever arrives. Re-measured on hono 4.13.8 / zod 4.6.5 under `wrangler dev` on
+`workerd`: a 96 MB JSON body (100,664,272 bytes) was accepted, validated and served back with 200 in
+1.6 s, inside a 128 MB isolate. 8 MB, 32 MB and 64 MB all answered 200 as well.
 
 ```ts
 import { bodyLimit } from "hono/body-limit";
@@ -258,7 +259,38 @@ documented maximum could not be served at all.
 
 ## Upgrading
 
-### To the next release: the media type a request declares is enforced
+### To `0.24.0`
+
+**Nothing here reaches you until you ask for it.** A `^0.x` range pins the minor, so `^0.23.0` never
+resolves `0.24.0`; every consumer moves deliberately. This page is what to read when you do.
+
+`0.24.0` requires `typespec-http-zod` `0.27.0`, which it pulls in for you, so its changes arrive in
+the same step. They are listed at the end.
+
+**Enable the linter while you are here.** Two checks that used to be automatic warnings are now
+opt-in rules, because the spec is valid and the output is correct in both cases and TypeSpec reserves
+automatic diagnostics for a program its library cannot serve:
+
+```yaml
+# tspconfig.yaml
+linter:
+  extends:
+    - "typespec-hono/recommended"
+```
+
+That turns on `regexp-router-unsupported`, which matters only if you construct your app with a bare
+`RegExpRouter`, and `redos-prone-pattern`, which matters to everyone. A finding you have considered
+and decided to keep is acknowledged where it is declared:
+
+```tsp
+#suppress "typespec-hono/regexp-router-unsupported" "Mounted with the default router, which holds this route set"
+@service(#{ title: "Widgets" })
+namespace Widgets;
+```
+
+If you set `warn-as-error: true`, enabling the ruleset is what decides whether these stop your build.
+
+#### The media type a request declares is enforced
 
 **A request whose `Content-Type` the operation does not declare is now refused.** It used to be
 parsed as though it carried the first media type the document lists, which meant a route publishing
@@ -286,6 +318,57 @@ says before this release, because `app.onError` will start seeing `ResponseContr
 
 **A body too deeply nested to parse is refused rather than answered 500.** It reaches `deps.invalid`
 like any other bad request. If your `onError` counted `RangeError`s, it will stop seeing them.
+
+#### A declared media RANGE now admits the types inside it
+
+`@header contentType: "text/*"` used to emit a check for the literal text `text/*`, which no client
+sends, so every real request was refused. The full wildcard was worse. Measured at the wire on a
+route declaring `"*/*"`, before this release:
+
+| the caller sends   | before | now    |
+| ------------------ | ------ | ------ |
+| `application/json` | 400    | served |
+| `text/plain`       | 400    | served |
+| `image/png`        | 400    | served |
+| the literal `*/*`  | served | served |
+
+If you avoided declaring a range because of this, you no longer need to. Nothing you have to change.
+
+#### A required `@cookie` is enforced
+
+It used to reach no validator and no handler input at all, while the published document said
+`required: true`. A request missing one is now refused before your handler runs. If callers were
+getting away with omitting it, they stop.
+
+#### The `hono` peer floor is `^4.13.5`
+
+Everything below it carries three advisories, two on a generated server's own request surface: the
+query parser reading past the URL fragment, and `parseBody()` allowing unbounded dot-notation
+nesting. `pnpm add hono@^4.13.5` if you are behind; a peer warning is what you will see otherwise.
+
+#### The router caveat is a linter rule
+
+`regexp-router-unsupported` no longer fires on every compile. If you construct your app with a bare
+`RegExpRouter`, enable the ruleset above, because a route set it cannot compile throws inside
+`registerRoutes` at module scope and the Worker never starts. If you use `new Hono()`, which is the
+recommendation, you can ignore it: the default settles on `TrieRouter` and serves the same routes.
+
+#### What `typespec-http-zod` 0.27.0 changes underneath you
+
+It arrives with this release and its changes reach your generated validators. The ones with a runtime
+effect, in full in that package's own upgrading notes:
+
+- **a declared integer width is enforced** - a `uint8` that accepted `-5` and `100000` now answers 400. Worth knowing: the published document spells a width as `format`, which JSON Schema treats as
+  an annotation, so a client generated from your document will go on accepting values your server now
+  refuses;
+- **a `@pattern` is compiled with the Unicode flag** where the flag accepts it, which changes
+  matching where a pattern counts characters or names a property: measured, `^.{3}$` accepts
+  `a<emoji>b` now and refused it before, which is what the document always said;
+- **a numeric bound on a value `@encode(string)` carries as text is dropped** and named, rather than
+  mistranslated into a check on the value's length;
+- **two types with one name, or a reference cycle with no declaration on it, are refused** rather
+  than emitted into a module that cannot compile. Both match a diagnostic `@typespec/openapi3` raises
+  on the same spec.
 
 ### To `0.23.0`: responses are returned, and the runtime is no longer yours to replace
 

@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { $lib } from "../src/lib.js";
+import { $linter } from "../src/linter.js";
 import { EmitterOptionsSchema } from "../src/lib.js";
 
 /**
@@ -59,6 +60,30 @@ describe("the README documents everything this package can do to you", () => {
 		 */
 		expect(codes.length).toBeGreaterThanOrEqual(1);
 		expect(codes.filter((code) => !reference.includes(`\`${code}\``)).toSorted()).toEqual([]);
+	});
+
+	/**
+	 * **A linter rule is invisible until a project enables it, so its documentation is the only way
+	 * anyone learns it exists.** A diagnostic announces itself the first time it fires; an opt-in rule
+	 * never fires for a project that has not heard of it. So every rule the linter ships - including
+	 * the one registered from `typespec-http-zod` - must appear in the reference's own table, and the
+	 * reference must say how to turn the ruleset on.
+	 */
+	it("documents every linter rule it ships, and how to enable them", () => {
+		const reference = readFileSync(join(packageRoot, "docs", "reference.md"), "utf8");
+		const section = reference.slice(reference.indexOf("## Linter rules"));
+		expect(section.length, "docs/reference.md has no '## Linter rules' section").toBeGreaterThan(
+			20,
+		);
+		const rules = $linter.rules.map((rule) => rule.name);
+		expect(rules.length).toBeGreaterThanOrEqual(2);
+		const undocumented = rules.filter(
+			(name) => !section.split("\n").some((line) => line.startsWith(`| \`${name}\``)),
+		);
+		expect(undocumented, `rules missing from the table: ${undocumented.join(", ")}`).toEqual([]);
+		for (const ruleSet of Object.keys($linter.ruleSets ?? {})) {
+			expect(reference).toContain(`"typespec-hono/${ruleSet}"`);
+		}
 	});
 
 	it("names every option it accepts", () => {
@@ -132,5 +157,25 @@ describe("the guides describe the types this emitter actually emits", () => {
 		// The exact sentence that was wrong. `arrayBuffer()` still appears in the guide as the one line
 		// a handler writes when it wants the bytes, which is correct, so this pins the claim not the word.
 		expect(guides).not.toMatch(/`bytes` body is read with `arrayBuffer\(\)`/);
+	});
+
+	/**
+	 * **The figure this package WRITES INTO a consumer's tree must be the figure it measured.**
+	 *
+	 * `SYNC_PARSE` is emitted verbatim into every generated `app.gen.ts`, so its number is read by
+	 * people who cannot see the measurement behind it. It said 2.6x, taken on zod 4.5.2, while the
+	 * docblock immediately above it had been re-measured on 4.6.5 at 3.4x and the emitted copy was
+	 * not moved with it. The same class as the `arrayBuffer()` sentence above: documentation that
+	 * was wrong rather than missing, and no arm graded it.
+	 */
+	it("emits the same sync-versus-async figure that it measured", () => {
+		const measured = /\| `safeParseAsync` \| (\d+) \|[\s\S]*?\| `safeParse` \| (\d+) \|/.exec(
+			appSource,
+		);
+		expect(measured, "the measurement table in src/app.ts no longer reads this way").toBeDefined();
+		const ratio = Number(measured?.[1]) / Number(measured?.[2]);
+		const claimed = /the async path costs ([\d.]+)x/.exec(appSource)?.[1];
+		expect(claimed, "SYNC_PARSE no longer states a multiplier").toBeDefined();
+		expect(Number(claimed)).toBeCloseTo(ratio, 1);
 	});
 });

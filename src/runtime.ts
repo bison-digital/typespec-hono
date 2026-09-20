@@ -125,7 +125,7 @@ export type Awaitable<T> = T | Promise<T>;
  * **Specificity was implemented as a tie-break and that was wrong three ways at once**, all of them
  * live in a published runtime until `test/negotiation.test.ts` was written. Scoring every matching
  * range and keeping the best `(q, specificity)` pair lets a permissive wildcard out-vote the precise
- * rule a caller wrote about that exact type - so `Accept: *​/*, application/json;q=0` was served
+ * rule a caller wrote about that exact type - so an `Accept` of any type at all followed by `application/json;q=0` was served
  * JSON, which is the one outcome an explicit refusal must never produce. The prose above stated the
  * right rules the whole time; nothing compared it to the code.
  *

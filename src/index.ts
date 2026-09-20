@@ -8,5 +8,7 @@
  */
 export * from "typespec-http-zod";
 export { $lib } from "./lib.js";
+// Explicit, so it shadows the linter `export *` would otherwise re-export from typespec-http-zod.
+export { $linter } from "./linter.js";
 export { $onEmit } from "./emitter.js";
 export { renderApp, toHonoPath } from "./app.js";

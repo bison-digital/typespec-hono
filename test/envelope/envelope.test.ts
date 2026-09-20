@@ -107,17 +107,43 @@ beforeAll(async () => {
 describe("the fixture compiles into what these arms read", () => {
 	it("raises nothing but the warnings it is built to raise", () => {
 		/**
-		 * **The `regexp-router-unsupported` warning is the fixture's own shape, not a regression.**
-		 * It declares `/items/plain` beside `/items/{id}`, which is what the concrete-before-templated
-		 * ordering exists for, and which is exactly the set Hono's `RegExpRouter` refuses to compile.
-		 * The fixture serves correctly here because these arms mount it with the default router.
+		 * **No router warning, although this fixture is the shape `RegExpRouter` refuses.** It declares
+		 * `/items/plain` beside `/items/{id}`, which is what the concrete-before-templated ordering
+		 * exists for. That caveat is a LINTER rule now, so a compile that has not enabled it says
+		 * nothing - which is what a consumer on the default router, as these arms are, should hear.
 		 */
 		expect(compiled.diagnostics.filter((d) => d.severity === "error")).toEqual([]);
 		expect(compiled.diagnostics.map((d) => d.code).toSorted()).toEqual([
-			"typespec-hono/regexp-router-unsupported",
 			"typespec-hono/unvalidated-response-media-type",
 			"typespec-hono/unvalidated-response-media-type",
 		]);
+	});
+});
+
+/**
+ * **With the ruleset enabled, the rule names this route set, once, against the service.**
+ *
+ * The other half of the opt-in. TypeSpec's docs define a linter as optional validation of a program
+ * that "could be correct", which a route set the default router serves perfectly is. A project that
+ * asks for the advice gets it; one that did not, above, is not failed over a router it never chose.
+ */
+describe("the router caveat is a linter rule a project turns on", () => {
+	let linted: CompiledFixture;
+
+	beforeAll(async () => {
+		linted = await compileFixture(here, "envelope", {
+			outName: "envelope-linted",
+			linter: { extends: ["typespec-hono/recommended"] },
+		});
+	}, 600_000);
+
+	it("names the route set RegExpRouter refuses, once, against the service", () => {
+		const router = linted.diagnostics.filter(
+			(d) => d.code === "typespec-hono/regexp-router-unsupported",
+		);
+		expect(router).toHaveLength(1);
+		expect(String(router[0]?.message)).toContain("/items/");
+		expect(router[0]?.severity).toBe("warning");
 	});
 });
 

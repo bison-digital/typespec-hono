@@ -1,5 +1,6 @@
 import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { beforeAll, describe, expect, it } from "vitest";
 import { compileEmittedSet } from "./support/emitted-set.js";
@@ -85,5 +86,51 @@ describe("nothing this package ships names one machine's filesystem", () => {
 			offendersIn(file.slice(packageRoot.length), readFileSync(file, "utf8")),
 		);
 		expect(offenders).toEqual([]);
+	});
+
+	/**
+	 * **ASCII, and this package had no such arm while `typespec-http-zod` did.**
+	 *
+	 * The cost of the gap was not hypothetical. `src/runtime.ts` carried a zero-width space, U+200B,
+	 * inside a docblock - put there so that a media range written in prose would not close the
+	 * comment. That file is copied verbatim beside every generated server, so the character was in
+	 * every consumer's `runtime.gen.ts`, invisible in a diff and impossible to grep for. A second
+	 * copy sat in `test/negotiation.test.ts`.
+	 *
+	 * Both files and both halves are checked, because the emitted half is the one that ships.
+	 */
+	it("carries no non-ASCII character in anything it ships or generates", () => {
+		const nonAscii = (label: string, text: string): string[] =>
+			text
+				.split("\n")
+				.flatMap((line, index) =>
+					[...line]
+						.filter((character) => (character.codePointAt(0) ?? 0) > 126)
+						.map(
+							(character) =>
+								`${label}:${index + 1} U+${(character.codePointAt(0) ?? 0)
+									.toString(16)
+									.toUpperCase()
+									.padStart(4, "0")}`,
+						),
+				);
+
+		const tracked = execFileSync("git", ["ls-files"], { cwd: packageRoot, encoding: "utf8" })
+			.split("\n")
+			.filter(Boolean);
+		expect(tracked.length).toBeGreaterThanOrEqual(20);
+		const inTracked = tracked.flatMap((name) => {
+			try {
+				return nonAscii(name, readFileSync(join(packageRoot, name), "utf8"));
+			} catch {
+				return [];
+			}
+		});
+		expect(inTracked, inTracked.join("\n")).toEqual([]);
+
+		const inEmitted = emitted.flatMap((file) =>
+			nonAscii(file.slice(packageRoot.length), readFileSync(file, "utf8")),
+		);
+		expect(inEmitted, inEmitted.join("\n")).toEqual([]);
 	});
 });

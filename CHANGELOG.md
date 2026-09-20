@@ -8,6 +8,80 @@ published types; a patch will not. The **emitted output is part of the API**, a 
 `registerRoutes` returns, to a validator's shape, or to what a handler receives is a change a
 consumer feels, and is treated as such here rather than as an implementation detail.
 
+## [0.24.0] - 2026-09-20
+
+Upgrading: [what to check before you take this](docs/guides.md#to-0240).
+
+Requires `typespec-http-zod` 0.27.0, `hono` 4.13.5, `zod` 4.5.0.
+
+A minor carrying seven things, four of them breaking: **the request media type is enforced**, **a body
+too deep to parse is refused rather than crashed**, **a declared response header is checked before it
+is served**, **cookie parameters are mounted**, **a route set `RegExpRouter` cannot compile is named
+at build time**, and **the `hono` peer floor moves to 4.13.5**.
+
+**Breaking: the `hono` peer floor is now `^4.13.5`.** Everything below it carries three advisories
+published against 4.13.5, two of which sit on a generated server's own request surface: the query
+parser read parameters after the URL fragment, and `parseBody()` allowed unbounded dot-notation
+nesting. A peer range is how a library says which versions it is willing to be correct on, and
+`^4.12.0` said all of them.
+
+**Breaking: the request media type is enforced.** A route publishing `application/json` alone
+answered 200 to the same body sent as `text/plain`, as `multipart/form-data`, and with no
+`Content-Type` at all, because an unmatched type fell through to the first declared branch and
+`c.req.json()` reads the bytes whatever the header says. A media type the operation does not declare
+is now refused through `deps.invalid`, which is what `@typespec/http-server-js` does with the
+identical case. Two shapes a consumer will feel: `fetch` with a string body sends `text/plain`, and a
+hand-written client may send nothing at all.
+
+A declared media RANGE admits the types inside it, rather than only its own text. `@typespec/http`
+reports a bare `string`-typed `contentType` as the wildcard range, so comparing the range text would
+have refused every real request to such a route.
+
+**Breaking: a declared response header is checked before it is served.** `servedBody` parsed every
+response body against the schema the document publishes and threw `ResponseContractError` when it did
+not match; declared headers went through `String(value)` and nothing else, so a value the document's
+own `@pattern` forbids was served with 200. Headers are now checked the way bodies already were, and
+the error carries `part: "headers"`. An `onError` will start seeing it.
+
+**Breaking: cookie parameters are mounted.** A `@cookie` reached no validator, no handler input and
+no diagnostic, while the document published it as required. It is now mounted as Hono's own `cookie`
+validation target, so a request missing a required cookie is refused where it used to pass.
+
+**A body too deep to parse is refused rather than crashed.** A recursive model emits the getter form
+and Zod recurses once per level, so a 40 KB payload the published document calls valid answered 500
+with a bare `RangeError`, indistinguishable from a bug in the application's own code. The parse is
+guarded and the failure is reported through `deps.invalid` like any other bad request, naming the
+limit. The guard's own frames cost roughly 200 levels of accepted nesting.
+
+**A zero-width space no longer ships in the runtime.** `src/runtime.ts` carried U+200B inside a
+docblock, put there so a media range written in prose would not close the comment. That file is
+copied verbatim beside every generated server, so the character was in every consumer's
+`runtime.gen.ts`, invisible in a diff and impossible to grep for. `typespec-http-zod` had an arm
+forbidding non-ASCII in tracked files and this package had none; it does now, and it reads emitted
+output as well as source, because the emitted half is the half that ships.
+
+**A route set `RegExpRouter` cannot compile is named at build time.** A static segment beside a path
+parameter at the same position, `/items/plain` beside `/items/{id}`, is a shape this emitter
+deliberately supports and `RegExpRouter` refuses. It throws inside `registerRoutes` at module scope,
+so the Worker does not start and every route answers nothing, and the compile was clean.
+The `regexp-router-unsupported` rule now names the route that conflicts.
+
+**It is a linter rule, off until a project enables it**, with
+`linter: { extends: ["typespec-hono/recommended"] }` in `tspconfig.yaml`. The route set is valid and
+the default `new Hono()` serves it, so what the rule reports is a caveat about a router the
+application may choose - which TypeSpec's own docs put in a linter, "optional validation" of a program
+that "could be correct". Raised as an automatic warning it would fail the build of a project that
+sets `warn-as-error: true` and uses the default router, over a problem it does not have. The same
+ruleset enables `redos-prone-pattern` from `typespec-http-zod`, which a consumer of this package never
+loads as a library and so could not otherwise name.
+
+`docs/cloudflare-workers.md` recommended `RegExpRouter` on the strength of a router table whose
+register and first-request columns turned out to measure the benchmark rather than the router: all
+four were timed in one process, so whichever ran first paid the JIT cost of the whole request path.
+Re-measured in isolated processes on 4.13.8, the table now carries only what survives isolation, and
+the default `new Hono()` is named first for a route set `RegExpRouter` refuses. It mounts the same
+routes and is about 4.6x faster in steady state than `PatternRouter` at 360 operations.
+
 ## [0.23.0] - 2026-09-16
 
 Requires `typespec-http-zod` 0.26.0.

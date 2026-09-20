@@ -10,18 +10,38 @@ rather than restated. See its README for `seal-object-schemas`, `contracts-outpu
 `compile-schemas` is worth more than a word here because a SERVER is where it pays.
 
 Measured on a generated 360-operation service (481 compiled schemas) under `workerd`, against the
-same service with the option off:
+same service with the option off. Parses on zod 4.6.5, three runs:
 
-|                                            | off        | on         |
-| ------------------------------------------ | ---------- | ---------- |
-| module evaluation, isolated processes      | 154-177 ms | 183-203 ms |
-| 30,000 parses of an ordinary object schema | 8-12 ms    | 1-4 ms     |
-| 30,000 parses of a RECURSIVE schema        | 18-28 ms   | 16-23 ms   |
+|                                            | off      | on     |
+| ------------------------------------------ | -------- | ------ |
+| 30,000 parses of an ordinary object schema | 25-28 ms | 2-4 ms |
 
-So the startup cost is around 25-30 ms at that scale, against a 1 second budget, and the parse is
-three to four times faster. A recursive schema gains nothing, because a deferred declaration is never
-wrapped in `z.compile()` - it cannot be, since the declaration is not complete when the wrapper would
-run.
+`workerd` clamps `performance.now()` to whole milliseconds, so read these as a ratio rather than to
+the digit: the compiled parse is roughly **eight times** faster at this scale.
+
+**Startup cannot be measured on `workerd`, and the row that used to sit here claimed it was.**
+`performance.now()` does not advance during a Worker's startup phase, so a module-scope timer around
+the import reports `0` on every run; and measured from outside, the delta is below the noise floor of
+`wrangler dev`'s own 150-190 ms. The previous figures (154-177 ms against 183-203 ms) cannot be
+reproduced by either route.
+
+What is reproducible is the same import in isolated **node** processes, same service, five runs each
+on zod 4.6.5:
+
+|                   | off      | on       |
+| ----------------- | -------- | -------- |
+| module evaluation | 46-59 ms | 79-97 ms |
+
+So compiling 481 schemas costs roughly **33-38 ms** of extra module evaluation, against a Worker's
+1 second startup budget. The old row's derived claim of 25-30 ms was the right order and slightly
+understated it.
+
+**A schema on a reference CYCLE gains nothing, because no member of a cycle is wrapped in
+`z.compile()`.** It used to be only the deferred declaration that was skipped, on the measurement
+that a back edge sitting on a getter compiled and parsed fine. That was true on zod 4.5.2 and false
+on 4.6.5: naming a compiled schema from inside a `z.lazy()` body throws
+`Cannot read properties of undefined (reading '_zod')` on the first parse, which reaches a running
+server rather than a build.
 
 It stays off by default because it changes startup for every consumer and the right answer depends on
 a service's shape, but at this scale the numbers argue for turning it on.
@@ -70,17 +90,47 @@ negotiation fix can tell whether it reached them: if `selectContentType` does no
 
 ## What it refuses, and why
 
-| code                              | why                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
-| --------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `unvalidatable-media-type`        | The document declares a request media type no `zValidator` target can parse, most commonly `application/xml`. The route is still mounted and still validates every type that can be parsed, chosen from the request's `Content-Type`. Requests carrying the others are refused rather than parsed as something they are not.                                                                                                                                                                               |
-| `unsupported-path-template`       | A path parameter whose wire name carries a character Hono cannot hold in a route parameter (a space, `+` or `!`), or a path segment holding two RFC 6570 expressions, which no segment router can split. The segment is registered as literal text, so it matches nothing rather than matching the wrong requests. Every single-expression form (label, matrix, path, reserved, exploding, optional, and one beside literal text) is mounted.                                                              |
-| `unvalidated-response-media-type` | A response declares a model under a media type that is not JSON, most commonly `application/xml`. No serialisation derives from the schema, so the handler returns that body as a string and the route serves it without validating it. Every other response on the operation is validated as usual.                                                                                                                                                                                                       |
-| `regexp-router-unsupported`       | The routes this service mounts are a set Hono's `RegExpRouter` cannot compile, most often because a static path segment sits beside a path parameter at the same position (`/users/me` next to `/users/{id}`). Nothing is refused and the server is complete: the default `SmartRouter` serves it. It is reported because a bare `RegExpRouter` throws inside `registerRoutes` at module scope, so the Worker would not start at all. See [Cloudflare Workers](cloudflare-workers.md#which-router-to-use). |
-| `runtime-module-removed`          | `runtime-module` is set. It is an error: the option is ignored and `runtime.gen.ts` is emitted, because an application that substituted the runtime owned a copy of generated logic. See [Upgrading](guides.md#upgrading).                                                                                                                                                                                                                                                                                 |
+| code                              | why                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| --------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `unvalidatable-media-type`        | The document declares a request media type no `zValidator` target can parse, most commonly `application/xml`. The route is still mounted and still validates every type that can be parsed, chosen from the request's `Content-Type`. Requests carrying the others are refused rather than parsed as something they are not.                                                                                                                  |
+| `unsupported-path-template`       | A path parameter whose wire name carries a character Hono cannot hold in a route parameter (a space, `+` or `!`), or a path segment holding two RFC 6570 expressions, which no segment router can split. The segment is registered as literal text, so it matches nothing rather than matching the wrong requests. Every single-expression form (label, matrix, path, reserved, exploding, optional, and one beside literal text) is mounted. |
+| `unvalidated-response-media-type` | A response declares a model under a media type that is not JSON, most commonly `application/xml`. No serialisation derives from the schema, so the handler returns that body as a string and the route serves it without validating it. Every other response on the operation is validated as usual.                                                                                                                                          |
+| `runtime-module-removed`          | `runtime-module` is set. It is an error: the option is ignored and `runtime.gen.ts` is emitted, because an application that substituted the runtime owned a copy of generated logic. See [Upgrading](guides.md#upgrading).                                                                                                                                                                                                                    |
 
 RFC 6570 operators are not affected by the second of these. `@typespec/http` resolves them before this
 emitter sees the path and `@typespec/openapi3` strips them from the published document, so
 `@route("/files{+path}")` reaches both as `/files{path}` and the two artefacts agree.
+
+## Linter rules
+
+Opt-in advice about a spec that is valid but could be better. **None of these runs until a project
+enables it**, and you should:
+
+```yaml
+# tspconfig.yaml
+linter:
+  extends:
+    - "typespec-hono/recommended"
+```
+
+| Rule                        | What it flags                                                                                                                                                                                                                                                                                              |
+| --------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `regexp-router-unsupported` | A route set Hono's `RegExpRouter` cannot compile, most often a static path segment beside a path parameter at the same position. A bare `RegExpRouter` throws inside `registerRoutes`, so the Worker would not start. The default `new Hono()` serves it. See [Cloudflare Workers](cloudflare-workers.md). |
+| `redos-prone-pattern`       | A `@pattern` that cannot be proven safe against catastrophic backtracking. The emitted validator runs it on every request, before any handler. Registered from `typespec-http-zod`, which this package runs in-process and you never load as a library, so it is enabled here.                             |
+
+**Why rules and not diagnostics.** TypeSpec draws the line in its own documentation: a diagnostic says
+the program is not valid for the library, while a linter is for a program that "could be correct, but
+there might be room for improvements", and "linters need to be explicitly enabled". Both of these are
+the second kind: the spec is valid and what is emitted is correct. Raised as automatic warnings they
+failed the build of every project setting `warn-as-error: true`, whether or not it had asked.
+
+A finding you have looked at and decided to keep is acknowledged where it is declared, with a reason:
+
+```tsp
+#suppress "typespec-hono/regexp-router-unsupported" "Mounted with the default router, which holds this route set"
+@service(#{ title: "Widgets" })
+namespace Widgets;
+```
 
 ### Refusals are warnings
 

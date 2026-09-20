@@ -9,7 +9,8 @@ import { selectContentType } from "../src/runtime.js";
  * `compiles.test.ts` asserted that the string `selectContentType(` appears in emitted output, which
  * is a claim that negotiation is WIRED, not that it is CORRECT. The function shipped in the runtime
  * every consumer imports, so the defects below were live: most seriously, a caller writing
- * `Accept: *​/*, application/json;q=0` - an explicit refusal of JSON - was served JSON.
+ * an `Accept` of any type at all with `application/json;q=0` after it - an explicit refusal of
+ * JSON - was served JSON.
  *
  * **The cause was one rule read as a tie-break instead of a selector.** RFC 9110 section 12.5.1 says
  * the MOST SPECIFIC matching range determines a type's quality; the implementation instead scored
@@ -112,16 +113,35 @@ async function honoAccepts(
  * equality, after sorting on `q`. That is three rules short of RFC 9110 section 12.5.1, and each gap
  * is a wrong answer a caller can produce.
  *
- * Measured over 17 headers, the two agree on 12 and differ on 5, every one of them Hono's:
+ * Measured on hono 4.13.8, on the six cases below, the two differ on four:
  *
- * - a subtype wildcard matches nothing, so `Accept: text/*` is served JSON;
+ *     case               selectContentType   hono/accepts        agree?
+ *     subtype wildcard   text/plain          text/plain          yes
+ *     q=0 refusal        text/plain          application/json    NO
+ *     406 reachable      undefined           application/json    NO
+ *     q=0 only offer     undefined           application/json    NO
+ *     negative q         application/json    text/plain          NO
+ *     uppercase Q=0      text/plain          application/json    NO
+ *
+ * Two reasons remain, and one has expired:
+ *
  * - `q=0` is a weak preference rather than a refusal, so the exact defect this file was written for
  *   - serving a media type the caller explicitly refused - is Hono's current behaviour;
  * - nothing is unacceptable, so there is no 406: a caller asking for `image/png` from a JSON-only
- *   operation is served JSON.
+ *   operation is served JSON;
+ * - a subtype wildcard USED to match nothing, so `Accept: text/*` was served JSON. Hono 4.13.4
+ *   fixed it (`fix(accepts): support wildcard media types and specificity ordering in defaultMatch`,
+ *   honojs/hono#5255) and the arm below records the agreement instead.
  *
- * **Kept as an arm rather than a comment so the decision can expire.** If Hono's helper becomes
- * RFC-correct, these stop failing and this package should delete its own implementation and use it.
+ * **One divergence is now ours, not Hono's.** Hono 4.13.8 clamps a negative `q` to 0
+ * (`fix(accept): clamp a negative q to 0, not 1`, honojs/hono#5357); `selectContentType` ignores a
+ * malformed `q` and falls back to the default of 1, which the arm above deliberately asserts. RFC
+ * 9110 defines neither, so this is a choice rather than a defect, but the claim that every
+ * difference is Hono's is no longer true.
+ *
+ * **Kept as arms rather than a comment so the decision can expire.** This is what expiry looks like:
+ * the wildcard arm failed the first time the package was run on a hono newer than 4.13.1. If the
+ * last two go the same way, delete this implementation and use Hono's.
  */
 describe("hono/accepts is not a substitute, and this is the evidence", () => {
 	it("agrees wherever the header is a plain ordered preference", async () => {
@@ -139,10 +159,23 @@ describe("hono/accepts is not a substitute, and this is the evidence", () => {
 		}
 	});
 
-	it("differs on a subtype wildcard, which it does not match at all", async () => {
+	// Expired. Hono 4.13.4 (honojs/hono#5255) made this agree; kept as the record that it does.
+	it("agrees on a subtype wildcard, which Hono did not match before 4.13.4", async () => {
 		const offered = ["application/json", "text/plain"];
 		expect(selectContentType("text/*", offered)).toBe("text/plain");
-		expect(await honoAccepts("text/*", offered)).toBe("application/json");
+		expect(await honoAccepts("text/*", offered)).toBe("text/plain");
+	});
+
+	// The one difference that is ours: Hono 4.13.8 clamps a negative q to 0, this ignores a malformed
+	// q and keeps the default of 1. RFC 9110 defines neither.
+	it("differs on a negative q, and here it is Hono that changed", async () => {
+		const offered = ["application/json", "text/plain"];
+		expect(selectContentType("application/json;q=-1, text/plain;q=0.5", offered)).toBe(
+			"application/json",
+		);
+		expect(await honoAccepts("application/json;q=-1, text/plain;q=0.5", offered)).toBe(
+			"text/plain",
+		);
 	});
 
 	it("differs on q=0, which it does not read as a refusal", async () => {

@@ -67,7 +67,7 @@ node -e "for (const p of ['typespec-hono','typespec-http-zod','zod'])
 ### What this catches that a tarball does not
 
 `pnpm pack` plus a `file:` override is quicker and is **not** the same test. It skips version-range
-resolution entirely, so it cannot tell you that `^0.24.0` reaches the library, that a peer range is
+resolution entirely, so it cannot tell you that `^0.26.0` reaches the library, that a peer range is
 satisfiable, or that the transitive install lands at all. It also writes a machine-local path into
 `pnpm-lock.yaml`, which `attribution.test.ts` and `portability.test.ts` will refuse if it is ever
 committed - correctly.
@@ -85,6 +85,14 @@ The library publishes first, always, because the server resolves it by range.
    the workflow by a minute; that is not a failure.
 4. Only then bump `typespec-hono`'s dependency range, run its gates against the published library,
    and release it.
+
+   **Do not raise the range before the library is out.** `pnpm` resolves a dependency range against
+   the registry before it runs any script, so a range naming an unpublished version fails every gate
+   with `ERR_PNPM_NO_MATCHING_VERSION` rather than with anything about this package. Leaving the
+   range where it is until step 2 has landed keeps the tree installable, and
+   `packaging.test.ts` then gives the actionable failure instead: it names the API the resolved
+   library is missing and says to release it first.
+
 5. **Prove the release against the reference consumer.**
 
    ```bash

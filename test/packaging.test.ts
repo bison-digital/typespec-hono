@@ -356,4 +356,49 @@ describe("the install instruction matches what actually ships", () => {
 		expect(emitter).toContain("runtime.gen.ts");
 		expect(DEFAULT_RUNTIME_MODULE).toBe("./runtime.gen.js");
 	});
+
+	/**
+	 * **The resolved `typespec-http-zod` has to carry the API this package's `src/` consumes, and a
+	 * version range cannot say so on its own.**
+	 *
+	 * Both packages sit at a version that has already been published, and features land in the
+	 * library before the server emitter that reads them. A clean checkout of this repository resolved
+	 * the PUBLISHED 0.26.0, which has neither cookie parameters nor a response-header schema, and
+	 * `pnpm test` failed at `tsc` with four errors about `RouteSchemaNames` and `headers` that name
+	 * nothing a reader could act on. The working tree passed the whole time, because the dependency
+	 * there was a hand-made symlink to the sibling checkout that nothing in the repository records.
+	 *
+	 * This arm turns that into one sentence. It does not replace the release ordering it implies:
+	 * `typespec-http-zod` has to be bumped and released first, and this package's floor has to name
+	 * that version rather than a range that also admits the version without the feature.
+	 */
+	it("resolves a typespec-http-zod that carries the API this package compiles against", () => {
+		const declarations = readFileSync(
+			join(packageRoot, "node_modules", "typespec-http-zod", "dist", "src", "api.d.ts"),
+			"utf8",
+		);
+		const range = manifest.dependencies?.["typespec-http-zod"];
+		const because = `resolved typespec-http-zod does not carry it; the declared range is ${range}. Release typespec-http-zod first and raise this floor.`;
+		// Consumed by src/app.ts for the cookie validator group.
+		expect(declarations, `RouteSchemaNames.cookie: ${because}`).toMatch(
+			/readonly cookie\?: string \| undefined;/,
+		);
+		// Consumed by src/app.ts and src/runtime.ts for servedHeaders.
+		expect(declarations, `response arm headers: ${because}`).toMatch(
+			/readonly headers\?: string \| undefined;/,
+		);
+		/**
+		 * The linter's two imports, read from the entrypoint because that is where they are exported.
+		 * `routeTemplateOf` builds the route set the router rule judges, the same way the library does;
+		 * `redosPronePatternRule` is registered in this package's ruleset. A resolved library without
+		 * either fails at `tsc` with an error naming neither the cause nor the remedy.
+		 */
+		const entrypoint = readFileSync(
+			join(packageRoot, "node_modules", "typespec-http-zod", "dist", "src", "index.d.ts"),
+			"utf8",
+		);
+		for (const name of ["routeTemplateOf", "redosPronePatternRule"]) {
+			expect(entrypoint, `${name}: ${because}`).toMatch(new RegExp(`export \\{ ${name} \\}`));
+		}
+	});
 });

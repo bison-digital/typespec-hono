@@ -150,9 +150,10 @@ describe("path templates", () => {
 		/**
 		 * **This fixture IS the shape `RegExpRouter` refuses** - a concrete sibling beside a parameter
 		 * at the same position - which is the arrangement this arm exists to check the ORDERING of.
-		 * So the router advisory is expected here and only here; every real refusal still throws.
+		 * The render no longer judges the router at all; the `regexp-router-unsupported` linter rule
+		 * does. So every refusal the render can raise still throws here.
 		 */
-		const source = renderApp(service, { ...noRefusals, regexpRouterUnsupported: () => undefined });
+		const source = renderApp(service, noRefusals);
 		const patternAt = source.indexOf(String.raw`"/:id{item\\.[^\\x2F]*}"`);
 		const concreteAt = source.indexOf('"/plain"');
 		expect(patternAt).toBeGreaterThan(-1);

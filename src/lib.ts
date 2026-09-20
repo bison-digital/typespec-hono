@@ -161,33 +161,6 @@ const diagnostics = {
 			default: paramMessage`'${"operationId"}' answers ${"status"} as ${"types"}, which this emitter cannot serialise from the schema. The handler returns that body as text and it is served without being validated. Declare a JSON media type, or a string body, to have it checked.`,
 		},
 	},
-	/**
-	 * The mounted route set is one Hono's `RegExpRouter` refuses to compile.
-	 *
-	 * **The router a consumer was TOLD to use, refusing the routes this emitter just wrote.**
-	 * `docs/cloudflare-workers.md` recommended `RegExpRouter` unconditionally, and `RegExpRouter`
-	 * throws `UnsupportedPathError` for a static segment beside a path parameter at the same
-	 * position - `/users/me` next to `/users/{id}`, which is the commonest shape in REST. It throws
-	 * inside `registerRoutes`, at module scope, so the Worker never starts and every route answers
-	 * nothing. Measured: one added route took a live worker from serving to connection-refused, from
-	 * a compile that reported success.
-	 *
-	 * **The check runs Hono's real router rather than reimplementing its rule**, because a
-	 * reimplementation is a second copy of somebody else's invariant to keep honest, and this one is
-	 * undocumented and version-specific. `hono` is a peer dependency, so it resolves in any tree that
-	 * could run the output; where it does not resolve the check is skipped rather than guessed at.
-	 *
-	 * **A warning, not an error.** The spec is valid, the document is correct, and the default router
-	 * serves it perfectly - `SmartRouter` tries `RegExpRouter` and falls back to `TrieRouter` for
-	 * exactly this case. What is wrong is a router choice the application makes, so this reports the
-	 * fact and names the remedy.
-	 */
-	"regexp-router-unsupported": {
-		severity: "warning",
-		messages: {
-			default: paramMessage`This service mounts '${"path"}', which Hono's 'RegExpRouter' cannot compile: ${"reason"}. A bare 'RegExpRouter' throws inside 'registerRoutes' at module scope, so the Worker would not start at all. Use 'new Hono({ router: new PatternRouter() })', which mounts this route set and is within a few percent of 'RegExpRouter' in steady state, or 'new Hono()' for the default 'SmartRouter', which falls back but pays for the attempt on the first request.`,
-		},
-	},
 	"unsupported-path-template": {
 		severity: "warning",
 		messages: {
@@ -213,7 +186,6 @@ const diagnostics = {
  * exists only in the arrangement that BUILDS the package, and would ship silently.
  */
 type Diagnostics = {
-	"regexp-router-unsupported": { readonly default: CallableMessage<["path", "reason"]> };
 	"runtime-module-removed": { readonly default: CallableMessage<["value"]> };
 	"unsupported-path-template": { readonly default: CallableMessage<["template", "name"]> };
 	"unvalidatable-media-type": { readonly default: CallableMessage<["operationId", "types"]> };

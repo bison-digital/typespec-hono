@@ -184,6 +184,13 @@ export async function compileScenario(
 	try {
 		program = await compile(NodeHost, scenario.mainFile, {
 			outputDir,
+			/**
+			 * **The router rule, enabled, because the router oracle grades it.** It is a linter rule,
+			 * so a compile names it only when asked, and `router.test.ts` mounts every generated server
+			 * under a bare `RegExpRouter` to check the rule's verdict in both directions. Only that rule:
+			 * the corpus is graded on what the oracle checks, not on every piece of advice there is.
+			 */
+			linterRuleSet: { enable: { "typespec-hono/regexp-router-unsupported": true } },
 			// Ours FIRST, deliberately, see `ownerOfCrash`.
 			emit: ["typespec-hono", "@typespec/openapi3"],
 			options: {
@@ -299,7 +306,8 @@ export async function compileScenario(
 	 */
 	const PARTIAL_RESPONSE = "typespec-hono/unvalidated-response-media-type";
 	/**
-	 * **Not a refusal and not a partial validation: a caveat about the HOST application's choice.**
+	 * **Not a refusal and not a partial validation: a caveat about the HOST application's choice**,
+	 * raised by a linter rule rather than by emission, and enabled for the corpus above.
 	 *
 	 * Every operation is mounted, validated and served. What the warning says is that the route set is
 	 * one Hono's `RegExpRouter` cannot compile, so an application that constructs its app with a bare
