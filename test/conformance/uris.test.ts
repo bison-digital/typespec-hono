@@ -131,7 +131,9 @@ describe("http-specs routes: every mock URI reaches its operation with the docum
 	}, 300_000);
 
 	it("sent every URI the mock declares", () => {
-		expect(results).toHaveLength(47);
+		// 47 at `@typespec/http-specs` `0.1.0-alpha.41`; `0.1.0-alpha.44` adds three model-valued query
+		// expansions (`explode: false`, and both continuation forms), which the two arms below grade.
+		expect(results).toHaveLength(50);
 	});
 
 	it("reaches a handler for every one", () => {
