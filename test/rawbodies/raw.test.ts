@@ -11,6 +11,7 @@ let compiled: CompiledFixture;
 let app: Hono;
 const received: Record<string, Record<string, unknown>> = {};
 const PNG = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0xff, 0xd8]);
+let download: unknown = PNG;
 
 async function bytesOf(value: unknown): Promise<number[]> {
 	return [...new Uint8Array(await new Response(value as ReadableStream).arrayBuffer())];
@@ -34,7 +35,7 @@ beforeAll(async () => {
 			uploadImage: record("uploadImage"),
 			uploadJsonFile: record("uploadJsonFile"),
 			putXml: record("putXml"),
-			downloadImage: () => ({ status: 200, body: PNG }),
+			downloadImage: () => ({ status: 200, body: download }),
 		}),
 		{
 			authorize: () => async (_c: unknown, next: () => Promise<void>) => {
@@ -91,9 +92,97 @@ describe("a model under a media type nothing parses", () => {
 
 describe("an Http.File download", () => {
 	it("is served as the bytes, under its media type", async () => {
+		download = PNG;
 		const response = await app.request("/files/latest");
 		expect(response.status).toBe(200);
 		expect(response.headers.get("content-type")).toBe("image/png");
 		expect([...new Uint8Array(await response.arrayBuffer())]).toEqual([...PNG]);
+	});
+});
+
+/**
+ * **A stream a backend returns typed by the contract is served, and still streams.** The contract
+ * states a binary body as `ByteStream`, the reader every stream has, because it cannot name the
+ * platform stream; a value that is only that reader was refused by the handler's type, and
+ * `new Response(value)` would have served `[object Object]`.
+ */
+describe("a binary body that is only a ByteStream", () => {
+	it("compiles as a handler's result", async () => {
+		const { execFileSync } = await import("node:child_process");
+		const { rmSync, writeFileSync } = await import("node:fs");
+		const consumer = join(compiled.outDir, "consumer.ts");
+		const config = join(compiled.outDir, "tsconfig.consumer.json");
+		writeFileSync(
+			consumer,
+			`import type { Operations } from "./app.gen.js";
+declare const reader: { getReader(): { read(): Promise<{ readonly done: boolean; readonly value?: Uint8Array }>; releaseLock(): void } };
+export const handler: Operations["downloadImage"] = () => ({ status: 200, body: reader });
+`,
+		);
+		writeFileSync(
+			config,
+			JSON.stringify({
+				compilerOptions: {
+					target: "es2023",
+					module: "nodenext",
+					moduleResolution: "nodenext",
+					strict: true,
+					exactOptionalPropertyTypes: true,
+					noEmit: true,
+					skipLibCheck: true,
+				},
+				include: ["./*.ts"],
+			}),
+		);
+		let output = "";
+		try {
+			execFileSync(join(here, "..", "..", "node_modules", ".bin", "tsc"), ["-p", config], {
+				encoding: "utf8",
+				stdio: ["ignore", "pipe", "pipe"],
+			});
+		} catch (error) {
+			const asExec = error as { stdout?: string; stderr?: string };
+			output = `${asExec.stdout ?? ""}${asExec.stderr ?? ""}`.trim();
+		} finally {
+			rmSync(consumer, { force: true });
+		}
+		expect(output).toBe("");
+	});
+
+	it("is served as its exact bytes, the first chunk before the producer has the last", async () => {
+		let release: () => void = () => undefined;
+		const gate = new Promise<void>((resolve) => {
+			release = resolve;
+		});
+		let reads = 0;
+		download = {
+			getReader: () => ({
+				async read() {
+					reads++;
+					if (reads === 1) return { done: false, value: PNG.slice(0, 4) };
+					if (reads === 2) {
+						await gate;
+						return { done: false, value: PNG.slice(4) };
+					}
+					return { done: true };
+				},
+				releaseLock: () => undefined,
+			}),
+		};
+		const response = await app.request("/files/latest");
+		expect(response.status).toBe(200);
+		const reader = (response.body as ReadableStream<Uint8Array>).getReader();
+		const timeout = new Promise<"materialised">((resolve) =>
+			setTimeout(() => resolve("materialised"), 2000),
+		);
+		const first = await Promise.race([reader.read(), timeout]);
+		expect(first, "the first chunk did not arrive before the last was produced").not.toBe(
+			"materialised",
+		);
+		release();
+		const chunks = [...((first as { value: Uint8Array }).value ?? [])];
+		for (let next = await reader.read(); !next.done; next = await reader.read())
+			chunks.push(...next.value);
+		expect(chunks).toEqual([...PNG]);
 	});
 });

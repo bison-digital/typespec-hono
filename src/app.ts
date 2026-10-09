@@ -251,6 +251,10 @@ function serveCall(member: ResultMember, status: string, operationId: string, us
 			return `return c.json(${validated()}, ${status}${headersArgument});`;
 		case "text":
 			return `return c.body(${validated()}, ${status}${headersArgument});`;
+		case "stream":
+		case "binary":
+			uses.runtime.add("servedBytes");
+			return `return c.body(servedBytes(result.body), ${status}${headersArgument});`;
 		default:
 			return `return c.body(result.body, ${status}${headersArgument});`;
 	}
@@ -1346,10 +1350,16 @@ type Fields<T> = string extends keyof T ? ([T[string]] extends [never] ? unknown
 					fields.push("readonly body?: undefined");
 					break;
 				case "stream":
-					fields.push("readonly body: ReadableStream");
+					fields.push("readonly body: ByteStream");
 					break;
 				case "binary":
-					fields.push("readonly body: ReadableStream | Uint8Array<ArrayBuffer> | ArrayBuffer");
+					/**
+					 * **`ByteStream`, not `ReadableStream`, so a backend's contract value fits.** The
+					 * contract types state a binary body structurally, because they cannot name the
+					 * platform stream; a platform stream still satisfies it, so nothing a handler could
+					 * return before is refused, and `servedBytes` turns either into what `c.body` takes.
+					 */
+					fields.push("readonly body: ByteStream | Uint8Array<ArrayBuffer> | ArrayBuffer");
 					break;
 				case "unvalidated":
 					fields.push("readonly body: string");
@@ -2026,7 +2036,12 @@ type Produced<T> = T extends (...args: never[]) => unknown
 		...(guardsHead ? ["headOnly"] : []),
 		...(guardsQuery ? ["literalQuery"] : []),
 	].toSorted();
-	const runtimeTypes = ["AppEnv", ...(operates ? ["Awaitable"] : []), "RouteDeps"];
+	const runtimeTypes = [
+		"AppEnv",
+		...(operates ? ["Awaitable"] : []),
+		...(renderedResults.has("ByteStream") ? ["ByteStream"] : []),
+		"RouteDeps",
+	];
 
 	return `${generatedBanner(emitted.options.regenerateHint)}
 ${validates ? 'import { zValidator } from "@hono/zod-validator";\n' : ""}${needsHonoValue ? 'import { Hono } from "hono";\n' : ""}import type { ${honoTypes.join(", ")} } from "hono";

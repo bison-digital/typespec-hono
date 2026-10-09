@@ -263,6 +263,54 @@ export class UndeclaredStatusError extends Error {
 }
 
 /**
+ * **A stream of bytes, as every platform's `ReadableStream<Uint8Array>` satisfies it.**
+ *
+ * The same structural type `typespec-http-zod` publishes in `requests.gen.ts`, so a backend whose
+ * result is typed by the framework-free contract can be returned from a handler as it is: a contract
+ * cannot name `ReadableStream` without a DOM or runtime library, so it states the reader every stream
+ * has. Declared here rather than imported because this file is copied into a consumer's Worker, where
+ * the emitter package is not installed; the corpus agreement test holds the two identical.
+ */
+export interface ByteStream {
+	getReader(): {
+		read(): Promise<{ readonly done: boolean; readonly value?: Uint8Array | undefined }>;
+		releaseLock(): void;
+	};
+}
+
+/**
+ * The bytes a binary or streamed response SERVES, as something `c.body` accepts.
+ *
+ * **A platform stream, a `Uint8Array` or an `ArrayBuffer` is served as it is** - a stream keeps the
+ * platform's own piping, which is the point of handing over a stream at all. Anything else satisfying
+ * `ByteStream` is pulled through a `ReadableStream`, one chunk per read, so it still streams rather
+ * than being read whole. Without this, `new Response(value)` stringifies an object it does not
+ * recognise, and the body served was `[object Object]` with a 200.
+ */
+export function servedBytes(
+	body: ByteStream | Uint8Array<ArrayBuffer> | ArrayBuffer,
+): ReadableStream<Uint8Array> | Uint8Array<ArrayBuffer> | ArrayBuffer {
+	if (body instanceof ReadableStream || body instanceof Uint8Array || body instanceof ArrayBuffer) {
+		return body;
+	}
+	const reader = body.getReader();
+	return new ReadableStream<Uint8Array>({
+		async pull(controller) {
+			const { done, value } = await reader.read();
+			if (done) {
+				reader.releaseLock();
+				controller.close();
+			} else if (value !== undefined) {
+				controller.enqueue(value);
+			}
+		},
+		cancel() {
+			reader.releaseLock();
+		},
+	});
+}
+
+/**
  * The body a response SERVES: what the handler returned, parsed against the schema the document
  * publishes for that status.
  *
