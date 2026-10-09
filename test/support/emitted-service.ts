@@ -78,6 +78,7 @@ export function serviceWith(
 		negotiatedHeaderSchema: undefined,
 		accept: undefined,
 		rawBodyProperty: undefined,
+		rawBodyBinary: false,
 		authentication: "none",
 		scopes: [],
 		security: [],
