@@ -1267,12 +1267,16 @@ export function renderApp(
  * **Zod 4 infers \`Record<string, never>\` for \`z.object({})\`.** That is a fair reading on its own -
  * no string key may exist - and lethal in an intersection: \`{ id: string } & Record<string, never>\`
  * makes \`id\` into \`string & never\`, so the input type is uninhabitable and the call site below
- * cannot compile. An empty model contributes nothing to an operation's input, and \`unknown\` is the
- * identity of \`&\`, so that is what it becomes.
+ * cannot compile. An empty model contributes nothing to an operation's input, so it becomes \`{}\`,
+ * which is the identity of \`&\` over the object types an input is made of.
+ *
+ * **\`{}\`, not \`unknown\`.** \`unknown\` is the identity too, but an input made of nothing else
+ * then WAS \`unknown\`: a handler for \`putEmpty(@body body: EmptyInput)\` could not hand its input
+ * to anything typed \`{}\`, the empty object the contract types state for it.
  *
  * A DICTIONARY body is not this: \`Record<unknown>\` has a value type, so it survives untouched.
  */
-type Fields<T> = string extends keyof T ? ([T[string]] extends [never] ? unknown : T) : T;
+type Fields<T> = string extends keyof T ? ([T[string]] extends [never] ? {} : T) : T;
 
 `
 		: "";
