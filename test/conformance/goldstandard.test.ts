@@ -37,6 +37,12 @@ import {
  * 4. **A body that is not JSON is compared as "not JSON".** `hc` reads such a response as opaque,
  *    and `RouteConfigToTypedResponse` types it as a bare `Response`, so its status is what there is to
  *    compare. The count of operations carrying one is recorded.
+ * 5. **Opaque content is not JSON, whatever its media type.** A schema stating nothing but
+ *    `contentMediaType` - no type, no reference, no structure - is how the document publishes raw
+ *    content, and `Http.File<"application/json">` publishes exactly that. `@typespec/http` says such a
+ *    file "may contain non-textual data", so `c.json` cannot serve it and a route serving it in
+ *    `@hono/zod-openapi` answers with `c.body`, which `hc` reads as opaque. Read off the document, so
+ *    the expectation still comes from outside the code it grades.
  *
  * **The BODY types come from Hono, not from `@hono/zod-openapi`, and that was measured.** Its
  * declaration file contains `import z = zodModule.z;` with `zodModule` declared nowhere, so under
@@ -72,6 +78,16 @@ beforeAll(async () => {
 }, 900_000);
 
 const isJson = (type: string): boolean => /^application\/(json|.*\+json)$/.test(type);
+
+/** Deviation 5: a content entry whose schema states only its media type is raw content. */
+const isOpaque = (entry: unknown): boolean => {
+	const schema = (entry as { schema?: Readonly<Record<string, unknown>> } | undefined)?.schema;
+	return (
+		schema !== undefined &&
+		Object.keys(schema).length > 0 &&
+		Object.keys(schema).every((keyword) => keyword === "contentMediaType")
+	);
+};
 const isText = (type: string): boolean => type.startsWith("text/plain");
 
 /** `[status, schema identifier]` per arm, read from the library's emitted arm list. */
@@ -166,9 +182,11 @@ async function planFor(scenario: CompiledScenario): Promise<Plan | undefined> {
 			const members = responses.map(([status, response]) => {
 				const types = Object.keys(response.content ?? {});
 				const schema = arms.get(status);
-				const json = types.some(isJson) && schema !== undefined;
+				const parsed = (type: string): boolean =>
+					isJson(type) && !isOpaque(response.content?.[type]);
+				const json = types.some(parsed) && schema !== undefined;
 				const other =
-					types.some((type) => !isJson(type)) || (types.length > 0 && schema === undefined);
+					types.some((type) => !parsed(type)) || (types.length > 0 && schema === undefined);
 				return { status, types, schema, json, other };
 			});
 			if (members.some(({ types }) => types.some((type) => !isJson(type) && !isText(type)))) {
