@@ -1351,7 +1351,13 @@ type Fields<T> = string extends keyof T ? ([T[string]] extends [never] ? unknown
 					fields.push("readonly body: string");
 					break;
 				default:
-					fields.push(`readonly body: Produced<z.infer<typeof ${member.schemaName}>>`);
+					/**
+					 * **The schema's INPUT, because that is what the server checks the value against.**
+					 * `servedBody` parses the result before serving it, so a `.default(0)` fills a
+					 * property the handler left out; typed from the output, that property was required,
+					 * and so was it in a value typed by the contract the library publishes for this result.
+					 */
+					fields.push(`readonly body: Produced<z.input<typeof ${member.schemaName}>>`);
 			}
 			if (response.headers.length > 0) {
 				/**
