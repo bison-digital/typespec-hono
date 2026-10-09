@@ -1,43 +1,44 @@
 import { RegExpRouter } from "hono/router/reg-exp-router";
 import type { SecurityRequirement } from "./runtime.js";
 import {
+	type BodyServing,
 	type EmittedPathSegment,
+	isMediaRange,
 	isRawBinaryMediaType,
 	jsDocComment,
+	mediaTypeTypeOf,
 	objectKey,
 	type EmittedResponse,
 	type EmittedRoute,
 	type EmittedService,
+	type ResultMember as LibraryResultMember,
+	resultMembersOf,
 	type RouteSchemaNames,
+	STATUS_CODES,
 	type StatusKey,
+	statusCodesOf,
 } from "typespec-http-zod";
 
 /**
- * Hono's status codes, group by group, exactly as `hono/utils/http-status` declares them.
+ * Hono's name for each class of status code, which is what a rendered result type spells.
  *
- * **The generated route needs the LITERALS, not only the type.** A range arm is served from a
- * `switch` on the result's status, and TypeScript narrows the result to one member only through a
- * `case` label per literal: a type guard narrows the status and leaves the result a union, and
- * merging the range into `default` pairs every body with every status. Both measured on hono 4.13.1.
+ * **The CODES are the library's (`STATUS_CODES`), and only the names are this package's.** The
+ * generated route needs the literals, not only the type: a range arm is served from a `switch` on the
+ * result's status, and TypeScript narrows the result to one member only through a `case` label per
+ * literal - a type guard narrows the status and leaves the result a union, and merging the range into
+ * `default` pairs every body with every status. Both measured on hono 4.13.1.
  *
- * `test/status-codes.test.ts` holds these equal to Hono's own unions, so a status Hono adds fails a
- * test rather than silently falling out of a range.
+ * This package and `typespec-http-mcp` each held a copy of the code table; the contract types need it
+ * too, so it lives in the library once. `test/status-codes.test.ts` holds it equal to Hono's own
+ * unions under these names, so a status Hono adds fails a test rather than silently falling out of a
+ * range.
  */
-export const STATUS_GROUPS = {
-	1: { type: "InfoStatusCode", codes: [100, 101, 102, 103] },
-	2: { type: "SuccessStatusCode", codes: [200, 201, 202, 203, 204, 205, 206, 207, 208, 226] },
-	3: { type: "RedirectStatusCode", codes: [300, 301, 302, 303, 304, 305, 306, 307, 308] },
-	4: {
-		type: "ClientErrorStatusCode",
-		codes: [
-			400, 401, 402, 403, 404, 405, 406, 407, 408, 409, 410, 411, 412, 413, 414, 415, 416, 417, 418,
-			421, 422, 423, 424, 425, 426, 428, 429, 431, 451,
-		],
-	},
-	5: {
-		type: "ServerErrorStatusCode",
-		codes: [500, 501, 502, 503, 504, 505, 506, 507, 508, 510, 511],
-	},
+export const HONO_STATUS_TYPES = {
+	1: "InfoStatusCode",
+	2: "SuccessStatusCode",
+	3: "RedirectStatusCode",
+	4: "ClientErrorStatusCode",
+	5: "ServerErrorStatusCode",
 } as const;
 
 /**
@@ -47,14 +48,6 @@ export const STATUS_GROUPS = {
  */
 export const DEFAULT_RUNTIME_MODULE = "./runtime.gen.js";
 
-/** Hono's `ContentlessStatusCode`: a status that cannot carry a body, so `c.json` refuses it. */
-export const CONTENTLESS_STATUS_CODES = [101, 204, 205, 304] as const;
-
-/** A media type whose body is a JSON value, served with `c.json`. The library's own rule. */
-function isJsonMediaType(type: string): boolean {
-	return /^application\/(json|.*\+json)$/.test(type);
-}
-
 /**
  * One thing a handler may return: a declared status, and where that status offers several media
  * types, one of them.
@@ -63,85 +56,53 @@ function isJsonMediaType(type: string): boolean {
  * type: the Swagger Petstore answers `getPetById` with a `Pet` as `application/json` and with text as
  * `application/xml`. One member with a union body could not say which body goes with which type.
  */
-interface ResultMember {
-	readonly response: EmittedResponse;
+interface ResultMember extends LibraryResultMember<EmittedResponse> {
 	/** The identifier the library declared this status's body under. */
 	readonly schemaName: string | undefined;
 	/** The identifier for this status's declared response headers, where it declares any. */
 	readonly headersSchemaName: string | undefined;
-	/** The media type served, or `undefined` where the response has no body. */
-	readonly mediaType: string | undefined;
-	/** Whether the handler names the media type, because the status offers more than one. */
-	readonly choosesMediaType: boolean;
-}
-
-/** How a member's body is served, which decides both its type and the call that serves it. */
-type BodyServing = "none" | "stream" | "binary" | "json" | "text" | "unvalidated";
-
-function bodyServingOf(member: ResultMember): BodyServing {
-	const { response, mediaType } = member;
-	if (response.schema === undefined || mediaType === undefined) return "none";
-	if (response.streamed) return "stream";
-	if (response.binary) return "binary";
-	if (isJsonMediaType(mediaType)) return "json";
-	/**
-	 * **A string body under a non-JSON media type IS the text**, so it is validated and served as is.
-	 * Any other body under one - a model as `application/xml` - has no serialisation this emitter can
-	 * derive, so the handler supplies the text and it is served unvalidated, which the
-	 * `unvalidated-response-media-type` warning says out loud.
-	 */
-	return response.textual ? "text" : "unvalidated";
-}
-
-function membersOf(entry: AppRoute): ResultMember[] {
-	return entry.route.responses.flatMap((response, index): ResultMember[] => {
-		const schemaName = entry.names.arms[index]?.schema;
-		const headersSchemaName = entry.names.arms[index]?.headers;
-		if (response.contentTypes.length === 0) {
-			return [
-				{ response, schemaName, headersSchemaName, mediaType: undefined, choosesMediaType: false },
-			];
-		}
-		/**
-		 * The handler names the media type where the status offers several, and where the document names
-		 * only a wildcard range, which is not a type a response can be sent as.
-		 */
-		const choosesMediaType =
-			response.contentTypes.length > 1 || response.contentTypes.some(isMediaRange);
-		return response.contentTypes.map((mediaType) => ({
-			response,
-			schemaName,
-			headersSchemaName,
-			mediaType,
-			choosesMediaType,
-		}));
-	});
-}
-
-/** A media range such as `image/*`, rather than a type a response can be sent as. */
-function isMediaRange(mediaType: string): boolean {
-	return mediaType.endsWith("/*");
 }
 
 /**
- * The type of the `contentType` a handler names for a member.
+ * How a member's body is served, which decides both its type and the call that serves it.
  *
- * **A range is typed as the types inside it**: `image/*` is `` `image/${string}` ``, so `text/html`
- * under it does not compile, and TypeScript still narrows a literal member away from it. Only the
- * full range is `string`.
+ * **The library's rule, read rather than restated.** A string body under a non-JSON media type IS the
+ * text, so it is validated and served as is; any other body under one - a model as `application/xml`
+ * - has no serialisation this emitter can derive, so the handler supplies the text and it is served
+ * unvalidated, which the `unvalidated-response-media-type` warning says out loud.
  */
-function contentTypeTypeOf(mediaType: string): string {
-	if (!isMediaRange(mediaType)) return JSON.stringify(mediaType);
-	if (mediaType === "*/*") return "string";
-	return `\`${mediaType.slice(0, -1)}\${string}\``;
+function bodyServingOf(member: ResultMember): BodyServing {
+	return member.serving;
 }
 
-/** The Hono group a status key's codes belong to. */
-function groupOf(
-	status: number | StatusKey,
-): (typeof STATUS_GROUPS)[1 | 2 | 3 | 4 | 5] | undefined {
+/**
+ * The members, as the library derives them, with the identifiers this route names each body and
+ * header schema by.
+ */
+function membersOf(entry: AppRoute): ResultMember[] {
+	return resultMembersOf(entry.route.responses, (response) => response.schema !== undefined).map(
+		(member) => ({
+			...member,
+			schemaName: entry.names.arms[member.index]?.schema,
+			headersSchemaName: entry.names.arms[member.index]?.headers,
+		}),
+	);
+}
+
+/** The type of the `contentType` a handler names for a member - the library's `mediaTypeTypeOf`. */
+const contentTypeTypeOf = mediaTypeTypeOf;
+
+/** The class a status key's codes belong to: its codes from the library, its name from Hono. */
+function groupOf(status: number | StatusKey):
+	| {
+			readonly type: (typeof HONO_STATUS_TYPES)[1 | 2 | 3 | 4 | 5];
+			readonly codes: readonly number[];
+	  }
+	| undefined {
 	const digit = typeof status === "number" ? Math.floor(status / 100) : Number(String(status)[0]);
-	return digit >= 1 && digit <= 5 ? STATUS_GROUPS[digit as 1 | 2 | 3 | 4 | 5] : undefined;
+	if (digit < 1 || digit > 5) return undefined;
+	const key = digit as 1 | 2 | 3 | 4 | 5;
+	return { type: HONO_STATUS_TYPES[key], codes: STATUS_CODES[key] };
 }
 
 /**
@@ -149,26 +110,14 @@ function groupOf(
  *
  * **A range excludes what is declared more precisely**, because OpenAPI resolves an exact code before
  * its range and `armFor` does the same: a `404` beside a `4XX` is the `404`'s. A bodied range also
- * excludes the statuses that cannot carry a body.
+ * excludes the statuses that cannot carry a body. The library's `statusCodesOf` is that rule.
  */
 function caseLabelsOf(
 	response: EmittedResponse,
 	route: EmittedRoute,
 ): readonly number[] | "default" {
-	const { status } = response;
-	if (status === "default") return "default";
-	if (typeof status === "number") return [status];
-	const exact = new Set(
-		route.responses.flatMap((candidate) =>
-			typeof candidate.status === "number" ? [candidate.status] : [],
-		),
-	);
-	const contentless = new Set<number>(
-		response.schema === undefined ? [] : CONTENTLESS_STATUS_CODES,
-	);
-	return (groupOf(status)?.codes ?? []).filter(
-		(code) => !exact.has(code) && !contentless.has(code),
-	);
+	if (response.status === "default") return "default";
+	return statusCodesOf(response, route.responses, (candidate) => candidate.schema !== undefined);
 }
 
 /** What the rendered routes use from the runtime, collected as they are rendered. */
@@ -325,7 +274,7 @@ function statusTypeOf(response: EmittedResponse, route: EmittedRoute): string {
 		const group = groupOf(status);
 		if (group === undefined) return "never";
 		const excluded = [
-			...exact.filter((code) => groupOf(Number(code)) === group),
+			...exact.filter((code) => groupOf(Number(code))?.type === group.type),
 			...(response.schema === undefined ? [] : ["ContentlessStatusCode"]),
 		];
 		return excluded.length === 0 ? group.type : `Exclude<${group.type}, ${excluded.join(" | ")}>`;
