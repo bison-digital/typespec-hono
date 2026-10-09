@@ -1009,15 +1009,15 @@ function inputTypeOf(entry: AppRoute): string | undefined {
 	if (bodyProperty !== undefined && bodyName !== undefined) {
 		/**
 		 * **Optional on the input when the document says the body is optional**, which is the whole
-		 * reason such a body is named rather than merged: `c.req.valid(...)` reads `undefined` when
-		 * none arrived, and a merge has no way to say that. Spelled `| undefined` as every other
-		 * optional here is, because `exactOptionalPropertyTypes` is on.
+		 * reason such a body is named rather than merged: a merge has no way to say "absent".
+		 *
+		 * **`?: T`, and the key is left out when no body arrived.** It was `?: T | undefined`, with the
+		 * key always present: under `exactOptionalPropertyTypes` that is a different value from an
+		 * absent key, and it is not assignable to the contract type, `WireInputs[op]`, whose body is
+		 * `body?: T` - so a gateway could not hand its input to a backend typed by the contract.
 		 */
 		const optionalMark = entry.route.optionalBody ? "?" : "";
-		const optionalValue = entry.route.optionalBody ? " | undefined" : "";
-		parts.push(
-			`{ ${objectKey(bodyProperty)}${optionalMark}: z.infer<typeof ${bodyName}>${optionalValue} }`,
-		);
+		parts.push(`{ ${objectKey(bodyProperty)}${optionalMark}: z.infer<typeof ${bodyName}> }`);
 	}
 	if (entry.route.rawBodyProperty !== undefined) {
 		const reader = rawBodyReaderFor(entry.route.requestContentTypes);
@@ -1676,13 +1676,22 @@ type Produced<T> = T extends (...args: never[]) => unknown
 			// nothing extra to spread: the body middleware published it there whichever parser ran.
 			// Same rule as `inputTypeOf`: the body is identified by its schema, not by its target.
 			const bodyTarget = validators.find(([, name]) => name === entry.names.body)?.[0];
+			/**
+			 * An optional body is read once into a local and assigned only when it is there, so the input
+			 * leaves the key out rather than holding `undefined` - see `inputTypeOf`. Two reads of
+			 * `c.req.valid(...)` would not narrow, which is why it is a local.
+			 */
+			const receivesOptionalBody =
+				route.bodyProperty !== undefined && route.optionalBody && bodyTarget !== undefined;
 			const pieces = validators.map(([target]) =>
 				/**
 				 * A named body is assigned rather than spread, matching the input type above and the
 				 * document, which states the parameters and the body as separate things.
 				 */
 				route.bodyProperty !== undefined && target === bodyTarget
-					? `${objectKey(route.bodyProperty)}: c.req.valid(${JSON.stringify(target)})`
+					? receivesOptionalBody
+						? `...(received === undefined ? {} : { ${objectKey(route.bodyProperty)}: received })`
+						: `${objectKey(route.bodyProperty)}: c.req.valid(${JSON.stringify(target)})`
 					: `...c.req.valid(${JSON.stringify(target)})`,
 			);
 			if (route.rawBodyProperty !== undefined) {
@@ -1712,6 +1721,9 @@ type Produced<T> = T extends (...args: never[]) => unknown
 						: [];
 				const input = [...pieces, ...own];
 				const call = `handlersFor(c).${member.route.operationId}(contextOf(c), {`;
+				const received = receivesOptionalBody
+					? [`${indent}const received = c.req.valid(${JSON.stringify(bodyTarget)});`]
+					: [];
 				const invocation =
 					input.length === 0
 						? // An empty object, because every operation takes `(ctx, input)`. See `EMPTY_INPUT`.
@@ -1721,7 +1733,7 @@ type Produced<T> = T extends (...args: never[]) => unknown
 								...input.map((piece) => `${indent}\t${piece},`),
 								`${indent}});`,
 							];
-				return [...invocation, ...servingLines(member, depth, uses)];
+				return [...received, ...invocation, ...servingLines(member, depth, uses)];
 			};
 
 			/**

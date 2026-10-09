@@ -93,7 +93,10 @@ export const anonymous: Operations["anonymous"] = async (_ctx, input) => {
 		const source = readFileSync(join(compiled.outDir, "app.gen.ts"), "utf8");
 		// Not a claim that the text looks right: the arm above already compiled it. This says the
 		// two operations took DIFFERENT branches, which a single-operation fixture could not show.
-		expect(source).toContain('body: c.req.valid("json")');
+		// The optional one is read once and assigned only when it arrived, so an absent body is an
+		// absent key rather than one holding `undefined`.
+		expect(source).toContain('const received = c.req.valid("json");');
+		expect(source).toContain("...(received === undefined ? {} : { body: received })");
 		expect(source).toContain('...c.req.valid("json")');
 	});
 });

@@ -82,6 +82,13 @@ describe("an optional body may simply be absent", () => {
 		// The reason an optional body is NAMED: a merge could only have said the properties were
 		// present, and they are not.
 		expect(input.body).toBeUndefined();
+		/**
+		 * **Absent, not present holding `undefined`.** The two read alike through `input.body`, which is
+		 * why the line above passed either way; they are different values under
+		 * `exactOptionalPropertyTypes`, and only the absent key is assignable to the contract type a
+		 * backend is typed by, `WireInputs["optional"]`, whose body is `body?: Payload`.
+		 */
+		expect("body" in input).toBe(false);
 	});
 
 	it("still validates a body that IS sent", async () => {
