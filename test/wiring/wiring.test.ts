@@ -51,7 +51,7 @@ describe("an application compiles against the generated server", () => {
 					skipLibCheck: true,
 					types: [],
 				},
-				include: ["./consumer.fixture.ts", "./rpc.fixture.ts"],
+				include: ["./consumer.fixture.ts", "./rpc.fixture.ts", "./backend.fixture.ts"],
 			}),
 		);
 		let output = "";
@@ -70,9 +70,11 @@ describe("an application compiles against the generated server", () => {
 
 	it("contains no cast, so a failure cannot be papered over", () => {
 		// A `as unknown as` anywhere in the consumer would hide exactly what this suite exists to find.
-		const source = execFileSync("cat", [join(here, "consumer.fixture.ts")], { encoding: "utf8" });
-		expect(source).not.toMatch(/as unknown as/);
-		expect(source).not.toMatch(/@ts-(expect-error|ignore)/);
+		for (const fixture of ["consumer.fixture.ts", "backend.fixture.ts"]) {
+			const source = execFileSync("cat", [join(here, fixture)], { encoding: "utf8" });
+			expect(source, fixture).not.toMatch(/as unknown as/);
+			expect(source, fixture).not.toMatch(/@ts-(expect-error|ignore)/);
+		}
 	});
 });
 
