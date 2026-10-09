@@ -162,10 +162,6 @@ warn-as-error: true
   body's name - the same thing the response side asks of a handler serving a model as XML.
 - **XML response bodies are not validated either.** A model declared under `application/xml` is
   served as the text the handler supplies, and `unvalidated-response-media-type` names each one.
-- **A scalar JSON request body does not compile.** `@body body: string`, an enum or a union is spread
-  into the handler's input as though it were an object, `TS2698`. Five corpus scenarios carry one, and
-  `test/conformance/typecheck.test.ts` lists them. A recursive dictionary body has a related defect,
-  `TS2322`, in a sixth.
 - **A request body nested deeper than the runtime's stack is refused, not served.** Zod recurses once
   per level and has no depth guard, so a recursive model meets a `RangeError` at around 1,700 levels
   on `workerd` (roughly 36 KB of JSON; the exact point depends on the runtime and on what else is on

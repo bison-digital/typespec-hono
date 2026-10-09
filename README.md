@@ -183,14 +183,14 @@ spec. What is left is the four files above.
 
 Into your output directory:
 
-| file                   | what it is                                                                       |
-| ---------------------- | -------------------------------------------------------------------------------- |
-| `app.gen.ts`           | the server: routes, validators, what each operation may answer, and the handlers |
-| `runtime.gen.ts`       | the types your `deps` implements against, and the helpers the server calls       |
-| `schemas.gen.ts`       | a Zod schema for every request and response, and the status arms each declares   |
-| `vocabularies.gen.ts`  | shared enums, where the spec declares them                                       |
-| `requests.gen.ts`      | request types, when `contracts-output-dir` is set                                |
-| `wire-contract.gen.ts` | assertions that the schemas and the types agree, with the same option            |
+| file                   | what it is                                                                                                 |
+| ---------------------- | ---------------------------------------------------------------------------------------------------------- |
+| `app.gen.ts`           | the server: routes, validators, what each operation may answer, and the handlers                           |
+| `runtime.gen.ts`       | the types your `deps` implements against, and the helpers the server calls                                 |
+| `schemas.gen.ts`       | a Zod schema for every request and response, and the status arms each declares                             |
+| `vocabularies.gen.ts`  | shared enums, where the spec declares them                                                                 |
+| `requests.gen.ts`      | the contract types: every operation's input, success bodies and result, when `contracts-output-dir` is set |
+| `wire-contract.gen.ts` | assertions that the schemas and the types agree, with the same option                                      |
 
 The last four are `typespec-http-zod`'s; see its README for what they contain.
 

@@ -242,7 +242,12 @@ is refused too: the document says which media types an operation takes, and none
 
 A `bytes` body is handed over as the **unread stream** for binary media types, typed
 `ReadableStream<Uint8Array> | null`, and read with `text()` otherwise, so bytes that are not valid
-UTF-8 reach the handler intact.
+UTF-8 reach the handler intact. An `Http.File` body is the unread stream whatever its media type, with
+the type it was sent as under `"Content-Type"`. A model declared only under a media type nothing
+parses, such as `application/xml`, is handed over as the text that arrived, under the body's name.
+
+An optional body that was not sent is absent from the input: `"body" in input` is `false`, not a key
+holding `undefined`.
 
 `null` is not an error case. It is what the platform reports for a request carrying no body at all,
 and a zero-byte upload is a legitimate thing to write.
@@ -258,6 +263,52 @@ in the isolate, and a Worker gets 128 MB against a request-body limit of 100 MB,
 documented maximum could not be served at all.
 
 ## Upgrading
+
+### To `0.25.0`
+
+`0.25.0` requires `typespec-http-zod` `0.28.0`, whose contract types now state each operation's input
+and result exactly as a handler here receives and returns them. Read its "To `0.28.0`" section if you
+use `requests.gen.ts`.
+
+#### A backend typed by the contracts is forwarded to as it is
+
+A backend reached over a service binding, typed `(input: WireInputs[op]) => Promise<WireResults[op]>`,
+is a handler body on its own:
+
+```ts
+const handlersFor = (c: Context<AppEnv>) =>
+	({
+		scheduleDeletion: (_ctx, input) => c.env.BACKEND.scheduleDeletion(input),
+	}) satisfies Operations;
+```
+
+Delete any code that flattened a handler's input or mapped a backend's `{ status: number }` result.
+
+#### What a handler receives
+
+- **An optional body that was not sent is absent**, rather than present holding `undefined`.
+  `input.body === undefined` still reads the same.
+- **An `Http.File` upload arrives**, as `ReadableStream<Uint8Array> | null` under its parameter's
+  name, with the media type it was sent as under `"Content-Type"`. It used to arrive as `{}`.
+- **A body declared only as XML arrives as its text**, under the body's name. It used to be dropped.
+- **An input made only of an empty model is `{}`**, rather than `unknown`.
+
+#### What a handler returns
+
+- **A defaulted response property may be left out.** The result body is typed from the schema's
+  input, which is what the server checks, so `count?: int32 = 0` is optional there and served as `0`.
+- **An optional response property is `?: T`.** Under `exactOptionalPropertyTypes` an explicit
+  `undefined` no longer compiles; the server answered 500 for one.
+- **A binary or streamed body may be any `ByteStream`**, the reader every stream has, as well as a
+  platform stream, a `Uint8Array` or an `ArrayBuffer`. The new runtime helper `servedBytes` serves it.
+- **An `Http.File` download returns its bytes.** It used to be served empty, so a handler returning
+  nothing now fails to compile.
+- **A response header declared with `@encode` takes its encoded type**: `@encode(seconds, int32)
+retryAfter: duration` is a `number`, which is what the server checks it against.
+
+#### TypeSpec 1.17
+
+Built and graded against TypeSpec 1.17.
 
 ### To `0.24.0`
 
@@ -437,10 +488,10 @@ A code mapped to a status the document does not declare now fails to compile, wh
 whenever the templated route was declared first, because Hono runs the first match. Routes are
 registered concrete-first, which is what OpenAPI states.
 
-### To `0.20.0`: a streamed request body
+### To `0.19.0`: a streamed request body
 
 **The streamed request body is the one hand-edit.** If you have an upload route, moving to
-`typespec-hono@0.20.0` or later changes what its handler receives, and the compile error does not
+`typespec-hono@0.19.0` or later changes what its handler receives, and the compile error does not
 name the change:
 
 ```

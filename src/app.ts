@@ -1441,7 +1441,7 @@ type Fields<T> = string extends keyof T ? ([T[string]] extends [never] ? {} : T)
 		? `/**
  * What a handler must SUPPLY, as opposed to what it receives.
  *
- * **Three things that are true of an inferred type are not obligations on a producer**, and each one
+ * **Two things that are true of an inferred type are not obligations on a producer**, and each one
  * made a value the application already held unreturnable:
  *
  * - an index signature, which an open model infers because its validator really does pass unknown
@@ -1456,10 +1456,11 @@ type Fields<T> = string extends keyof T ? ([T[string]] extends [never] ? {} : T)
  *
  * The input types above keep both, deliberately: they describe the value in hand.
  *
- * **An explicit \`undefined\` on an optional property is NOT removed, and that was tried.** It looks
- * like the same class and is the opposite: dropping an index signature or adding \`readonly\` makes
- * MORE values assignable, and removing \`| undefined\` makes fewer. Measured, it broke
- * \`(ctx, input) => ok(input)\` - return what you were given - because what arrives carries it.
+ * **It is applied to the schema's INPUT, \`z.input\`, because that is what the server checks a
+ * result against.** So a property with a default may be left out, and is served with it; an optional
+ * property is \`?: T\`, because \`.exactOptional()\` refuses an explicit \`undefined\` and the
+ * server would answer 500 for one. Both are what the contract types state for the same result, so a
+ * value typed by them is returned as it is.
  *
  * Returning extra properties still works - excess-property checks apply to object literals, not to a
  * value the application already holds.

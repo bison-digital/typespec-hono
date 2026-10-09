@@ -8,6 +8,57 @@ published types; a patch will not. The **emitted output is part of the API**, a 
 `registerRoutes` returns, to a validator's shape, or to what a handler receives is a change a
 consumer feels, and is treated as such here rather than as an implementation detail.
 
+## [Unreleased]
+
+Upgrading: [what to check before you take this](docs/guides.md#to-0250).
+
+Requires `typespec-http-zod` `0.28.0`, whose contract types now state each operation's input and
+result exactly as a handler here receives and returns them. A backend typed by them is forwarded to
+with no code between, which `test/wiring/backend.fixture.ts` compiles for every operation of the
+reference service and which was measured across a real Workers service binding.
+
+### Changed, breaking
+
+- **An optional body that was not sent is absent from the input**, rather than present holding
+  `undefined`. Typed `body?: T`, which is what `WireInputs` says, so a gateway can forward its input.
+- **A result body is typed from the schema's input (`z.input`)**, which is what `servedBody` checks.
+  A defaulted response property may be left out, and is served with its default; it was required,
+  and so was it in a value typed by the contract (`TS2741`, `TS2322`).
+- **An input made only of an empty model is `{}`**, not `unknown`.
+
+### Fixed
+
+- **An `Http.File` body reaches the handler and is served.** An upload is the unread stream under its
+  parameter's name with its `"Content-Type"`; a download is served as its bytes under its media type.
+  Both were dropped: the handler was given `{}` and the download was empty.
+- **A body declared only under a media type nothing parses is handed over as the text that arrived.**
+  An `application/xml` PUT used to get a header check and a handler call with the body never read,
+  while `unvalidatable-media-type` said it had been refused. That warning now fires only for a route
+  declaring XML beside a parseable type, where the XML request is refused (400) as it says.
+- **A binary or streamed result accepts any `ByteStream`**, the reader every stream has, so a
+  backend's contract-typed value fits. The new runtime helper `servedBytes` passes a platform stream
+  through and pulls anything else through a `ReadableStream`. Before, a non-platform value was served
+  as `[object Object]` with a 200. Measured streaming on node and on workerd.
+- **A response header declared with `@encode` takes its encoded type**, from the library. Before, the
+  arm could not be returned without a cast: `@encode(seconds, int32) retryAfter: duration` was typed
+  `string` and checked as an integer.
+
+### Changed
+
+- **The result-member rules and the status-code table come from `typespec-http-zod`.** This package
+  held a copy of each. `HONO_STATUS_TYPES` keeps the class names a rendered result type spells.
+- **Built and graded against TypeSpec 1.17**, with the corpus at `@typespec/http-specs` `0.1.0-alpha.44`.
+
+### Graded
+
+- **`test/conformance/contracts.test.ts`, new**: the contract types and the handler types agree over
+  every corpus scenario and fixture - the same operations; each handler input assignable to
+  `WireInputs[op]` with the same keys; each `WireResults[op]` assignable to the handler's result, with
+  every member paired by status and media type both ways; and one `ByteStream`. Its first run found a
+  delimited query typed as a string in the contract, and the empty-model `unknown`. A range that stops
+  excluding the exact codes declared beside it is caught only here.
+- **The gold-standard oracle reads opaque content as not JSON** (deviation 5), from the document.
+
 ## [0.24.0] - 2026-09-20
 
 Upgrading: [what to check before you take this](docs/guides.md#to-0240).
