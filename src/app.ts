@@ -4,7 +4,6 @@ import {
 	type BodyServing,
 	type EmittedPathSegment,
 	isMediaRange,
-	isRawBinaryMediaType,
 	jsDocComment,
 	mediaTypeTypeOf,
 	objectKey,
@@ -915,9 +914,8 @@ interface AppRoute {
  * **`rawBodyProperty` conflated two different requirements, which is why one reader looked
  * sufficient.** Its docblock justifies `text()` by a webhook's MAC covering exactly what arrived, true,
  * and true only when what arrived is text. An upload is the other case, and it needs the bytes.
- * `isRawBinaryMediaType` is the library's own rule for telling them apart, already applied on the
- * response side; importing it rather than re-deriving it is what keeps the two halves from disagreeing
- * again.
+ * `EmittedRoute.rawBodyBinary` is the library's own answer for telling them apart; reading it rather
+ * than re-deriving it is what keeps the two halves from disagreeing again.
  *
  * **A binary body is handed over as the UNREAD stream, not as an `ArrayBuffer`.** `arrayBuffer()`
  * materialises the whole payload in the isolate, and a Worker gets 128 MB against a request-body
@@ -940,11 +938,17 @@ interface AppRoute {
  *
  * `null` because a request may carry no body at all, which is what the platform reports.
  */
-function rawBodyReaderFor(contentTypes: readonly string[]): {
+function rawBodyReaderFor(route: EmittedRoute): {
 	readonly call: string;
 	readonly type: string;
 } {
-	return isRawBinaryMediaType(contentTypes)
+	/**
+	 * **The library's `rawBodyBinary`, not the media type, decides.** An `Http.File` body is bytes
+	 * whatever it is declared as, so a file under `application/json` cannot be told from a JSON body
+	 * by its media type; and a model under `application/xml` nothing can parse is the TEXT that
+	 * arrived, though its media type is not JSON.
+	 */
+	return route.rawBodyBinary
 		? { call: "c.req.raw.body", type: "ReadableStream<Uint8Array> | null" }
 		: { call: "await c.req.text()", type: "string" };
 }
@@ -1020,7 +1024,7 @@ function inputTypeOf(entry: AppRoute): string | undefined {
 		parts.push(`{ ${objectKey(bodyProperty)}${optionalMark}: z.infer<typeof ${bodyName}> }`);
 	}
 	if (entry.route.rawBodyProperty !== undefined) {
-		const reader = rawBodyReaderFor(entry.route.requestContentTypes);
+		const reader = rawBodyReaderFor(entry.route);
 		parts.push(`{ ${objectKey(entry.route.rawBodyProperty)}: ${reader.type} }`);
 	}
 	return parts.length === 0 ? undefined : parts.join(" & ");
@@ -1704,7 +1708,7 @@ type Produced<T> = T extends (...args: never[]) => unknown
 				// The bytes ARE the contract: a signature covers exactly what arrived, so parsing and
 				// re-serialising would verify a different string than the sender signed. WHICH reader
 				// preserves them depends on the media type, see `rawBodyReaderFor`.
-				const reader = rawBodyReaderFor(route.requestContentTypes);
+				const reader = rawBodyReaderFor(route);
 				pieces.push(`${objectKey(route.rawBodyProperty)}: ${reader.call}`);
 			}
 			/**

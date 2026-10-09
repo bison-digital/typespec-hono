@@ -119,6 +119,11 @@ const diagnostics = {
 	 * There is no Hono parser and no Zod representation for XML, and adding an XML dependency to a Zod
 	 * emitter is not a trade this package should make. Where the same route also declares a media type
 	 * that CAN be parsed, that one is still validated, chosen from the request's `Content-Type`.
+	 *
+	 * **Raised only for such a mixed route.** A body declared ONLY under types nothing parses is placed
+	 * by the library as raw text (`rawBodyProperty`), so it has no validator to warn about and the
+	 * handler is given the text that arrived. It used to get a header check and then a handler call
+	 * with the body never read, while this message said the request had been refused.
 	 */
 	"unvalidatable-media-type": {
 		severity: "warning",
