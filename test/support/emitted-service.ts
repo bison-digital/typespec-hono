@@ -91,6 +91,7 @@ export function serviceWith(
 		query: undefined,
 		queryFields: undefined,
 		header: undefined,
+		selectedAccept: undefined,
 		cookie: undefined,
 		body: undefined,
 		arms: full.responses.map((response) => ({ status: response.status, schema: undefined })),

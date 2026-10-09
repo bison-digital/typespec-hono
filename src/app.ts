@@ -1410,10 +1410,11 @@ type Fields<T> = string extends keyof T ? ([T[string]] extends [never] ? {} : T)
 		 * IS in the operation's declared input, so the interface has to keep it. The literal is known
 		 * exactly: it is the only value that reaches this member.
 		 */
+		const selected = entry.names.selectedAccept;
 		const negotiated =
-			(grouped.get(`${route.verb} ${route.path}`)?.length ?? 0) > 1 && route.accept !== undefined
-				? `{ ${objectKey(route.accept.name)}: ${JSON.stringify(route.accept.value)} }`
-				: undefined;
+			selected === undefined
+				? undefined
+				: `{ ${objectKey(selected.name)}: ${JSON.stringify(selected.value)} }`;
 		const validated = inputTypeOf(entry);
 		const input =
 			negotiated === undefined
@@ -1738,12 +1739,11 @@ type Produced<T> = T extends (...args: never[]) => unknown
 				const indent = "\t".repeat(depth);
 				// The member's own `accept` literal, which its input type requires and which the shared
 				// validator no longer supplies. We know it exactly: it is the branch we are in.
+				const selected = member.names.selectedAccept;
 				const own =
-					group.length > 1 && member.route.accept !== undefined
-						? [
-								`${objectKey(member.route.accept.name)}: ${JSON.stringify(member.route.accept.value)}`,
-							]
-						: [];
+					selected === undefined
+						? []
+						: [`${objectKey(selected.name)}: ${JSON.stringify(selected.value)}`];
 				const input = [...pieces, ...own];
 				const call = `handlersFor(c).${member.route.operationId}(contextOf(c), {`;
 				const received = receivesOptionalBody
