@@ -28,6 +28,10 @@ reference service and which was measured across a real Workers service binding.
 
 ### Fixed
 
+- **A diagnostic about an operation on a shared route points at that operation.** Operations were
+  looked up by verb and path, which `@sharedRoute` gives every member, so a warning about the second
+  member of a route was raised against the first. They are read by operation id from the library's
+  `EmittedService.operations`.
 - **An `Http.File` body reaches the handler and is served.** An upload is the unread stream under its
   parameter's name with its `"Content-Type"`; a download is served as its bytes under its media type.
   Both were dropped: the handler was given `{}` and the download was empty.

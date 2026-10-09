@@ -101,6 +101,8 @@ export function serviceWith(
 		service: { operations: [], namespace: {} } as unknown as EmittedService["service"],
 		routes: [full],
 		schemaNames: new Map([[full.operationId, names]]),
+		// The service here declares no operations, so no route has one to point a diagnostic at.
+		operations: new Map(),
 		outputDir: "/nowhere",
 		options: {
 			contractsOutputDir: undefined,

@@ -1,6 +1,5 @@
 import { emitFile, NoTarget, resolvePath, type EmitContext, type Type } from "@typespec/compiler";
 import type { EmittedService } from "typespec-http-zod";
-import type { HttpOperation } from "@typespec/http";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { emitHttpZod } from "typespec-http-zod";
@@ -23,31 +22,16 @@ import { reportDiagnostic } from "./lib.js";
  * generator on. Anything it cannot do from here is a gap in that API, to be fixed there.
  */
 /**
- * The HTTP operation an emitted route came from, keyed on verb and path.
+ * The declaration a diagnostic should point at: the operation the library collected the route from,
+ * by its id, falling back to the service when it cannot be found.
  *
- * **Keyed on the ROUTE, not on the name, and the name was wrong for every interface.**
- * `EmittedRoute.operationId` is the id the document publishes, `Accounts_list`, with the interface
- * prefix `resolveOperationId` inserts, while `operation.operation.name` is the bare `list`. Matching
- * them never succeeded for an operation declared inside an `interface`, which is most of them.
- *
- * Two things rested on that lookup and both were silently wrong: every diagnostic pointed at the
- * service namespace instead of the operation that caused it, and the security requirements resolved
- * to none, so a scheme-gated route emitted no gate. Verb and path identify a route exactly, and are
- * what both sides already agree on.
+ * **Never by name, and never by verb and path.** A name never matched an operation declared inside
+ * an `interface`, whose id carries the interface, so every diagnostic pointed at the service
+ * namespace. Verb and path, which replaced it, are shared by every member of a `@sharedRoute`, so
+ * each member's diagnostic pointed at the first of them.
  */
-function operationFor(
-	emitted: EmittedService,
-	verb: string,
-	path: string,
-): HttpOperation | undefined {
-	return emitted.service.operations.find(
-		(candidate) => candidate.verb.toUpperCase() === verb.toUpperCase() && candidate.path === path,
-	);
-}
-
-/** The declaration a diagnostic should point at, falling back to the service when it cannot be found. */
-function targetFor(emitted: EmittedService, verb: string, path: string): Type {
-	return operationFor(emitted, verb, path)?.operation ?? emitted.service.namespace;
+function targetFor(emitted: EmittedService, operationId: string): Type {
+	return emitted.operations.get(operationId)?.operation ?? emitted.service.namespace;
 }
 
 /** The header the emitted runtime carries, matching every other generated file. */
@@ -152,7 +136,7 @@ export async function $onEmit(context: EmitContext): Promise<void> {
 						reportDiagnostic(context.program, {
 							code: "unsupported-path-template",
 							format: { template, name },
-							target: targetFor(emitted, route.verb, route.path),
+							target: targetFor(emitted, route.operationId),
 						});
 					},
 					unvalidatedResponseMediaType: (route, status, types) => {
@@ -163,14 +147,14 @@ export async function $onEmit(context: EmitContext): Promise<void> {
 								status: String(status),
 								types: types.join(", "),
 							},
-							target: targetFor(emitted, route.verb, route.path),
+							target: targetFor(emitted, route.operationId),
 						});
 					},
 					unvalidatableMediaType: (route, types) => {
 						reportDiagnostic(context.program, {
 							code: "unvalidatable-media-type",
 							format: { operationId: route.operationId, types: types.join(", ") },
-							target: targetFor(emitted, route.verb, route.path),
+							target: targetFor(emitted, route.operationId),
 						});
 					},
 				},
