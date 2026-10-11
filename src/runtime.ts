@@ -275,6 +275,7 @@ export interface ByteStream {
 	getReader(): {
 		read(): Promise<{ readonly done: boolean; readonly value?: Uint8Array | undefined }>;
 		releaseLock(): void;
+		cancel?(reason?: unknown): Promise<void>;
 	};
 }
 
@@ -295,16 +296,28 @@ export function servedBytes(
 	}
 	const reader = body.getReader();
 	return new ReadableStream<Uint8Array>({
+		/**
+		 * **Reads until there is a chunk to hand on.** A read may report none and not be done, which
+		 * `ByteStream` admits; returning without enqueueing anything left the stream waiting for a
+		 * pull nothing would make, so a server reading it as a `Response` never finished.
+		 */
 		async pull(controller) {
-			const { done, value } = await reader.read();
-			if (done) {
-				reader.releaseLock();
-				controller.close();
-			} else if (value !== undefined) {
-				controller.enqueue(value);
+			for (;;) {
+				const { done, value } = await reader.read();
+				if (done) {
+					reader.releaseLock();
+					controller.close();
+					return;
+				}
+				if (value !== undefined) {
+					controller.enqueue(value);
+					return;
+				}
 			}
 		},
-		cancel() {
+		/** The caller went away, so the producer is told: releasing the reader alone left it running. */
+		async cancel(reason) {
+			await reader.cancel?.(reason);
 			reader.releaseLock();
 		},
 	});

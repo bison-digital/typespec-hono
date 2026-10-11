@@ -185,4 +185,53 @@ export const handler: Operations["downloadImage"] = () => ({ status: 200, body: 
 			chunks.push(...next.value);
 		expect(chunks).toEqual([...PNG]);
 	});
+
+	/**
+	 * **A read may report no chunk and not be done, and the stream goes on.** `ByteStream` admits it,
+	 * and the served stream asked for nothing more after one, so a server reading the body as a
+	 * `Response` - which is how a Node adapter writes it - held the response open forever. Hono's
+	 * in-memory `app.request` happens to ask again, so this reads the emitted `servedBytes` the way a
+	 * server does.
+	 */
+	it("serves past a read that carries no chunk", async () => {
+		const { servedBytes } = (await import(join(compiled.outDir, "runtime.gen.ts"))) as {
+			servedBytes: (body: unknown) => ConstructorParameters<typeof Response>[0];
+		};
+		const reads = [{ done: false }, { done: false, value: PNG.slice(0, 3) }, { done: true }];
+		const source = {
+			getReader: () => ({
+				read: async () => reads.shift() ?? { done: true },
+				releaseLock: () => undefined,
+			}),
+		};
+		const served = await Promise.race([
+			new Response(servedBytes(source)).arrayBuffer(),
+			new Promise<"hung">((resolve) => setTimeout(() => resolve("hung"), 2000)),
+		]);
+		expect(served, "the stream stopped after a read with no chunk").not.toBe("hung");
+		expect(Array.from(new Uint8Array(served as ArrayBuffer))).toEqual(Array.from(PNG.slice(0, 3)));
+	});
+
+	/**
+	 * **A caller that goes away cancels the producer.** The response stream released the source's
+	 * reader and never cancelled it, so a producer behind a reader-only stream - an SSE feed, a
+	 * service binding's body - kept producing for nobody.
+	 */
+	it("cancels the source when the response is cancelled", async () => {
+		let cancelled: unknown = "not cancelled";
+		download = {
+			getReader: () => ({
+				read: async () => ({ done: false, value: PNG.slice(0, 1) }),
+				releaseLock: () => undefined,
+				cancel: async (reason?: unknown) => {
+					cancelled = reason;
+				},
+			}),
+		};
+		const response = await app.request("/files/latest");
+		const reader = (response.body as ReadableStream<Uint8Array>).getReader();
+		await reader.read();
+		await reader.cancel("the caller left");
+		expect(cancelled).toBe("the caller left");
+	});
 });

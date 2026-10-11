@@ -42,7 +42,9 @@ reference service and which was measured across a real Workers service binding.
 - **A binary or streamed result accepts any `ByteStream`**, the reader every stream has, so a
   backend's contract-typed value fits. The new runtime helper `servedBytes` passes a platform stream
   through and pulls anything else through a `ReadableStream`. Before, a non-platform value was served
-  as `[object Object]` with a 200. Measured streaming on node and on workerd.
+  as `[object Object]` with a 200. Measured streaming on node and on workerd. A read that reports no
+  chunk is read past rather than ending the pulls, which on node held the response open, and a caller
+  that goes away cancels the producer through the reader's `cancel` where it has one.
 - **A response header declared with `@encode` takes its encoded type**, from the library. Before, the
   arm could not be returned without a cast: `@encode(seconds, int32) retryAfter: duration` was typed
   `string` and checked as an integer.
