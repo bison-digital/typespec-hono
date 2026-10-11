@@ -290,8 +290,10 @@ Delete any code that flattened a handler's input or mapped a backend's `{ status
   `input.body === undefined` still reads the same. That is a parsed body: a raw one is handed over as
   the request carried it, so an absent text body is `""` and an absent binary body is `null`.
 - **A body that sends a key a parameter also has is under its own name**, beside the parameter, rather
-  than merged into it: merged, the body's value replaced the parameter's. Read `input.body.x` where a
-  handler read `input.x` for such a body's property. A read-only body property is not sent, so a
+  than merged into it: merged, the body's value replaced the parameter's. The body is under its
+  `@body` parameter's name, so for `@body body: Entry` read `input.body.x` where a handler read
+  `input.x`, and typecheck before deploying: wrangler bundles without typechecking, and a handler
+  still reading `input.x` reads `undefined`. A read-only body property is not sent, so a
   model whose `id` is read-only beside `@path id` still merges.
 - **An `Http.File` upload arrives**, as `ReadableStream<Uint8Array> | null` under its parameter's
   name, with the media type it was sent as under `"Content-Type"`. It used to arrive as `{}`. That

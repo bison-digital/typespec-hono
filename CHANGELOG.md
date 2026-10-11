@@ -27,7 +27,9 @@ reference service and which was measured across a real Workers service binding.
   reported: `POST /accounts/1/entries` with `{ "accountId": 2 }` in the body handed the handler
   `accountId: 2`, so the entry landed on the account the body chose while a check on the path saw
   account 1. A read-only body property is not sent, so it collides with nothing and still merges.
-  Read `input.body.x` where a handler read `input.x` for such a body's property.
+  The body is under its `@body` parameter's name: for `@body body: Entry`, read `input.body.x` where a
+  handler read `input.x`. Typecheck before deploying: a bundler that does not, such as wrangler's,
+  ships a handler still reading `input.x`, which is then `undefined`.
 - **An optional body that was not sent is absent from the input**, rather than present holding
   `undefined`. Typed `body?: T`, which is what `WireInputs` says, so a gateway can forward its input.
 - **A result body is typed from the schema's input (`z.input`)**, which is what `servedBody` checks.
