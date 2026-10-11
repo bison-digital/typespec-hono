@@ -495,8 +495,15 @@ A code mapped to a status the document does not declare now fails to compile, wh
   handler receives a `Caller`.
 - **`AppEnv`** is augmented rather than re-declared:
   `declare module "./generated/runtime.gen.js" { interface AppEnv { Bindings: ...; Variables: ... } }`.
+  Write the augmentation in a file that does not also declare or import an `AppEnv` of its own:
+  there, the augmented interface reads to `no-shadow` (oxlint's and ESLint's) as shadowing it.
 - **`Result<T>`** has no replacement, because what a handler returns is now the union of the
   responses the document declares.
+
+**A handler returns data, never a `Response`.** The result type is the union of the responses the
+document declares, and a `Response` is none of them, so it does not compile. A response header the
+document does not declare is not sent: the route serves only the headers each response declares, so
+declare one to send it.
 
 **A handler alias takes the caller context**: `WidgetRoutes_readHandler<Caller>`.
 
