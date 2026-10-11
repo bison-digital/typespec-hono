@@ -7,7 +7,7 @@ import type { output, ZodError, ZodType } from "zod";
  * Declared here rather than imported from `typespec-http-zod`, so that this module and the copy the
  * emitter writes beside the generated code are both free of any package import at run time. The two
  * declarations are structurally identical, which is all TypeScript requires, and
- * `test/runtime-parity.test.ts` asserts that this `armFor` answers identically to the library's for
+ * typespec-hono's runtime parity suite asserts that this `armFor` answers identically to the library's for
  * every shape of arm list.
  */
 export interface ResponseArm {
@@ -123,7 +123,7 @@ export type Awaitable<T> = T | Promise<T>;
  * - parameters after the media range (`;charset=utf-8`) are not part of the match.
  *
  * **Specificity was implemented as a tie-break and that was wrong three ways at once**, all of them
- * live in a published runtime until `test/negotiation.test.ts` was written. Scoring every matching
+ * live in a published runtime until typespec-hono's negotiation suite was written. Scoring every matching
  * range and keeping the best `(q, specificity)` pair lets a permissive wildcard out-vote the precise
  * rule a caller wrote about that exact type - so an `Accept` of any type at all followed by `application/json;q=0` was served
  * JSON, which is the one outcome an explicit refusal must never produce. The prose above stated the
@@ -348,7 +348,7 @@ export function servedBytes(
  * tenant id is kept out of a response the document does not publish it in. Seven of the nine
  * consumer surfaces surveyed relied on exactly that, each in its own hand-written `respond`.
  *
- * Synchronous, because nothing this emitter writes is asynchronous - `test/sync.test.ts` asserts it
+ * Synchronous, because nothing this emitter writes is asynchronous - typespec-hono's suite asserts it
  * over the whole corpus - and the asynchronous path costs 2.6x per parse.
  */
 export function servedBody<S extends ZodType>(

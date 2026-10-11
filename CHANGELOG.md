@@ -44,6 +44,9 @@ reference service and which was measured across a real Workers service binding.
 
 ### Fixed
 
+- **The emitted runtime cites no file of this package.** Its docblocks named the tests that grade it
+  by path, and the runtime is copied into a consumer's tree, where those paths do not exist; a
+  consumer whose guard checks every cited file failed on them.
 - **A response header named after a type the server file imports no longer imports it.** The status
   types and `ByteStream` were chosen by scanning the rendered result types for their names, so a
   header keyed `StatusCode` or `ByteStream` imported a type nothing used, and `app.gen.ts` failed

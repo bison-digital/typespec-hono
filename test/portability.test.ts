@@ -89,6 +89,22 @@ describe("nothing this package ships names one machine's filesystem", () => {
 	});
 
 	/**
+	 * **Generated files cite no file of this package.** The runtime's docblocks named the tests that
+	 * grade it, `test/...test.ts`, and the runtime is copied into the consumer's tree, where those
+	 * paths do not exist: a consumer whose own guard checks that every cited file exists failed on
+	 * them. A suite is named in prose instead.
+	 */
+	it("cites no path of this package's own in anything the emitter GENERATES", () => {
+		expect(emitted.length).toBeGreaterThanOrEqual(1);
+		const cited = emitted.flatMap((file) =>
+			[...readFileSync(file, "utf8").matchAll(/\btest\/[\w./-]+\.ts\b/g)].map(
+				(match) => `${file.slice(packageRoot.length)}: ${match[0]}`,
+			),
+		);
+		expect(cited).toEqual([]);
+	});
+
+	/**
 	 * **ASCII, and this package had no such arm while `typespec-http-zod` did.**
 	 *
 	 * The cost of the gap was not hypothetical. `src/runtime.ts` carried a zero-width space, U+200B,
