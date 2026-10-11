@@ -19,6 +19,12 @@ reference service and which was measured across a real Workers service binding.
 
 ### Changed, breaking
 
+- **A body that sends a key a parameter also has is under its own name in the input**, beside the
+  parameter, rather than merged. Merged, the body's value replaced the parameter's with nothing
+  reported: `POST /accounts/1/entries` with `{ "accountId": 2 }` in the body handed the handler
+  `accountId: 2`, so the entry landed on the account the body chose while a check on the path saw
+  account 1. A read-only body property is not sent, so it collides with nothing and still merges.
+  Read `input.body.x` where a handler read `input.x` for such a body's property.
 - **An optional body that was not sent is absent from the input**, rather than present holding
   `undefined`. Typed `body?: T`, which is what `WireInputs` says, so a gateway can forward its input.
 - **A result body is typed from the schema's input (`z.input`)**, which is what `servedBody` checks.
