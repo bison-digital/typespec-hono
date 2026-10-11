@@ -77,6 +77,13 @@ function typecheck(serverDir: string): string {
 				noUncheckedIndexedAccess: true,
 				noImplicitReturns: true,
 				noUnusedLocals: true,
+				/**
+				 * Two flags a consumer may build with, and the generated files once failed: constructor
+				 * parameter properties are not erasable syntax, and a regex group read with a dot is an
+				 * index signature read with a dot.
+				 */
+				erasableSyntaxOnly: true,
+				noPropertyAccessFromIndexSignature: true,
 				noEmit: true,
 				skipLibCheck: true,
 				types: [],

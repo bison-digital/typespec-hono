@@ -143,7 +143,7 @@ export function selectContentType(
 	const ranges = header.split(",").map((entry) => {
 		const [range = "", ...parameters] = entry.split(";").map((part) => part.trim());
 		const quality = parameters
-			.map((parameter) => /^q=(?<value>[\d.]+)$/i.exec(parameter)?.groups?.value)
+			.map((parameter) => /^q=(?<value>[\d.]+)$/i.exec(parameter)?.groups?.["value"])
 			.find((value) => value !== undefined);
 		const q = quality === undefined ? 1 : Number(quality);
 		// A malformed `q` is treated as unstated. Reading `q=1.2.3` as zero would 406 a typo.
@@ -223,20 +223,33 @@ export const literalQuery =
  * log.
  */
 export class ResponseContractError extends Error {
+	readonly operationId: string;
+	readonly status: number;
+	readonly issues: ZodError["issues"];
+	/**
+	 * Which half of the response broke its contract. **Defaulted, so the three-argument form an
+	 * application may already construct or match on keeps working.**
+	 */
+	readonly part: "body" | "headers";
+
+	/**
+	 * Fields declared and assigned rather than written as parameter properties, which are not
+	 * erasable syntax: a consumer building with `erasableSyntaxOnly` could not compile this file.
+	 */
 	constructor(
-		readonly operationId: string,
-		readonly status: number,
-		readonly issues: ZodError["issues"],
-		/**
-		 * Which half of the response broke its contract. **Defaulted, so the three-argument form an
-		 * application may already construct or match on keeps working.**
-		 */
-		readonly part: "body" | "headers" = "body",
+		operationId: string,
+		status: number,
+		issues: ZodError["issues"],
+		part: "body" | "headers" = "body",
 	) {
 		super(
 			`${operationId} answered ${status} with ${part === "body" ? "a body" : "headers"} its document does not permit`,
 		);
 		this.name = "ResponseContractError";
+		this.operationId = operationId;
+		this.status = status;
+		this.issues = issues;
+		this.part = part;
 	}
 }
 
@@ -250,15 +263,17 @@ export class ResponseContractError extends Error {
  * the contract does not state.
  */
 export class UndeclaredStatusError extends Error {
-	constructor(
-		readonly operationId: string,
-		readonly result: unknown,
-	) {
+	readonly operationId: string;
+	readonly result: unknown;
+
+	constructor(operationId: string, result: unknown) {
 		const status =
 			typeof result === "object" && result !== null && "status" in result
 				? String(result.status)
 				: "no status";
 		super(`${operationId} answered ${status}, which its document does not declare`);
+		this.operationId = operationId;
+		this.result = result;
 		this.name = "UndeclaredStatusError";
 	}
 }

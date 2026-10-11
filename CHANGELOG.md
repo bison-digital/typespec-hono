@@ -34,6 +34,10 @@ reference service and which was measured across a real Workers service binding.
 
 ### Fixed
 
+- **The emitted runtime compiles under `erasableSyntaxOnly` and `noPropertyAccessFromIndexSignature`.**
+  Its error classes declared their fields as constructor parameter properties, which are not erasable
+  syntax, and negotiation read a regex group with a dot, an index-signature read, so a project
+  building with either flag had to turn it off. The corpus is typechecked with both now.
 - **A media type declared with a parameter is matched by its essence, everywhere a server compares
   one.** A route declaring `application/json; charset=utf-8` refused every request: the body's
   branches kept the parameter while a request's media type is reduced to its essence. Negotiation
