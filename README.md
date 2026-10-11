@@ -13,10 +13,12 @@ your config lists one emitter.
 ## Install
 
 ```bash
-pnpm add -D typespec-hono
+pnpm add -D typespec-hono @typespec/compiler @typespec/http @typespec/openapi
+pnpm add hono @hono/zod-validator zod
 ```
 
-Peer dependencies: `hono`, `@hono/zod-validator`, `zod`, `@typespec/compiler`.
+Install the three `@typespec` packages at one version, 1.15 or later. Peer dependencies: `hono`,
+`@hono/zod-validator`, `zod`, `@typespec/compiler`, `@typespec/http` and `@typespec/openapi`.
 
 ```yaml
 # tspconfig.yaml

@@ -80,6 +80,11 @@ reference service and which was measured across a real Workers service binding.
 
 ### Changed
 
+- **`@typespec/openapi` is a declared peer, and the README installs it.** `typespec-http-zod` requires
+  it, and this package did not say so: following the README on TypeSpec 1.15 or 1.16, a package
+  manager installed `@typespec/openapi` at its newest, whose peers are the newest compiler, so a
+  strict-peer install failed, and with `@typespec/http` also left out of the README, `tsp compile` did too. The install line names the three `@typespec` packages, to be
+  installed at one version.
 - **The result-member rules and the status-code table come from `typespec-http-zod`.** This package
   held a copy of each. `HONO_STATUS_TYPES` keeps the class names a rendered result type spells.
 - **Built and graded against TypeSpec 1.17**, with the corpus at `@typespec/http-specs` `0.1.0-alpha.44`.
