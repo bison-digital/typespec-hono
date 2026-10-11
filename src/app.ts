@@ -1361,8 +1361,9 @@ type Fields<T> = string extends keyof T ? ([T[string]] extends [never] ? {} : T)
 			}
 			/**
 			 * **What the handler SUPPLIES for this body, which is not always what the schema infers.** A
-			 * stream or raw binary body is handed to Hono unread, a model under a non-JSON media type is text
-			 * the handler serialised, and everything else is the producer's view of the schema.
+			 * stream or raw binary body is handed to Hono unread, a model under a textual non-JSON media
+			 * type is text the handler serialised and under any other its bytes, and everything else is
+			 * the producer's view of the schema.
 			 */
 			switch (member.serving) {
 				case "none":
