@@ -106,7 +106,13 @@ The library publishes first, always, because the server resolves it by range.
 
    It is the last thing that can tell you the release is wrong, and the first thing to go stale if
    nobody moves it: it sat eighteen minor versions behind for weeks, demonstrating an emitter nobody
-   could install.
+   could install. Its `latest` job sets the minimum release age to 0, or it would test the release
+   before this one.
+
+6. **Name the exact version wherever the release is announced.** pnpm 11 holds back a version newer
+   than its minimum release age, so on the day of a release `pnpm add -D typespec-hono` quietly
+   installs the one before it. `pnpm add -D typespec-hono@X.Y.Z` installs the release and lists it
+   in `minimumReleaseAgeExclude`, with the `typespec-http-zod` it needs.
 
 ## On prereleases
 
