@@ -66,7 +66,8 @@ edit.
 generated logic - content negotiation, the HEAD guard, response selection - which aged: a gateway ran
 the `0.10.1` runtime while this emitter reached `0.21.0`, carrying a negotiation defect fixed long
 before. The option is still in the schema so that setting it reports what to do instead, rather than
-"must NOT have additional properties". `runtime.gen.ts` is written on every compile.
+"must NOT have additional properties". `runtime.gen.ts` is written on every compile. A compile with
+the option set writes nothing, as one whose options the compiler's schema refuses does.
 
 What the option was used for has a place of its own:
 
@@ -96,7 +97,7 @@ negotiation fix can tell whether it reached them: if `selectContentType` does no
 | `unsupported-path-template`       | A path parameter whose wire name carries a character Hono cannot hold in a route parameter (a space, `+` or `!`), or a path segment holding two RFC 6570 expressions, which no segment router can split. The segment is registered as literal text, so it matches nothing rather than matching the wrong requests. Every single-expression form (label, matrix, path, reserved, exploding, optional, and one beside literal text) is mounted.  |
 | `unvalidated-request-media-type`  | A request body is declared only under media types nothing parses into its schema, such as a model as `application/xml` or a `string \| int32` as `text/plain`. The handler receives the text that arrived, under the body's parameter name, and nothing checks it against the schema. A file or a `bytes` body declares nothing to check, so neither raises this.                                                                              |
 | `unvalidated-response-media-type` | A response declares a model under a media type that is not JSON, most commonly `application/xml`. No serialisation derives from the schema, so the handler returns that body as a string and the route serves it without validating it. Every other response on the operation is validated as usual.                                                                                                                                           |
-| `runtime-module-removed`          | `runtime-module` is set. It is an error: the option is ignored and `runtime.gen.ts` is emitted, because an application that substituted the runtime owned a copy of generated logic. See [Upgrading](guides.md#upgrading).                                                                                                                                                                                                                     |
+| `runtime-module-removed`          | `runtime-module` is set. It is an error, and the compile writes nothing. The option was removed because an application that substituted the runtime owned a copy of generated logic. See [Upgrading](guides.md#upgrading).                                                                                                                                                                                                                     |
 
 RFC 6570 operators are not affected by the second of these. `@typespec/http` resolves them before this
 emitter sees the path and `@typespec/openapi3` strips them from the published document, so

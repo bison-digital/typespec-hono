@@ -518,9 +518,9 @@ for a response: `<operationId>Response` is `<operationId>Response<status>`, and 
 `when` or `property` any more. Code that imported an inline response schema, or read the arms, follows
 the rename; the library's CHANGELOG lists each.
 
-**A compile refused for `runtime-module` has already written the new files.** It reports the error
-and emits anyway, so `app.gen.ts`, `schemas.gen.ts` and `runtime.gen.ts` are rewritten in your tree.
-Remove the option, compile again, and commit what it writes.
+**A compile refused for `runtime-module` writes nothing from 0.25.0.** On 0.23.0 and 0.24.0 it
+reports the error and emits anyway, so `app.gen.ts`, `schemas.gen.ts` and `runtime.gen.ts` are
+rewritten in your tree. On either, remove the option, compile again, and commit what it writes.
 
 **A concrete path now wins over a templated one.** `GET /items/plain` was answered by `/items/{id}`
 whenever the templated route was declared first, because Hono runs the first match. Routes are

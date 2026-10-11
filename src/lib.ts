@@ -149,7 +149,7 @@ const diagnostics = {
 	"runtime-module-removed": {
 		severity: "error",
 		messages: {
-			default: paramMessage`'runtime-module' is set to '${"value"}', and typespec-hono no longer substitutes its runtime: 'runtime.gen.ts' is always emitted. Remove the option and delete the module it pointed at. The caller context is inferred from 'deps.context', the Hono environment is augmented with 'declare module "./runtime.gen.js" { interface AppEnv { ... } }', and a handler returns '{ status, body, headers }' for any response the document declares. See the Upgrading section of docs/guides.md.`,
+			default: paramMessage`'runtime-module' is set to '${"value"}', and typespec-hono no longer substitutes its runtime: 'runtime.gen.ts' is always emitted. Nothing is written while the option is set. Remove the option and delete the module it pointed at. The caller context is inferred from 'deps.context', the Hono environment is augmented with 'declare module "./runtime.gen.js" { interface AppEnv { ... } }', and a handler returns '{ status, body, headers }' for any response the document declares. See the Upgrading section of docs/guides.md.`,
 		},
 	},
 	/**

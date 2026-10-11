@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
@@ -55,12 +55,16 @@ describe("the option schema is derived from the library's, not restated", () => 
 });
 
 /**
- * **`runtime-module` is refused, loudly, and the emitted runtime is used anyway.**
+ * **`runtime-module` is refused, loudly, and nothing is written.**
  *
  * The option let an application replace the runtime, which made it own a copy of generated logic.
  * It stays in the schema so an application upgrading from a version that documented it gets
  * `runtime-module-removed`, which says what to do, rather than "must NOT have additional properties",
  * which does not. Refused at both places it could be set.
+ *
+ * **Nothing written, as for an option the compiler's own schema refuses**: `invalid-schema` stops the
+ * compile before any emitter runs. Written anyway, the output replaced a project's generated files
+ * with ones importing a runtime it had not moved to, from a compile that failed.
  */
 describe("runtime-module is refused", () => {
 	const envelope = join(fileURLToPath(new URL(".", import.meta.url)), "envelope");
@@ -74,14 +78,7 @@ describe("runtime-module is refused", () => {
 				severity: "error",
 			}),
 		);
-		// Ignored, not honoured: the generated server still imports the runtime this package emits.
-		expect(existsSync(join(compiled.outDir, "runtime.gen.ts"))).toBe(true);
-		const server = readFileSync(join(compiled.outDir, "app.gen.ts"), "utf8");
-		expect(server).toContain('from "./runtime.gen.js"');
-		expect(server).not.toContain("my-runtime");
-		expect(readFileSync(join(compiled.outDir, "schemas.gen.ts"), "utf8")).not.toContain(
-			"my-runtime",
-		);
+		expect(existsSync(compiled.outDir)).toBe(false);
 	}
 
 	it("at the top level", async () => {

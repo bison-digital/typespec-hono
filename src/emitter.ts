@@ -63,42 +63,34 @@ export { DEFAULT_RUNTIME_MODULE } from "./app.js";
 const RUNTIME_SOURCE = fileURLToPath(new URL("../../src/runtime.ts", import.meta.url));
 
 /**
- * The options with `runtime-module` refused and removed, at the top level and per service.
+ * Whether `runtime-module` is set, at the top level or for a service; each place is reported.
  *
- * **Removed, not only reported**, because the library validates nothing about a key it no longer
- * declares, and a wrapper passing options through should not hand it one.
+ * **A refused option writes nothing**, as an option the compiler's own schema refuses does:
+ * `invalid-schema` stops the compile before any emitter runs. Written anyway, the output replaced a
+ * project's generated files with ones importing a runtime it had not moved to, from a compile that
+ * failed.
  */
-function withoutRuntimeModule(context: EmitContext): EmitContext {
+function refusesRuntimeModule(context: EmitContext): boolean {
 	const options = context.options as Record<string, unknown> & {
 		services?: Record<string, Record<string, unknown>>;
 	};
-	const refuse = (value: unknown): void => {
+	const values = [
+		options["runtime-module"],
+		...Object.values(options.services ?? {}).map((service) => service["runtime-module"]),
+	].filter((value) => value !== undefined);
+	for (const value of values) {
 		reportDiagnostic(context.program, {
 			code: "runtime-module-removed",
 			format: { value: String(value) },
 			target: NoTarget,
 		});
-	};
-	const { "runtime-module": topLevel, services, ...rest } = options;
-	if (topLevel !== undefined) refuse(topLevel);
-	const kept =
-		services === undefined
-			? undefined
-			: Object.fromEntries(
-					Object.entries(services).map(([name, service]) => {
-						const { "runtime-module": perService, ...others } = service;
-						if (perService !== undefined) refuse(perService);
-						return [name, others];
-					}),
-				);
-	return {
-		...context,
-		options: kept === undefined ? rest : { ...rest, services: kept },
-	} as EmitContext;
+	}
+	return values.length > 0;
 }
 
 export async function $onEmit(context: EmitContext): Promise<void> {
-	for (const emitted of await emitHttpZod(withoutRuntimeModule(context))) {
+	if (refusesRuntimeModule(context)) return;
+	for (const emitted of await emitHttpZod(context)) {
 		await emitFile(context.program, {
 			path: resolvePath(emitted.outputDir, "runtime.gen.ts"),
 			content: `${generatedRuntimeBanner(emitted.options.regenerateHint)}${readFileSync(RUNTIME_SOURCE, "utf8")}`,
