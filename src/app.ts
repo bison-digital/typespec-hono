@@ -273,7 +273,12 @@ function serveCall(member: ResultMember, status: string, operationId: string, us
  * overlap a declared status, `{ status: 404, body: <the default arm's body> }` would type-check
  * through the `default` member; measured, and the generated switch stopped compiling as well.
  */
-function statusTypeOf(response: EmittedResponse, route: EmittedRoute): string {
+function statusTypeOf(
+	response: EmittedResponse,
+	route: EmittedRoute,
+	/** Every Hono status type the rendered text names, recorded as it is written. */
+	named: Set<string>,
+): string {
 	const { status } = response;
 	if (typeof status === "number") return String(status);
 	const exact = route.responses.flatMap((candidate) =>
@@ -286,6 +291,8 @@ function statusTypeOf(response: EmittedResponse, route: EmittedRoute): string {
 			...exact.filter((code) => groupOf(Number(code))?.type === group.type),
 			...(response.schema === undefined ? [] : ["ContentlessStatusCode"]),
 		];
+		named.add(group.type);
+		if (response.schema !== undefined) named.add("ContentlessStatusCode");
 		return excluded.length === 0 ? group.type : `Exclude<${group.type}, ${excluded.join(" | ")}>`;
 	}
 	const ranges = route.responses.flatMap((candidate) =>
@@ -294,6 +301,9 @@ function statusTypeOf(response: EmittedResponse, route: EmittedRoute): string {
 			: [],
 	);
 	const base = response.schema === undefined ? "StatusCode" : "ContentfulStatusCode";
+	for (const name of [base, "InfoStatusCode", "UnofficialStatusCode", ...ranges]) {
+		if (name !== "never") named.add(name);
+	}
 	return `Exclude<${base}, ${["InfoStatusCode", "UnofficialStatusCode", ...exact, ...ranges].join(" | ")}>`;
 }
 
@@ -1356,6 +1366,14 @@ type Fields<T> = string extends keyof T ? ([T[string]] extends [never] ? {} : T)
 	 * Data rather than a `Response`, so a handler stays transport-neutral: the same object can cross a
 	 * Workers service binding and serve `typespec-http-mcp`'s tools.
 	 */
+	/**
+	 * **The types the result unions name, recorded as they are written**: Hono's status types and
+	 * `ByteStream`. They were read back off the rendered text by token, which a response header
+	 * declared as `ByteStream` or `StatusCode` matched as well, importing a type nothing used -
+	 * `TS6196` under `noUnusedLocals`, in a file a consumer cannot edit.
+	 */
+	const statusTypeNames = new Set<string>();
+	let namesByteStream = false;
 	const resultTypes = entries.map((entry) => {
 		for (const response of entry.route.responses) {
 			const unvalidated = membersOf(entry)
@@ -1367,7 +1385,7 @@ type Fields<T> = string extends keyof T ? ([T[string]] extends [never] ? {} : T)
 		}
 		const members = membersOf(entry).map((member) => {
 			const { response } = member;
-			const fields = [`readonly status: ${statusTypeOf(response, entry.route)}`];
+			const fields = [`readonly status: ${statusTypeOf(response, entry.route, statusTypeNames)}`];
 			if (member.choosesMediaType && member.mediaType !== undefined) {
 				fields.push(`readonly contentType: ${contentTypeTypeOf(member.mediaType)}`);
 			}
@@ -1381,6 +1399,7 @@ type Fields<T> = string extends keyof T ? ([T[string]] extends [never] ? {} : T)
 					fields.push("readonly body?: undefined");
 					break;
 				case "stream":
+					namesByteStream = true;
 					fields.push("readonly body: ByteStream");
 					break;
 				case "binary":
@@ -1390,6 +1409,7 @@ type Fields<T> = string extends keyof T ? ([T[string]] extends [never] ? {} : T)
 					 * platform stream; a platform stream still satisfies it, so nothing a handler could
 					 * return before is refused, and `servedBytes` turns either into what `c.body` takes.
 					 */
+					namesByteStream = true;
 					fields.push("readonly body: ByteStream | Uint8Array<ArrayBuffer> | ArrayBuffer");
 					break;
 				case "unvalidated":
@@ -2037,12 +2057,7 @@ type Produced<T> = T extends (...args: never[]) => unknown
 	const usesBasePath = basePaths.length > 0;
 	const needsHonoValue = subApps.size > 0 || usesBasePath;
 
-	/**
-	 * Hono's status-code types the result unions name, read from the rendered unions by TOKEN, the
-	 * same way the validator identifiers above are: an identifier absent from the text is genuinely
-	 * not needed, so the check cannot be wrong in the direction that breaks a build.
-	 */
-	const renderedResults = new Set(resultTypes.join("\n").match(/[A-Za-z_$][A-Za-z0-9_$]*/g) ?? []);
+	/** Hono's status-code types the result unions name, in a stable order. */
 	const statusTypes = [
 		"ClientErrorStatusCode",
 		"ContentfulStatusCode",
@@ -2053,7 +2068,7 @@ type Produced<T> = T extends (...args: never[]) => unknown
 		"StatusCode",
 		"SuccessStatusCode",
 		"UnofficialStatusCode",
-	].filter((name) => renderedResults.has(name));
+	].filter((name) => statusTypeNames.has(name));
 	const operates = entries.length > 0;
 	const honoTypes = [
 		"Context",
@@ -2071,7 +2086,7 @@ type Produced<T> = T extends (...args: never[]) => unknown
 	const runtimeTypes = [
 		"AppEnv",
 		...(operates ? ["Awaitable"] : []),
-		...(renderedResults.has("ByteStream") ? ["ByteStream"] : []),
+		...(namesByteStream ? ["ByteStream"] : []),
 		"RouteDeps",
 	];
 

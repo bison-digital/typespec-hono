@@ -41,6 +41,10 @@ reference service and which was measured across a real Workers service binding.
 
 ### Fixed
 
+- **A response header named after a type the server file imports no longer imports it.** The status
+  types and `ByteStream` were chosen by scanning the rendered result types for their names, so a
+  header keyed `StatusCode` or `ByteStream` imported a type nothing used, and `app.gen.ts` failed
+  `noUnusedLocals`. They are recorded as the result types are written.
 - **The emitted runtime compiles under `erasableSyntaxOnly` and `noPropertyAccessFromIndexSignature`.**
   Its error classes declared their fields as constructor parameter properties, which are not erasable
   syntax, and negotiation read a regex group with a dot, an index-signature read, so a project

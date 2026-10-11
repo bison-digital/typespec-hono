@@ -1,5 +1,14 @@
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync } from "node:fs";
+import {
+	existsSync,
+	mkdirSync,
+	mkdtempSync,
+	readFileSync,
+	readdirSync,
+	rmSync,
+	statSync,
+	writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -373,32 +382,84 @@ describe("the install instruction matches what actually ships", () => {
 	 * that version rather than a range that also admits the version without the feature.
 	 */
 	it("resolves a typespec-http-zod that carries the API this package compiles against", () => {
-		const declarations = readFileSync(
-			join(packageRoot, "node_modules", "typespec-http-zod", "dist", "src", "api.d.ts"),
-			"utf8",
-		);
-		const range = manifest.dependencies?.["typespec-http-zod"];
-		const because = `resolved typespec-http-zod does not carry it; the declared range is ${range}. Release typespec-http-zod first and raise this floor.`;
-		// Consumed by src/app.ts for the cookie validator group.
-		expect(declarations, `RouteSchemaNames.cookie: ${because}`).toMatch(
-			/readonly cookie\?: string \| undefined;/,
-		);
-		// Consumed by src/app.ts and src/runtime.ts for servedHeaders.
-		expect(declarations, `response arm headers: ${because}`).toMatch(
-			/readonly headers\?: string \| undefined;/,
-		);
 		/**
-		 * The linter's two imports, read from the entrypoint because that is where they are exported.
-		 * `routeTemplateOf` builds the route set the router rule judges, the same way the library does;
-		 * `redosPronePatternRule` is registered in this package's ruleset. A resolved library without
-		 * either fails at `tsc` with an error naming neither the cause nor the remedy.
+		 * **Compiled, not matched.** It read the declarations for four members by pattern, all of which
+		 * 0.27.0 already carried, while `src/` had come to need a dozen more: against 0.27.0 the arm
+		 * passed and `tsc` failed with TS2305. Every name `src/` imports from the library is read off
+		 * the import statements themselves, the newest members `src/` reads are listed with their
+		 * readers, and a probe naming all of them is compiled against whatever resolved.
 		 */
-		const entrypoint = readFileSync(
-			join(packageRoot, "node_modules", "typespec-http-zod", "dist", "src", "index.d.ts"),
-			"utf8",
-		);
-		for (const name of ["routeTemplateOf", "redosPronePatternRule"]) {
-			expect(entrypoint, `${name}: ${because}`).toMatch(new RegExp(`export \\{ ${name} \\}`));
+		const sources = readdirSync(join(packageRoot, "src")).filter((name) => name.endsWith(".ts"));
+		const imported = new Set<string>();
+		for (const name of sources) {
+			const text = readFileSync(join(packageRoot, "src", name), "utf8");
+			for (const clause of text.matchAll(
+				/import\s+(?:type\s+)?\{([^}]*)\}\s+from\s+"typespec-http-zod"/g,
+			)) {
+				for (const part of (clause[1] ?? "").split(",")) {
+					const symbol = part
+						.trim()
+						.replace(/^type\s+/, "")
+						.split(/\s+as\s+/)[0];
+					if (symbol !== undefined && symbol !== "") imported.add(symbol);
+				}
+			}
 		}
+		// Non-vacuity: a pattern that stopped matching would compile an empty probe.
+		expect(imported.size).toBeGreaterThanOrEqual(15);
+		expect(imported).toContain("resultMembersOf");
+		const members = [
+			// app.ts, the accept a negotiated member's handler is given
+			'RouteSchemaNames["selectedAccept"]',
+			// app.ts, the cookie validator group
+			'RouteSchemaNames["cookie"]',
+			// app.ts, how a raw body is read
+			'EmittedRoute["rawBodyBinary"]',
+			// emitter.ts, where a diagnostic points
+			'EmittedService["operations"]',
+		];
+		const probeDir = join(packageRoot, "test", ".out-packaging-api");
+		mkdirSync(probeDir, { recursive: true });
+		writeFileSync(
+			join(probeDir, "probe.ts"),
+			`import type { ${[...imported, "EmittedRoute", "EmittedService", "RouteSchemaNames"]
+				.filter((symbol, index, all) => all.indexOf(symbol) === index)
+				.toSorted()
+				.join(", ")} } from "typespec-http-zod";
+
+export type Members = [${members.join(", ")}];
+`,
+		);
+		const config = join(probeDir, "tsconfig.json");
+		writeFileSync(
+			config,
+			JSON.stringify({
+				compilerOptions: {
+					target: "es2023",
+					module: "nodenext",
+					moduleResolution: "nodenext",
+					strict: true,
+					noEmit: true,
+					skipLibCheck: true,
+					types: [],
+				},
+				include: ["./probe.ts"],
+			}),
+		);
+		let output = "";
+		try {
+			execFileSync(join(packageRoot, "node_modules", ".bin", "tsc"), ["-p", config], {
+				encoding: "utf8",
+				stdio: ["ignore", "pipe", "pipe"],
+			});
+		} catch (error) {
+			const asExec = error as { stdout?: string; stderr?: string };
+			output = `${asExec.stdout ?? ""}${asExec.stderr ?? ""}`.trim();
+		}
+		const range = manifest.dependencies?.["typespec-http-zod"];
+		expect(
+			output,
+			`the resolved typespec-http-zod lacks API src/ uses; the declared range is ${range}. Release typespec-http-zod first and raise this floor.`,
+		).toBe("");
 	});
 });
