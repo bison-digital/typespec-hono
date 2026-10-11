@@ -152,7 +152,8 @@ export function selectContentType(
 
 	let best: { type: string; q: number } | undefined;
 	for (const type of offered) {
-		const lowered = type.toLowerCase();
+		// Compared by its essence, as the ranges are: a parameter on an offered type is not a type.
+		const lowered = (type.split(";")[0] ?? "").trim().toLowerCase();
 		const [group] = lowered.split("/");
 		/**
 		 * **The most specific matching range decides this type's quality**, which is what makes an

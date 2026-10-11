@@ -36,6 +36,7 @@ beforeAll(async () => {
 			uploadJsonFile: record("uploadJsonFile"),
 			putXml: record("putXml"),
 			downloadImage: () => ({ status: 200, body: download }),
+			downloadJsonFile: () => ({ status: 200, body: new TextEncoder().encode('{"a":1}') }),
 		}),
 		{
 			authorize: () => async (_c: unknown, next: () => Promise<void>) => {
@@ -91,6 +92,18 @@ describe("a model under a media type nothing parses", () => {
 });
 
 describe("an Http.File download", () => {
+	/**
+	 * **A file declared as JSON is served under JSON too.** The serving rule left `Content-Type` to
+	 * `c.json` wherever the type was `application/json`, but a file is bytes and is served with
+	 * `c.body`, which sets none: the response went out with no media type at all.
+	 */
+	it("is served under its media type when that type is JSON", async () => {
+		const response = await app.request("/json-file/latest");
+		expect(response.status).toBe(200);
+		expect(response.headers.get("content-type")).toBe("application/json");
+		expect(await response.text()).toBe('{"a":1}');
+	});
+
 	it("is served as the bytes, under its media type", async () => {
 		download = PNG;
 		const response = await app.request("/files/latest");

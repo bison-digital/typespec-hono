@@ -28,6 +28,14 @@ reference service and which was measured across a real Workers service binding.
 
 ### Fixed
 
+- **A media type declared with a parameter is matched by its essence, everywhere a server compares
+  one.** A route declaring `application/json; charset=utf-8` refused every request: the body's
+  branches kept the parameter while a request's media type is reduced to its essence. Negotiation
+  between operations compared offered types the same way, so an `Accept: application/json` caller
+  was refused one offering the parametered type. The response is sent under the type as declared.
+- **A file declared as JSON is served with its `Content-Type`.** The serving rule left the header to
+  `c.json` wherever the type was `application/json`, but a file is bytes served with `c.body`, which
+  sets none, so an `Http.File<"application/json">` download went out with no media type.
 - **A diagnostic about an operation on a shared route points at that operation.** Operations were
   looked up by verb and path, which `@sharedRoute` gives every member, so a warning about the second
   member of a route was raised against the first. They are read by operation id from the library's

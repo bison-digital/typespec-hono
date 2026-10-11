@@ -5,6 +5,7 @@ import {
 	type EmittedPathSegment,
 	isMediaRange,
 	jsDocComment,
+	mediaTypeEssenceOf,
 	mediaTypeTypeOf,
 	objectKey,
 	type EmittedResponse,
@@ -211,11 +212,15 @@ function serveCall(member: ResultMember, status: string, operationId: string, us
 	const headers: string[] = [];
 	/**
 	 * **`Content-Type` wherever `c.json` would not already say it.** `c.json` writes
-	 * `application/json`; a `+json` type such as `application/problem+json` has to be stated, and
-	 * `c.body` states nothing. The key is spelled `Content-Type` because Hono merges its own default
-	 * under exactly that key, so a lowercase spelling would send both.
+	 * `application/json`, so a body it serves under exactly that type needs nothing. Anything else is
+	 * stated: a `+json` type such as `application/problem+json`, the type with a parameter, and every
+	 * body `c.body` serves, which states nothing - a file declared `application/json` is bytes, and
+	 * went out with no media type at all when this skipped every `application/json`. The key is
+	 * spelled `Content-Type` because Hono merges its own default under exactly that key, so a
+	 * lowercase spelling would send both.
 	 */
-	if (mediaType !== undefined && serving !== "none" && mediaType !== "application/json") {
+	const servedByJson = serving === "json" && mediaType === "application/json";
+	if (mediaType !== undefined && serving !== "none" && !servedByJson) {
 		const value =
 			member.choosesMediaType || mediaType.includes("*")
 				? "result.contentType"
@@ -506,9 +511,15 @@ function bodyValidationFor(contentTypes: readonly string[], textual: boolean): B
 	const byType: (readonly [string, string])[] = [];
 	const unparseable: string[] = [];
 	for (const type of contentTypes) {
-		const target = targetForMediaType(type, textual);
+		/**
+		 * **Keyed by the type's essence**, because that is what a request's `Content-Type` is reduced
+		 * to before it is matched. A declared `application/json; charset=utf-8` kept its parameter
+		 * here, so no request's media type equalled it and every one was refused.
+		 */
+		const essence = mediaTypeEssenceOf(type);
+		const target = targetForMediaType(essence, textual);
 		if (target === undefined) unparseable.push(type);
-		else byType.push([type, target]);
+		else if (!byType.some(([declared]) => declared === essence)) byType.push([essence, target]);
 	}
 	return { byType, unparseable };
 }

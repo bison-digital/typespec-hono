@@ -23,3 +23,6 @@ model Thing {
 @route("/xml") @put op putXml(@header contentType: "application/xml", @body body: Thing): void;
 
 @route("/files/latest") @get op downloadImage(): Http.File<"image/png">;
+
+/** A file whose media type is JSON: served as its bytes, under that type, like any other file. */
+@route("/json-file/latest") @get op downloadJsonFile(): Http.File<"application/json">;
