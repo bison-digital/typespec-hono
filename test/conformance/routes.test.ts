@@ -96,6 +96,7 @@ interface Measured {
 	/** Operations mounted but with a declared media type this emitter cannot validate. */
 	readonly partiallyValidated: number;
 	readonly unvalidatedResponses: number;
+	readonly unvalidatedRequests: number;
 }
 
 async function measure(compiled: CompiledScenario): Promise<Measured | undefined> {
@@ -147,6 +148,7 @@ async function measure(compiled: CompiledScenario): Promise<Measured | undefined
 		refused: compiled.refusals?.length ?? 0,
 		partiallyValidated: compiled.partiallyValidated ?? 0,
 		unvalidatedResponses: compiled.unvalidatedResponses ?? 0,
+		unvalidatedRequests: compiled.unvalidatedRequests ?? 0,
 	};
 }
 
@@ -201,6 +203,7 @@ describe("the generated server mounts what the document declares", () => {
 			refused: measured.reduce((sum, entry) => sum + entry.refused, 0),
 			partiallyValidated: measured.reduce((sum, entry) => sum + entry.partiallyValidated, 0),
 			unvalidatedResponses: measured.reduce((sum, entry) => sum + entry.unvalidatedResponses, 0),
+			unvalidatedRequests: measured.reduce((sum, entry) => sum + entry.unvalidatedRequests, 0),
 		};
 		const recorded = JSON.parse(readFileSync(join(here, "baseline.json"), "utf8")) as typeof totals;
 		if (process.env["UPDATE_ROUTE_BASELINE"] === "1") {
@@ -234,6 +237,15 @@ describe("the generated server mounts what the document declares", () => {
 		 */
 		expect(totals.unvalidatedResponses, JSON.stringify(totals)).toBeLessThanOrEqual(
 			recorded.unvalidatedResponses,
+		);
+		/**
+		 * **The request-side twin, which may only shrink too.** Each is a body handed to its handler as
+		 * the text that arrived: a model under `application/xml` in `payload/xml` and the Petstore.
+		 * They were counted as `partiallyValidated` until the library placed them as text, so the
+		 * operations moved from that count to this one, unvalidated before and after.
+		 */
+		expect(totals.unvalidatedRequests, JSON.stringify(totals)).toBeLessThanOrEqual(
+			recorded.unvalidatedRequests,
 		);
 		expect(totals.slots, JSON.stringify(totals)).toBeGreaterThanOrEqual(recorded.slots);
 		// The arithmetic that makes an exclusion visible rather than cancelling out.

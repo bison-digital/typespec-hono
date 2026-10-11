@@ -94,6 +94,7 @@ negotiation fix can tell whether it reached them: if `selectContentType` does no
 | --------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `unvalidatable-media-type`        | A route declares a request media type no `zValidator` target can parse, most commonly `application/xml`, beside one it can. The route still validates every type that can be parsed, chosen from the request's `Content-Type`, and refuses requests carrying the others rather than parsing them as something they are not. A body declared only under types nothing parses is not refused: it is handed over as text, and this does not fire. |
 | `unsupported-path-template`       | A path parameter whose wire name carries a character Hono cannot hold in a route parameter (a space, `+` or `!`), or a path segment holding two RFC 6570 expressions, which no segment router can split. The segment is registered as literal text, so it matches nothing rather than matching the wrong requests. Every single-expression form (label, matrix, path, reserved, exploding, optional, and one beside literal text) is mounted.  |
+| `unvalidated-request-media-type`  | A request body is declared only under media types nothing parses into its schema, such as a model as `application/xml` or a `string \| int32` as `text/plain`. The handler receives the text that arrived, under the body's parameter name, and nothing checks it against the schema. A file or a `bytes` body declares nothing to check, so neither raises this.                                                                              |
 | `unvalidated-response-media-type` | A response declares a model under a media type that is not JSON, most commonly `application/xml`. No serialisation derives from the schema, so the handler returns that body as a string and the route serves it without validating it. Every other response on the operation is validated as usual.                                                                                                                                           |
 | `runtime-module-removed`          | `runtime-module` is set. It is an error: the option is ignored and `runtime.gen.ts` is emitted, because an application that substituted the runtime owned a copy of generated logic. See [Upgrading](guides.md#upgrading).                                                                                                                                                                                                                     |
 
@@ -159,7 +160,8 @@ warn-as-error: true
   `application/xml` alongside a parseable type still validates the parseable ones; requests carrying
   XML there are refused (400), and `unvalidatable-media-type` names it at build time. An operation
   declaring ONLY a type nothing parses hands its handler the text that arrived, unvalidated, under the
-  body's name - the same thing the response side asks of a handler serving a model as XML.
+  body's name - the same thing the response side asks of a handler serving a model as XML - and
+  `unvalidated-request-media-type` names each one.
 - **XML response bodies are not validated either.** A model declared under `application/xml` is
   served as the text the handler supplies, and `unvalidated-response-media-type` names each one.
 - **A request body nested deeper than the runtime's stack is refused, not served.** Zod recurses once
@@ -183,14 +185,15 @@ warn-as-error: true
 
 ## Coverage
 
-Graded against 62 scenarios of [`@typespec/http-specs`](https://github.com/microsoft/typespec), a
+Graded against 63 scenarios of [`@typespec/http-specs`](https://github.com/microsoft/typespec), a
 corpus this project did not write, with route counts read from `app.routes` after mounting the real
-server rather than from the emitted text: 635 declared, 635 mounted, 0 refused, 27 partially
-validated, and 29 responses served unvalidated as XML.
+server rather than from the emitted text: 644 declared, 644 mounted, 0 refused, 0 partially
+validated, 25 request bodies and 29 responses handled as unvalidated XML text.
 
-Every emitted server is compiled under `strict`, `exactOptionalPropertyTypes` and `noUnusedLocals`,
-and for 619 routes what Hono's RPC client infers is compared with what `@hono/zod-openapi`'s
-`RouteConfigToTypedResponse` derives from the published document.
+Every emitted server is compiled under `strict`, `exactOptionalPropertyTypes`, `noUnusedLocals`,
+`erasableSyntaxOnly` and `noPropertyAccessFromIndexSignature`, and for 627 routes what Hono's RPC
+client infers is compared with what `@hono/zod-openapi`'s `RouteConfigToTypedResponse` derives from the
+published document.
 
 ## Path parameters that carry slashes
 

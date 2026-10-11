@@ -32,6 +32,13 @@ reference service and which was measured across a real Workers service binding.
   and so was it in a value typed by the contract (`TS2741`, `TS2322`).
 - **An input made only of an empty model is `{}`**, not `unknown`.
 
+### Added
+
+- **`unvalidated-request-media-type`, a warning**: a body declared only under media types nothing
+  parses, such as a model as `application/xml`, reaches its handler as the text that arrived and is
+  not checked against its schema. The request-side twin of `unvalidated-response-media-type`; the
+  route is mounted and served. The corpus counts these: 25.
+
 ### Fixed
 
 - **The emitted runtime compiles under `erasableSyntaxOnly` and `noPropertyAccessFromIndexSignature`.**

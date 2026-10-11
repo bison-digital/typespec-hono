@@ -1,11 +1,12 @@
 {
-	"scenarios": 62,
-	"declared": 635,
-	"mounted": 635,
-	"slots": 633,
-	"served": 638,
-	"registrations": 633,
+	"scenarios": 63,
+	"declared": 644,
+	"mounted": 644,
+	"slots": 642,
+	"served": 647,
+	"registrations": 642,
 	"refused": 0,
-	"partiallyValidated": 27,
-	"unvalidatedResponses": 29
+	"partiallyValidated": 0,
+	"unvalidatedResponses": 29,
+	"unvalidatedRequests": 25
 }

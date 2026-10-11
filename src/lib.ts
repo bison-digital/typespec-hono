@@ -160,6 +160,20 @@ const diagnostics = {
 	 * route serves it as is. Reported for the same reason as its request-side twin: a route should not
 	 * look validated when it is not.
 	 */
+	/**
+	 * A request body the handler receives as text, never checked against its schema.
+	 *
+	 * The request-side twin of `unvalidated-response-media-type`. A model declared only under a media
+	 * type nothing parses - a `Pet` as `application/xml`, a `string | int32` as `text/plain` - has no
+	 * reading this emitter can derive, so the library hands the handler the text that arrived. That
+	 * is right, and was silent: once the body reached the handler, nothing said it was unchecked.
+	 */
+	"unvalidated-request-media-type": {
+		severity: "warning",
+		messages: {
+			default: paramMessage`'${"operationId"}' takes its body as ${"types"}, which this emitter cannot parse into the schema. The handler receives the text that arrived, without its being validated. Parse and check it in the handler, or declare a JSON, form or multipart body to have it checked.`,
+		},
+	},
 	"unvalidated-response-media-type": {
 		severity: "warning",
 		messages: {
@@ -194,6 +208,7 @@ type Diagnostics = {
 	"runtime-module-removed": { readonly default: CallableMessage<["value"]> };
 	"unsupported-path-template": { readonly default: CallableMessage<["template", "name"]> };
 	"unvalidatable-media-type": { readonly default: CallableMessage<["operationId", "types"]> };
+	"unvalidated-request-media-type": { readonly default: CallableMessage<["operationId", "types"]> };
 	"unvalidated-response-media-type": {
 		readonly default: CallableMessage<["operationId", "status", "types"]>;
 	};

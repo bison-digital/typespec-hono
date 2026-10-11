@@ -55,6 +55,18 @@ describe("an Http.File upload", () => {
 		expect(compiled.diagnostics.filter((d) => d.severity === "error")).toEqual([]);
 	});
 
+	/**
+	 * **A body handed over unchecked is said to be.** The model under XML reaches its handler as the
+	 * text that arrived and nothing checks it, which the response side has always said of a model it
+	 * serves as XML. A file and a bytes body declare nothing to check, so neither is named.
+	 */
+	it("warns that the model under XML is handed over unvalidated, and nothing else", () => {
+		const warned = compiled.diagnostics
+			.filter((d) => d.code === "typespec-hono/unvalidated-request-media-type")
+			.map((d) => /'([^']+)'/.exec(d.message)?.[1]);
+		expect(warned).toEqual(["putXml"]);
+	});
+
 	it("reaches the handler as the bytes sent, with the media type it was sent as", async () => {
 		const response = await app.request("/files", {
 			method: "POST",

@@ -315,8 +315,8 @@ describe("the responses a client sees are the ones @hono/zod-openapi requires", 
 		}
 		expect(disagreements, disagreements.join("\n\n")).toEqual([]);
 		/**
-		 * Floors, because an oracle that compares nothing agrees with everything. Measured at 619 routes
-		 * compared, 18 skipped and 38 operations carrying a media type that is not JSON; the skips are an
+		 * Floors, because an oracle that compares nothing agrees with everything. Measured at 627 routes
+		 * compared, 19 skipped and 45 operations carrying a media type that is not JSON; the skips are an
 		 * upper bound, since a lookup that stopped matching would move routes from compared to skipped.
 		 */
 		expect(compared).toBeGreaterThanOrEqual(600);

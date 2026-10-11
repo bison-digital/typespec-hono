@@ -3,6 +3,7 @@ import type { SecurityRequirement } from "./runtime.js";
 import {
 	type BodyServing,
 	type EmittedPathSegment,
+	isJsonMediaType,
 	isMediaRange,
 	jsDocComment,
 	mediaTypeEssenceOf,
@@ -1127,6 +1128,7 @@ export function routerTableFor(
 export interface RenderRefusals {
 	readonly unsupportedPathTemplate: (route: EmittedRoute, template: string, name: string) => void;
 	readonly unvalidatableMediaType: (route: EmittedRoute, types: readonly string[]) => void;
+	readonly unvalidatedRequestMediaType: (route: EmittedRoute, types: readonly string[]) => void;
 	readonly unvalidatedResponseMediaType: (
 		route: EmittedRoute,
 		status: StatusKey,
@@ -1197,6 +1199,20 @@ export function renderApp(
 		// The library declares a `Responses` const for every operation, so a missing entry is a bug in
 		// this package's pairing rather than a spec the emitter chose not to serve.
 		if (names === undefined) return [];
+		/**
+		 * **A body handed over as the text that arrived is said to be unchecked.** The library places a
+		 * body declared only under media types nothing parses as raw text; a raw body that is bytes,
+		 * or text under JSON (`bytes` a signature covers), declares no schema to check, so neither is
+		 * this.
+		 */
+		if (
+			route.rawBodyProperty !== undefined &&
+			!route.rawBodyBinary &&
+			route.requestContentTypes.length > 0 &&
+			!route.requestContentTypes.some(isJsonMediaType)
+		) {
+			refuse.unvalidatedRequestMediaType(route, route.requestContentTypes);
+		}
 		const validators: (readonly [string, string])[] = [];
 		let body: AppRoute["body"];
 		for (const location of ["path", "query", "header", "cookie", "body"] as const) {

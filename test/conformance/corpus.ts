@@ -114,6 +114,8 @@ export interface CompiledScenario {
 	readonly partiallyValidated?: number;
 	/** Responses served as text the handler supplies, because no serialisation derives from the schema. */
 	readonly unvalidatedResponses?: number;
+	/** Request bodies handed to the handler as the text that arrived, unvalidated. */
+	readonly unvalidatedRequests?: number;
 	/**
 	 * Whether this scenario's composed route set is one a bare `RegExpRouter` refuses to compile.
 	 *
@@ -306,6 +308,11 @@ export async function compileScenario(
 	 */
 	const PARTIAL_RESPONSE = "typespec-hono/unvalidated-response-media-type";
 	/**
+	 * **And its request-side twin**: a body declared only under media types nothing parses, handed to
+	 * the handler as the text that arrived. Mounted and served; the body is not checked.
+	 */
+	const UNVALIDATED_REQUEST = "typespec-hono/unvalidated-request-media-type";
+	/**
 	 * **Not a refusal and not a partial validation: a caveat about the HOST application's choice**,
 	 * raised by a linter rule rather than by emission, and enabled for the corpus above.
 	 *
@@ -316,7 +323,7 @@ export async function compileScenario(
 	 * validation, which it says nothing about. So it is its own count.
 	 */
 	const ROUTER_ADVISORY = "typespec-hono/regexp-router-unsupported";
-	const ADVISORY_CODES = new Set([PARTIAL, PARTIAL_RESPONSE, ROUTER_ADVISORY]);
+	const ADVISORY_CODES = new Set([PARTIAL, PARTIAL_RESPONSE, UNVALIDATED_REQUEST, ROUTER_ADVISORY]);
 	const refusalCodes = new Set(
 		Object.keys($lib.diagnostics)
 			.map((code) => `typespec-hono/${code}`)
@@ -329,6 +336,10 @@ export async function compileScenario(
 	/** Responses served as text the handler supplies, unvalidated. */
 	const unvalidatedResponses = program.diagnostics.filter(
 		(d) => d.code === PARTIAL_RESPONSE,
+	).length;
+	/** Request bodies handed to the handler as the text that arrived, unvalidated. */
+	const unvalidatedRequests = program.diagnostics.filter(
+		(d) => d.code === UNVALIDATED_REQUEST,
 	).length;
 	const refusals = program.diagnostics
 		.filter((diagnostic) => refusalCodes.has(diagnostic.code))
@@ -369,6 +380,7 @@ export async function compileScenario(
 					refusals,
 					partiallyValidated,
 					unvalidatedResponses,
+					unvalidatedRequests,
 					routerUnsupported,
 				}
 			: {
@@ -379,6 +391,7 @@ export async function compileScenario(
 					refusals,
 					partiallyValidated,
 					unvalidatedResponses,
+					unvalidatedRequests,
 					routerUnsupported,
 				};
 	}

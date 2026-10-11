@@ -120,6 +120,9 @@ export const noRefusals: RenderRefusals = {
 	unsupportedPathTemplate: (): void => {
 		throw new Error("unexpected path refusal");
 	},
+	unvalidatedRequestMediaType: (): void => {
+		throw new Error("a hand-built route declares no unparseable body");
+	},
 	unvalidatableMediaType: (): void => {
 		throw new Error("unexpected media-type refusal");
 	},
@@ -132,5 +135,6 @@ export const noRefusals: RenderRefusals = {
 export const ignoreRefusals: RenderRefusals = {
 	unsupportedPathTemplate: () => undefined,
 	unvalidatableMediaType: () => undefined,
+	unvalidatedRequestMediaType: () => undefined,
 	unvalidatedResponseMediaType: () => undefined,
 };

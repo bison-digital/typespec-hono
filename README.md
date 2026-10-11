@@ -206,7 +206,7 @@ sub-app.
 The output is plain `Hono` and `@hono/zod-validator`, not `@hono/zod-openapi`. That package generates
 a document from the code, which would compete with the one openapi3 publishes from the spec. The
 responses a route serves are the ones `@hono/zod-openapi` would require of it: across the conformance
-corpus, what Hono's RPC client infers for 619 routes is compared with what `RouteConfigToTypedResponse`
+corpus, what Hono's RPC client infers for 627 routes is compared with what `RouteConfigToTypedResponse`
 derives from the published document.
 
 ## Docs
