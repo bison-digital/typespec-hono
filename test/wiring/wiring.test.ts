@@ -68,12 +68,19 @@ describe("an application compiles against the generated server", () => {
 		expect(output.trim(), output).toBe("");
 	});
 
+	/**
+	 * **No assertion of any kind, so a failure cannot be papered over.** This matched only
+	 * `as unknown as`, so a single `x as T` would have passed while the fixture claims nothing casts.
+	 * Comments are removed first, because their prose says things like "as ONE string"; `as const`
+	 * narrows rather than asserts, so it is allowed.
+	 */
 	it("contains no cast, so a failure cannot be papered over", () => {
-		// A `as unknown as` anywhere in the consumer would hide exactly what this suite exists to find.
 		for (const fixture of ["consumer.fixture.ts", "backend.fixture.ts"]) {
 			const source = execFileSync("cat", [join(here, fixture)], { encoding: "utf8" });
-			expect(source, fixture).not.toMatch(/as unknown as/);
-			expect(source, fixture).not.toMatch(/@ts-(expect-error|ignore)/);
+			expect(source, fixture).not.toMatch(/@ts-(expect-error|ignore|nocheck)/);
+			const code = source.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/.*$/gm, "");
+			expect(code, fixture).not.toMatch(/\bas\s+(?!const\b)[A-Za-z_{([]/);
+			expect(code, fixture).not.toMatch(/\bany\b/);
 		}
 	});
 });
