@@ -1,3 +1,5 @@
+import { execFileSync } from "node:child_process";
+import { rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Hono } from "hono";
@@ -12,9 +14,45 @@ let app: Hono;
 const received: Record<string, Record<string, unknown>> = {};
 const PNG = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0xff, 0xd8]);
 let download: unknown = PNG;
+/** Not UTF-8: decoded as text, the first and last bytes come back as U+FFFD. */
+const BLOB = new Uint8Array([0xff, 0x00, 0x80, 0xfe]);
 
 async function bytesOf(value: unknown): Promise<number[]> {
 	return [...new Uint8Array(await new Response(value as ReadableStream).arrayBuffer())];
+}
+
+/** `tsc` over one consumer file beside the generated server, strict; its output, empty when clean. */
+function typecheck(source: string): string {
+	const consumer = join(compiled.outDir, "consumer.ts");
+	const config = join(compiled.outDir, "tsconfig.consumer.json");
+	writeFileSync(consumer, source);
+	writeFileSync(
+		config,
+		JSON.stringify({
+			compilerOptions: {
+				target: "es2023",
+				module: "nodenext",
+				moduleResolution: "nodenext",
+				strict: true,
+				exactOptionalPropertyTypes: true,
+				noEmit: true,
+				skipLibCheck: true,
+			},
+			include: ["./*.ts"],
+		}),
+	);
+	try {
+		execFileSync(join(here, "..", "..", "node_modules", ".bin", "tsc"), ["-p", config], {
+			encoding: "utf8",
+			stdio: ["ignore", "pipe", "pipe"],
+		});
+		return "";
+	} catch (error) {
+		const asExec = error as { stdout?: string; stderr?: string };
+		return `${asExec.stdout ?? ""}${asExec.stderr ?? ""}`.trim();
+	} finally {
+		rmSync(consumer, { force: true });
+	}
 }
 
 beforeAll(async () => {
@@ -25,6 +63,7 @@ beforeAll(async () => {
 	const record = (name: string) => async (_ctx: unknown, input: Record<string, unknown>) => {
 		const copy: Record<string, unknown> = { ...input };
 		if (input["file"] instanceof ReadableStream) copy["file"] = await bytesOf(input["file"]);
+		if (input["body"] instanceof ReadableStream) copy["body"] = await bytesOf(input["body"]);
 		received[name] = copy;
 		return { status: 204 };
 	};
@@ -35,6 +74,9 @@ beforeAll(async () => {
 			uploadImage: record("uploadImage"),
 			uploadJsonFile: record("uploadJsonFile"),
 			putXml: record("putXml"),
+			putAtom: record("putAtom"),
+			putBlob: record("putBlob"),
+			getBlob: () => ({ status: 200, body: BLOB }),
 			downloadImage: () => ({ status: 200, body: download }),
 			downloadJsonFile: () => ({ status: 200, body: new TextEncoder().encode('{"a":1}') }),
 		}),
@@ -60,11 +102,15 @@ describe("an Http.File upload", () => {
 	 * text that arrived and nothing checks it, which the response side has always said of a model it
 	 * serves as XML. A file and a bytes body declare nothing to check, so neither is named.
 	 */
-	it("warns that the model under XML is handed over unvalidated, and nothing else", () => {
+	it("warns that each model under a media type nothing parses is handed over unvalidated, and nothing else", () => {
 		const warned = compiled.diagnostics
 			.filter((d) => d.code === "typespec-hono/unvalidated-request-media-type")
 			.map((d) => /'([^']+)'/.exec(d.message)?.[1]);
-		expect(warned).toEqual(["putXml"]);
+		expect(warned).toEqual(["putXml", "putAtom", "putBlob"]);
+		const served = compiled.diagnostics
+			.filter((d) => d.code === "typespec-hono/unvalidated-response-media-type")
+			.map((d) => /'([^']+)'/.exec(d.message)?.[1]);
+		expect(served).toEqual(["getBlob"]);
 	});
 
 	it("reaches the handler as the bytes sent, with the media type it was sent as", async () => {
@@ -101,6 +147,42 @@ describe("a model under a media type nothing parses", () => {
 		expect(response.status).toBe(204);
 		expect(received["putXml"]?.["body"]).toBe(xml);
 	});
+
+	it("is text under an XML suffix too", async () => {
+		const atom = "<feed/>";
+		const response = await app.request("/atom", {
+			method: "PUT",
+			headers: { "content-type": "application/atom+xml" },
+			body: atom,
+		});
+		expect(response.status).toBe(204);
+		expect(received["putAtom"]?.["body"]).toBe(atom);
+	});
+
+	it("reaches the handler as the exact bytes sent where the media type is not text", async () => {
+		const response = await app.request("/blob", {
+			method: "PUT",
+			headers: { "content-type": "application/octet-stream" },
+			body: BLOB,
+		});
+		expect(response.status).toBe(204);
+		expect(received["putBlob"]?.["body"]).toEqual([...BLOB]);
+	});
+
+	it("is answered as bytes where the media type is not text, which a string cannot carry", () => {
+		expect(
+			typecheck(`import type { Operations } from "./app.gen.js";
+export const handler: Operations["getBlob"] = () => ({ status: 200, body: new Uint8Array([0xff]) });
+`),
+		).toBe("");
+	});
+
+	it("is served as the exact bytes the handler answers where the media type is not text", async () => {
+		const response = await app.request("/blob/latest");
+		expect(response.status).toBe(200);
+		expect(response.headers.get("content-type")).toBe("application/octet-stream");
+		expect([...new Uint8Array(await response.arrayBuffer())]).toEqual([...BLOB]);
+	});
 });
 
 describe("an Http.File download", () => {
@@ -132,46 +214,13 @@ describe("an Http.File download", () => {
  * `new Response(value)` would have served `[object Object]`.
  */
 describe("a binary body that is only a ByteStream", () => {
-	it("compiles as a handler's result", async () => {
-		const { execFileSync } = await import("node:child_process");
-		const { rmSync, writeFileSync } = await import("node:fs");
-		const consumer = join(compiled.outDir, "consumer.ts");
-		const config = join(compiled.outDir, "tsconfig.consumer.json");
-		writeFileSync(
-			consumer,
-			`import type { Operations } from "./app.gen.js";
+	it("compiles as a handler's result", () => {
+		expect(
+			typecheck(`import type { Operations } from "./app.gen.js";
 declare const reader: { getReader(): { read(): Promise<{ readonly done: boolean; readonly value?: Uint8Array }>; releaseLock(): void } };
 export const handler: Operations["downloadImage"] = () => ({ status: 200, body: reader });
-`,
-		);
-		writeFileSync(
-			config,
-			JSON.stringify({
-				compilerOptions: {
-					target: "es2023",
-					module: "nodenext",
-					moduleResolution: "nodenext",
-					strict: true,
-					exactOptionalPropertyTypes: true,
-					noEmit: true,
-					skipLibCheck: true,
-				},
-				include: ["./*.ts"],
-			}),
-		);
-		let output = "";
-		try {
-			execFileSync(join(here, "..", "..", "node_modules", ".bin", "tsc"), ["-p", config], {
-				encoding: "utf8",
-				stdio: ["ignore", "pipe", "pipe"],
-			});
-		} catch (error) {
-			const asExec = error as { stdout?: string; stderr?: string };
-			output = `${asExec.stdout ?? ""}${asExec.stderr ?? ""}`.trim();
-		} finally {
-			rmSync(consumer, { force: true });
-		}
-		expect(output).toBe("");
+`),
+		).toBe("");
 	});
 
 	it("is served as its exact bytes, the first chunk before the producer has the last", async () => {

@@ -36,12 +36,16 @@ reference service and which was measured across a real Workers service binding.
   A defaulted response property may be left out, and is served with its default; it was required,
   and so was it in a value typed by the contract (`TS2741`, `TS2322`).
 - **An input made only of an empty model is `{}`**, not `unknown`.
+- **A model answered under a media type that is neither JSON nor text is bytes.** A handler returns
+  `ByteStream | Uint8Array<ArrayBuffer> | ArrayBuffer` for it, served as is, where it returned a
+  `string`: served as UTF-8, a string cannot carry an `application/octet-stream` or
+  `application/x-protobuf` body. Under a textual media type, `text/*` or XML, it is text as before.
 
 ### Added
 
 - **`unvalidated-request-media-type`, a warning**: a body declared only under media types nothing
-  parses, such as a model as `application/xml`, reaches its handler as the text that arrived and is
-  not checked against its schema. The request-side twin of `unvalidated-response-media-type`; the
+  parses, such as a model as `application/xml`, reaches its handler raw and is not checked against
+  its schema. The request-side twin of `unvalidated-response-media-type`; the
   route is mounted and served. The corpus counts these: 25.
 
 ### Fixed
@@ -72,9 +76,11 @@ reference service and which was measured across a real Workers service binding.
 - **An `Http.File` body reaches the handler and is served.** An upload is the unread stream under its
   parameter's name with its `"Content-Type"`; a download is served as its bytes under its media type.
   Both were dropped: the handler was given `{}` and the download was empty.
-- **A body declared only under a media type nothing parses is handed over as the text that arrived.**
-  An `application/xml` PUT used to get a header check and a handler call with the body never read,
-  while `unvalidatable-media-type` said it had been refused. That warning now fires only for a route
+- **A body declared only under a media type nothing parses is handed over as it arrived**: the text
+  under a textual media type such as `application/xml`, and the unread stream under any other, such
+  as `application/octet-stream`, whose bytes text cannot carry. An `application/xml` PUT used to get
+  a header check and a handler call with the body never read, while `unvalidatable-media-type` said
+  it had been refused. That warning now fires only for a route
   declaring XML beside a parseable type, where the XML request is refused (400) as it says.
 - **A binary or streamed result accepts any `ByteStream`**, the reader every stream has, so a
   backend's contract-typed value fits. The new runtime helper `servedBytes` passes a platform stream

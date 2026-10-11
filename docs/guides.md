@@ -244,7 +244,8 @@ A `bytes` body is handed over as the **unread stream** for binary media types, t
 `ReadableStream<Uint8Array> | null`, and read with `text()` otherwise, so bytes that are not valid
 UTF-8 reach the handler intact. An `Http.File` body is the unread stream whatever its media type, with
 the type it was sent as under `"Content-Type"`. A model declared only under a media type nothing
-parses, such as `application/xml`, is handed over as the text that arrived, under the body's name.
+parses is handed over under the body's name as it arrived: the text under a textual media type such
+as `application/xml`, and the unread stream under any other, such as `application/octet-stream`.
 
 An optional body that was not sent is absent from the input: `"body" in input` is `false`, not a key
 holding `undefined`.

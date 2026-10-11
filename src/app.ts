@@ -2,7 +2,6 @@ import { RegExpRouter } from "hono/router/reg-exp-router";
 import type { SecurityRequirement } from "./runtime.js";
 import {
 	type EmittedPathSegment,
-	isJsonMediaType,
 	isMediaRange,
 	jsDocComment,
 	mediaTypeEssenceOf,
@@ -1187,17 +1186,11 @@ export function renderApp(
 		// this package's pairing rather than a spec the emitter chose not to serve.
 		if (names === undefined) return [];
 		/**
-		 * **A body handed over as the text that arrived is said to be unchecked.** The library places a
-		 * body declared only under media types nothing parses as raw text; a raw body that is bytes,
-		 * or text under JSON (`bytes` a signature covers), declares no schema to check, so neither is
-		 * this.
+		 * **A body handed over unchecked is said to be.** The library places a body declared only under
+		 * media types nothing parses as the text or the bytes that arrived, and says its schema goes
+		 * unchecked; a `bytes` or `Http.File` body declares no schema to check, so neither is this.
 		 */
-		if (
-			route.rawBodyProperty !== undefined &&
-			!route.rawBodyBinary &&
-			route.requestContentTypes.length > 0 &&
-			!route.requestContentTypes.some(isJsonMediaType)
-		) {
+		if (route.rawBodyUnvalidated) {
 			refuse.unvalidatedRequestMediaType(route, route.requestContentTypes);
 		}
 		const validators: (readonly [string, string])[] = [];
@@ -1354,7 +1347,7 @@ type Fields<T> = string extends keyof T ? ([T[string]] extends [never] ? {} : T)
 	const resultTypes = entries.map((entry) => {
 		for (const response of entry.route.responses) {
 			const unvalidated = membersOf(entry)
-				.filter((member) => member.response === response && member.serving === "unvalidated")
+				.filter((member) => member.response === response && member.unvalidated)
 				.flatMap((member) => (member.mediaType === undefined ? [] : [member.mediaType]));
 			if (unvalidated.length > 0) {
 				refuse.unvalidatedResponseMediaType(entry.route, response.status, unvalidated);

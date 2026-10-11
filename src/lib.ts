@@ -121,9 +121,9 @@ const diagnostics = {
 	 * that CAN be parsed, that one is still validated, chosen from the request's `Content-Type`.
 	 *
 	 * **Raised only for such a mixed route.** A body declared ONLY under types nothing parses is placed
-	 * by the library as raw text (`rawBodyProperty`), so it has no validator to warn about and the
-	 * handler is given the text that arrived. It used to get a header check and then a handler call
-	 * with the body never read, while this message said the request had been refused.
+	 * by the library as a raw body (`rawBodyProperty`), so it has no validator to warn about and the
+	 * handler is given the text or the bytes that arrived. It used to get a header check and then a
+	 * handler call with the body never read, while this message said the request had been refused.
 	 */
 	"unvalidatable-media-type": {
 		severity: "warning",
@@ -153,31 +153,32 @@ const diagnostics = {
 		},
 	},
 	/**
-	 * A response the handler supplies as text, served without being checked against its schema.
+	 * A response the handler supplies raw, served without being checked against its schema.
 	 *
 	 * A model declared under a media type that is not JSON - a `Pet` as `application/xml` - has no
-	 * serialisation this emitter can derive from the document, so the handler returns the text and the
-	 * route serves it as is. Reported for the same reason as its request-side twin: a route should not
+	 * serialisation this emitter can derive from the document, so the handler returns the text, or the
+	 * bytes under a media type that is not text, and the route serves it as is. Reported for the same reason as its request-side twin: a route should not
 	 * look validated when it is not.
 	 */
 	/**
-	 * A request body the handler receives as text, never checked against its schema.
+	 * A request body the handler receives raw, never checked against its schema.
 	 *
 	 * The request-side twin of `unvalidated-response-media-type`. A model declared only under a media
 	 * type nothing parses - a `Pet` as `application/xml`, a `string | int32` as `text/plain` - has no
-	 * reading this emitter can derive, so the library hands the handler the text that arrived. That
-	 * is right, and was silent: once the body reached the handler, nothing said it was unchecked.
+	 * reading this emitter can derive, so the library hands the handler the text that arrived, or the
+	 * unread stream under a media type that is not text, such as `application/octet-stream`. That is
+	 * right, and was silent: once the body reached the handler, nothing said it was unchecked.
 	 */
 	"unvalidated-request-media-type": {
 		severity: "warning",
 		messages: {
-			default: paramMessage`'${"operationId"}' takes its body as ${"types"}, which this emitter cannot parse into the schema. The handler receives the text that arrived, without its being validated. Parse and check it in the handler, or declare a JSON, form or multipart body to have it checked.`,
+			default: paramMessage`'${"operationId"}' takes its body as ${"types"}, which this emitter cannot parse into the schema. The handler receives the body as it arrived, as text under a textual media type and as the unread stream otherwise, without its being validated. Parse and check it in the handler, or declare a JSON, form or multipart body to have it checked.`,
 		},
 	},
 	"unvalidated-response-media-type": {
 		severity: "warning",
 		messages: {
-			default: paramMessage`'${"operationId"}' answers ${"status"} as ${"types"}, which this emitter cannot serialise from the schema. The handler returns that body as text and it is served without being validated. Declare a JSON media type, or a string body, to have it checked.`,
+			default: paramMessage`'${"operationId"}' answers ${"status"} as ${"types"}, which this emitter cannot serialise from the schema. The handler returns that body as text, or as bytes under a media type that is not text, and it is served without being validated. Declare a JSON media type, or a string body, to have it checked.`,
 		},
 	},
 	"unsupported-path-template": {

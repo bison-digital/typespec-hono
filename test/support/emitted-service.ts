@@ -79,6 +79,7 @@ export function serviceWith(
 		accept: undefined,
 		rawBodyProperty: undefined,
 		rawBodyBinary: false,
+		rawBodyUnvalidated: false,
 		authentication: "none",
 		scopes: [],
 		security: [],
