@@ -19,6 +19,9 @@ reference service and which was measured across a real Workers service binding.
 
 ### Changed, breaking
 
+- **A binary or streamed result is a `ByteStream`, which a stream of anything but `Uint8Array` chunks
+  is not.** A `ReadableStream<string>` compiled against the old `ReadableStream` arm; Node refused it
+  when it was served and only workerd sent it. Encode it with `.pipeThrough(new TextEncoderStream())`.
 - **A body that sends a key a parameter also has is under its own name in the input**, beside the
   parameter, rather than merged. Merged, the body's value replaced the parameter's with nothing
   reported: `POST /accounts/1/entries` with `{ "accountId": 2 }` in the body handed the handler

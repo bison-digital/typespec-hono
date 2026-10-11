@@ -287,24 +287,40 @@ Delete any code that flattened a handler's input or mapped a backend's `{ status
 #### What a handler receives
 
 - **An optional body that was not sent is absent**, rather than present holding `undefined`.
-  `input.body === undefined` still reads the same.
+  `input.body === undefined` still reads the same. That is a parsed body: a raw one is handed over as
+  the request carried it, so an absent text body is `""` and an absent binary body is `null`.
+- **A body that sends a key a parameter also has is under its own name**, beside the parameter, rather
+  than merged into it: merged, the body's value replaced the parameter's. Read `input.body.x` where a
+  handler read `input.x` for such a body's property. A read-only body property is not sent, so a
+  model whose `id` is read-only beside `@path id` still merges.
 - **An `Http.File` upload arrives**, as `ReadableStream<Uint8Array> | null` under its parameter's
-  name, with the media type it was sent as under `"Content-Type"`. It used to arrive as `{}`.
-- **A body declared only as XML arrives as its text**, under the body's name. It used to be dropped.
+  name, with the media type it was sent as under `"Content-Type"`. It used to arrive as `{}`. That
+  media type is checked against the ones the file declares, so another is refused through
+  `deps.invalid`, as a header that breaks its declaration is.
+- **A body declared only as XML arrives as its text**, under the body's name, and nothing checks it:
+  `unvalidated-request-media-type` says so at build time. It used to be dropped.
 - **An input made only of an empty model is `{}`**, rather than `unknown`.
 
 #### What a handler returns
 
 - **A defaulted response property may be left out.** The result body is typed from the schema's
   input, which is what the server checks, so `count?: int32 = 0` is optional there and served as `0`.
-- **An optional response property is `?: T`.** Under `exactOptionalPropertyTypes` an explicit
-  `undefined` no longer compiles; the server answered 500 for one.
+  Code that READS a result - a test calling a handler, a caller of `Operations` over RPC - sees it as
+  optional too, `count?: number`; Hono's client is unaffected, because what is served is the output.
 - **A binary or streamed body may be any `ByteStream`**, the reader every stream has, as well as a
   platform stream, a `Uint8Array` or an `ArrayBuffer`. The new runtime helper `servedBytes` serves it.
+  A stream of anything but `Uint8Array` chunks, such as a `ReadableStream<string>`, no longer
+  compiles: encode it with `.pipeThrough(new TextEncoderStream())`. Node refused such a stream when
+  it was served, and only workerd sent it.
 - **An `Http.File` download returns its bytes.** It used to be served empty, so a handler returning
   nothing now fails to compile.
 - **A response header declared with `@encode` takes its encoded type**: `@encode(seconds, int32)
 retryAfter: duration` is a `number`, which is what the server checks it against.
+
+#### What is emitted
+
+Every `runtime.gen.ts` changes, whether or not its service uses streams: `ByteStream` and
+`servedBytes` are added. A build id or cache key computed from the generated sources changes with it.
 
 #### TypeSpec 1.17
 
@@ -483,6 +499,19 @@ A code mapped to a status the document does not declare now fails to compile, wh
   responses the document declares.
 
 **A handler alias takes the caller context**: `WidgetRoutes_readHandler<Caller>`.
+
+**`deps.context` is told the operation's authentication, which may be `"optional"`.** It is called
+with `"none"`, `"optional"` or `"required"`; a hook typed for two of them no longer compiles. Widen
+its parameter to all three.
+
+**`typespec-http-zod` 0.26.0 comes with this release**, and renames what `schemas.gen.ts` declares
+for a response: `<operationId>Response` is `<operationId>Response<status>`, and a `ResponseArm` has no
+`when` or `property` any more. Code that imported an inline response schema, or read the arms, follows
+the rename; the library's CHANGELOG lists each.
+
+**A compile refused for `runtime-module` has already written the new files.** It reports the error
+and emits anyway, so `app.gen.ts`, `schemas.gen.ts` and `runtime.gen.ts` are rewritten in your tree.
+Remove the option, compile again, and commit what it writes.
 
 **A concrete path now wins over a templated one.** `GET /items/plain` was answered by `/items/{id}`
 whenever the templated route was declared first, because Hono runs the first match. Routes are

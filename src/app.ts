@@ -1383,8 +1383,9 @@ type Fields<T> = string extends keyof T ? ([T[string]] extends [never] ? {} : T)
 					/**
 					 * **`ByteStream`, not `ReadableStream`, so a backend's contract value fits.** The
 					 * contract types state a binary body structurally, because they cannot name the
-					 * platform stream; a platform stream still satisfies it, so nothing a handler could
-					 * return before is refused, and `servedBytes` turns either into what `c.body` takes.
+					 * platform stream; a platform stream of bytes still satisfies it, and `servedBytes`
+					 * turns either into what `c.body` takes. A stream of anything else, such as
+					 * `ReadableStream<string>`, is refused, which Node already did when serving it.
 					 */
 					namesByteStream = true;
 					fields.push("readonly body: ByteStream | Uint8Array<ArrayBuffer> | ArrayBuffer");
