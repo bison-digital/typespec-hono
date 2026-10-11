@@ -1,7 +1,6 @@
 import { RegExpRouter } from "hono/router/reg-exp-router";
 import type { SecurityRequirement } from "./runtime.js";
 import {
-	type BodyServing,
 	type EmittedPathSegment,
 	isJsonMediaType,
 	isMediaRange,
@@ -49,31 +48,12 @@ export const HONO_STATUS_TYPES = {
  */
 export const DEFAULT_RUNTIME_MODULE = "./runtime.gen.js";
 
-/**
- * One thing a handler may return: a declared status, and where that status offers several media
- * types, one of them.
- *
- * **A status offering several media types is several members**, because the body differs by media
- * type: the Swagger Petstore answers `getPetById` with a `Pet` as `application/json` and with text as
- * `application/xml`. One member with a union body could not say which body goes with which type.
- */
+/** The library's result member, with the identifiers this route declares its schemas under. */
 interface ResultMember extends LibraryResultMember<EmittedResponse> {
 	/** The identifier the library declared this status's body under. */
 	readonly schemaName: string | undefined;
 	/** The identifier for this status's declared response headers, where it declares any. */
 	readonly headersSchemaName: string | undefined;
-}
-
-/**
- * How a member's body is served, which decides both its type and the call that serves it.
- *
- * **The library's rule, read rather than restated.** A string body under a non-JSON media type IS the
- * text, so it is validated and served as is; any other body under one - a model as `application/xml`
- * - has no serialisation this emitter can derive, so the handler supplies the text and it is served
- * unvalidated, which the `unvalidated-response-media-type` warning says out loud.
- */
-function bodyServingOf(member: ResultMember): BodyServing {
-	return member.serving;
 }
 
 /**
@@ -89,9 +69,6 @@ function membersOf(entry: AppRoute): ResultMember[] {
 		}),
 	);
 }
-
-/** The type of the `contentType` a handler names for a member - the library's `mediaTypeTypeOf`. */
-const contentTypeTypeOf = mediaTypeTypeOf;
 
 /** The class a status key's codes belong to: its codes from the library, its name from Hono. */
 function groupOf(status: number | StatusKey):
@@ -209,7 +186,7 @@ function servingLines(entry: AppRoute, depth: number, uses: Uses): string[] {
 /** The one Hono call that serves one member, as a `return` statement. */
 function serveCall(member: ResultMember, status: string, operationId: string, uses: Uses): string {
 	const { response, mediaType } = member;
-	const serving = bodyServingOf(member);
+	const serving = member.serving;
 	const headers: string[] = [];
 	/**
 	 * **`Content-Type` wherever `c.json` would not already say it.** `c.json` writes
@@ -1377,7 +1354,7 @@ type Fields<T> = string extends keyof T ? ([T[string]] extends [never] ? {} : T)
 	const resultTypes = entries.map((entry) => {
 		for (const response of entry.route.responses) {
 			const unvalidated = membersOf(entry)
-				.filter((member) => member.response === response && bodyServingOf(member) === "unvalidated")
+				.filter((member) => member.response === response && member.serving === "unvalidated")
 				.flatMap((member) => (member.mediaType === undefined ? [] : [member.mediaType]));
 			if (unvalidated.length > 0) {
 				refuse.unvalidatedResponseMediaType(entry.route, response.status, unvalidated);
@@ -1387,14 +1364,14 @@ type Fields<T> = string extends keyof T ? ([T[string]] extends [never] ? {} : T)
 			const { response } = member;
 			const fields = [`readonly status: ${statusTypeOf(response, entry.route, statusTypeNames)}`];
 			if (member.choosesMediaType && member.mediaType !== undefined) {
-				fields.push(`readonly contentType: ${contentTypeTypeOf(member.mediaType)}`);
+				fields.push(`readonly contentType: ${mediaTypeTypeOf(member.mediaType)}`);
 			}
 			/**
 			 * **What the handler SUPPLIES for this body, which is not always what the schema infers.** A
 			 * stream or raw binary body is handed to Hono unread, a model under a non-JSON media type is text
 			 * the handler serialised, and everything else is the producer's view of the schema.
 			 */
-			switch (bodyServingOf(member)) {
+			switch (member.serving) {
 				case "none":
 					fields.push("readonly body?: undefined");
 					break;
@@ -1481,7 +1458,7 @@ type Fields<T> = string extends keyof T ? ([T[string]] extends [never] ? {} : T)
 
 	const returnsAnything = entries.some((entry) =>
 		membersOf(entry).some((member) => {
-			const serving = bodyServingOf(member);
+			const serving = member.serving;
 			return serving === "json" || serving === "text";
 		}),
 	);
