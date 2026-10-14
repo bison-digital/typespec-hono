@@ -265,6 +265,21 @@ documented maximum could not be served at all.
 
 ## Upgrading
 
+### To `0.26.0`
+
+`0.26.0` requires `typespec-http-zod` `0.29.0`. Read its "To `0.29.0`" section: three of its changes
+make a route refuse a request it accepted, and in each the published document already refused it.
+The one a client is likeliest to meet: **a `utcDateTime` or `offsetDateTime` header with no
+`@encode` is an HTTP-date**, `Fri, 26 Aug 2022 14:38:00 GMT`, on requests and on the responses a
+handler sets. To keep RFC 3339 on the wire, declare it, and the document will say it too:
+
+```tsp
+@header @encode(DateTimeKnownEncoding.rfc3339) since: utcDateTime;
+```
+
+The validators also carry `.describe(...)`, so a snapshot of `schemas.gen.ts` changes. Nothing a
+route decides does.
+
 ### To `0.25.0`
 
 `0.25.0` requires `typespec-http-zod` `0.28.0`, whose contract types now state each operation's input

@@ -6,6 +6,7 @@ import {
 	jsDocComment,
 	mediaTypeEssenceOf,
 	mediaTypeTypeOf,
+	literal,
 	objectKey,
 	type EmittedResponse,
 	type EmittedRoute,
@@ -117,7 +118,7 @@ interface Uses {
  */
 function servingLines(entry: AppRoute, depth: number, uses: Uses): string[] {
 	const indent = "\t".repeat(depth);
-	const operationId = JSON.stringify(entry.route.operationId);
+	const operationId = literal(entry.route.operationId);
 	const members = membersOf(entry);
 	const lines = [`${indent}switch (result.status) {`];
 	let servesDefault = false;
@@ -151,7 +152,7 @@ function servingLines(entry: AppRoute, depth: number, uses: Uses): string[] {
 			if (exact.length > 0) {
 				lines.push(`${indent}\t\tswitch (result.contentType) {`);
 				for (const member of exact) {
-					lines.push(`${indent}\t\t\tcase ${JSON.stringify(member.mediaType)}:`);
+					lines.push(`${indent}\t\t\tcase ${literal(member.mediaType)}:`);
 					lines.push(`${indent}\t\t\t\t${serveCall(member, status, operationId, uses)}`);
 				}
 				lines.push(`${indent}\t\t}`);
@@ -160,7 +161,7 @@ function servingLines(entry: AppRoute, depth: number, uses: Uses): string[] {
 				if (member.mediaType === undefined || !isMediaRange(member.mediaType)) continue;
 				uses.runtime.add("mediaTypeWithin");
 				lines.push(
-					`${indent}\t\tif (mediaTypeWithin(result.contentType, ${JSON.stringify(member.mediaType)})) ${serveCall(member, status, operationId, uses)}`,
+					`${indent}\t\tif (mediaTypeWithin(result.contentType, ${literal(member.mediaType)})) ${serveCall(member, status, operationId, uses)}`,
 				);
 			}
 			uses.runtime.add("UndeclaredStatusError");
@@ -201,12 +202,12 @@ function serveCall(member: ResultMember, status: string, operationId: string, us
 		const value =
 			member.choosesMediaType || mediaType.includes("*")
 				? "result.contentType"
-				: JSON.stringify(mediaType);
+				: literal(mediaType);
 		headers.push(`"Content-Type": ${value}`);
 	}
 	const allOptional = response.headers.every((header) => header.optional);
 	for (const header of response.headers) {
-		const key = JSON.stringify(header.name);
+		const key = literal(header.name);
 		headers.push(`${key}: result.headers${allOptional ? "?." : ""}[${key}]`);
 	}
 	/**
@@ -383,7 +384,7 @@ function renderSecurity(requirements: readonly SecurityRequirement[]): string {
 				: `{ ${Object.entries(requirement)
 						.map(
 							([scheme, scopes]) =>
-								`${JSON.stringify(scheme)}: [${scopes.map((scope) => JSON.stringify(scope)).join(", ")}]`,
+								`${literal(scheme)}: [${scopes.map((scope) => literal(scope)).join(", ")}]`,
 						)
 						.join(", ")} }`,
 		)
@@ -1433,7 +1434,7 @@ type Fields<T> = string extends keyof T ? ([T[string]] extends [never] ? {} : T)
 		const negotiated =
 			selected === undefined
 				? undefined
-				: `{ ${objectKey(selected.name)}: ${JSON.stringify(selected.value)} }`;
+				: `{ ${objectKey(selected.name)}: ${literal(selected.value)} }`;
 		const validated = inputTypeOf(entry);
 		const input =
 			negotiated === undefined
@@ -1518,7 +1519,7 @@ type Produced<T> = T extends (...args: never[]) => unknown
 
 	const aliases = entries.map(
 		(entry) =>
-			`export type ${capitaliseId(entry.route.operationId)}Handler<C = unknown> = Operations<C>[${JSON.stringify(entry.route.operationId)}];`,
+			`export type ${capitaliseId(entry.route.operationId)}Handler<C = unknown> = Operations<C>[${literal(entry.route.operationId)}];`,
 	);
 
 	/**
@@ -1637,7 +1638,7 @@ type Produced<T> = T extends (...args: never[]) => unknown
 			const literalQueryGuard =
 				route.literalQuery.length === 0
 					? []
-					: [`\t\tliteralQuery(${JSON.stringify(route.literalQuery)}),`];
+					: [`\t\tliteralQuery(${literal(route.literalQuery)}),`];
 			/**
 			 * A HEAD operation with no GET beside it is registered under GET, because that is the only verb
 			 * Hono dispatches. The guard keeps the registration honest: a real GET is not in the document,
@@ -1669,7 +1670,7 @@ type Produced<T> = T extends (...args: never[]) => unknown
 					: [
 							`\t\t${entry.body.optional ? "validateOptionalBody" : "validateBody"}(${entry.body.identifier}, deps.invalid, [`,
 							...entry.body.branches.map(
-								([type, target]) => `\t\t\t[${JSON.stringify(type)}, ${JSON.stringify(target)}],`,
+								([type, target]) => `\t\t\t[${literal(type)}, ${literal(target)}],`,
 							),
 							"\t\t]),",
 						];
@@ -1699,7 +1700,7 @@ type Produced<T> = T extends (...args: never[]) => unknown
 							member.route.responseContentTypes.map((contentType) => ({ contentType, member })),
 						)
 					: [];
-			const offered = `[${offers.map((offer) => JSON.stringify(offer.contentType)).join(", ")}]`;
+			const offered = `[${offers.map((offer) => literal(offer.contentType)).join(", ")}]`;
 			const middleware = [
 				...(headOnly ? ["\t\theadOnly,"] : []),
 				...literalQueryGuard,
@@ -1709,11 +1710,10 @@ type Produced<T> = T extends (...args: never[]) => unknown
 					// parse the body twice and reject every media type but one.
 					.filter(([target]) => entry.body === undefined || target !== VALIDATOR_TARGET.body)
 					.map(
-						([target, name]) =>
-							`\t\tzValidator(${JSON.stringify(target)}, ${name}, deps.invalid, SYNC),`,
+						([target, name]) => `\t\tzValidator(${literal(target)}, ${name}, deps.invalid, SYNC),`,
 					),
 				...bodyMiddleware,
-				`\t\tcontextFor(${JSON.stringify(authentication)}),`,
+				`\t\tcontextFor(${literal(authentication)}),`,
 				...(offers.length > 0 ? [`\t\tacceptable(${offered}),`] : []),
 			];
 			const body: string[] = [];
@@ -1736,8 +1736,8 @@ type Produced<T> = T extends (...args: never[]) => unknown
 				route.bodyProperty !== undefined && target === bodyTarget
 					? receivesOptionalBody
 						? `...(received === undefined ? {} : { ${objectKey(route.bodyProperty)}: received })`
-						: `${objectKey(route.bodyProperty)}: c.req.valid(${JSON.stringify(target)})`
-					: `...c.req.valid(${JSON.stringify(target)})`,
+						: `${objectKey(route.bodyProperty)}: c.req.valid(${literal(target)})`
+					: `...c.req.valid(${literal(target)})`,
 			);
 			if (route.rawBodyProperty !== undefined) {
 				// The bytes ARE the contract: a signature covers exactly what arrived, so parsing and
@@ -1760,13 +1760,11 @@ type Produced<T> = T extends (...args: never[]) => unknown
 				// validator no longer supplies. We know it exactly: it is the branch we are in.
 				const selected = member.names.selectedAccept;
 				const own =
-					selected === undefined
-						? []
-						: [`${objectKey(selected.name)}: ${JSON.stringify(selected.value)}`];
+					selected === undefined ? [] : [`${objectKey(selected.name)}: ${literal(selected.value)}`];
 				const input = [...pieces, ...own];
 				const call = `handlersFor(c).${member.route.operationId}(contextOf(c), {`;
 				const received = receivesOptionalBody
-					? [`${indent}const received = c.req.valid(${JSON.stringify(bodyTarget)});`]
+					? [`${indent}const received = c.req.valid(${literal(bodyTarget)});`]
 					: [];
 				const invocation =
 					input.length === 0
@@ -1806,7 +1804,7 @@ type Produced<T> = T extends (...args: never[]) => unknown
 				 */
 				body.push(`\t\t\tconst served = selectContentType(c.req.header("accept"), ${offered});`);
 				for (const offer of offers) {
-					body.push(`\t\t\tif (served === ${JSON.stringify(offer.contentType)}) {`);
+					body.push(`\t\t\tif (served === ${literal(offer.contentType)}) {`);
 					body.push(...serve(offer.member, 4));
 					body.push("\t\t\t}");
 				}
@@ -1816,7 +1814,7 @@ type Produced<T> = T extends (...args: never[]) => unknown
 				 * answered, because a plain `Response` here would erase every typed response on the route.
 				 */
 				body.push(
-					`\t\t\tthrow new Error(${JSON.stringify(`typespec-hono: no operation on ${route.verb} ${route.path} serves the negotiated media type`)});`,
+					`\t\t\tthrow new Error(${literal(`typespec-hono: no operation on ${route.verb} ${route.path} serves the negotiated media type`)});`,
 				);
 			}
 			/**
@@ -1836,8 +1834,8 @@ type Produced<T> = T extends (...args: never[]) => unknown
 			 */
 			const text = [
 				`\t\t.${method}(`,
-				...(method === "on" ? [`\t\t\t${JSON.stringify(registrationVerbOf(route.verb))},`] : []),
-				`\t\t\t${JSON.stringify(registeredPath)},`,
+				...(method === "on" ? [`\t\t\t${literal(registrationVerbOf(route.verb))},`] : []),
+				`\t\t\t${literal(registeredPath)},`,
 				...middleware.map((line) => `\t${line}`),
 				"\t\t\tasync (c) => {",
 				...body.map((line) => `\t${line}`),
@@ -1954,7 +1952,7 @@ type Produced<T> = T extends (...args: never[]) => unknown
 					)
 					.join("\n\n")}\n\n`;
 	const subAppMounts = [...subApps].map(
-		([resource, name]) => `\t\t.route(${JSON.stringify(`/${resource}`)}, ${name})`,
+		([resource, name]) => `\t\t.route(${literal(`/${resource}`)}, ${name})`,
 	);
 	/**
 	 * Everything that stays on the root, then every mount, as one returned chain.
@@ -2017,7 +2015,7 @@ type Produced<T> = T extends (...args: never[]) => unknown
 		validates ||
 		entries.some((entry) => inputTypeOf(entry) !== undefined) ||
 		returnsAnything;
-	const runtimeModule = JSON.stringify(DEFAULT_RUNTIME_MODULE);
+	const runtimeModule = literal(DEFAULT_RUNTIME_MODULE);
 
 	/**
 	 * **One base sub-app, mounted with `app.route()`. Hono's own nesting, not a rewritten path on
@@ -2130,7 +2128,7 @@ export function registerRoutes<C, T extends Operations<C>>(
 ) {
 ${operates ? CONTEXT_MIDDLEWARE : ""}${negotiates ? ACCEPTABLE_MIDDLEWARE : ""}${subAppDeclarations}${
 		usesBasePath
-			? `\tconst basePathRoutes = new Hono<AppEnv>()\n${rootChain.join("\n")};\n\n\treturn app${basePaths.map((prefix) => `\n\t\t.route(${JSON.stringify(prefix)}, basePathRoutes)`).join("")};`
+			? `\tconst basePathRoutes = new Hono<AppEnv>()\n${rootChain.join("\n")};\n\n\treturn app${basePaths.map((prefix) => `\n\t\t.route(${literal(prefix)}, basePathRoutes)`).join("")};`
 			: `\treturn app\n${rootChain.join("\n")};`
 	}
 }

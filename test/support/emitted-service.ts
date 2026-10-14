@@ -52,6 +52,7 @@ export function serviceWith(
 		optionalBody: false,
 		reservedPathParameters: [],
 		pathSegments: segmentsOf(path),
+		decodedPathParameters: [],
 		literalQuery: [],
 		// One bodyless success, the smallest response set a document can declare.
 		responses: [

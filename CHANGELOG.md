@@ -8,6 +8,34 @@ published types; a patch will not. The **emitted output is part of the API**, a 
 `registerRoutes` returns, to a validator's shape, or to what a handler receives is a change a
 consumer feels, and is treated as such here rather than as an implementation detail.
 
+## [Unreleased]
+
+Upgrading: [what to check before you take this](docs/guides.md#to-0260).
+
+Requires `typespec-http-zod` `0.29.0`.
+
+### Changed, breaking
+
+- **A date-time header with no `@encode` is served as an RFC 7231 HTTP-date**, from
+  `typespec-http-zod` 0.29.0 (its #4). That is TypeSpec's wire form for one and what the published
+  document states, `format: http-date`; the validators checked it as RFC 3339, so the corpus's own
+  requests answered 400 and a handler setting the header as an HTTP-date answered 500 through its
+  response contract. `test/conformance/datetimeheaders.test.ts` sends `encode/datetime`'s and
+  `special-headers/repeatability`'s requests through the generated routes: all three scenarios that
+  failed now pass. A client sending RFC 3339 in such a header is refused; to keep that form, declare
+  `@encode(DateTimeKnownEncoding.rfc3339)`, and the document says so too.
+- **Two more of the library's changes refuse values the document already refused**: a scalar
+  extending a constrained scalar is constrained by both, and `@encode(rfc3339)` on a date-time checks
+  the date-time. See the library's "To `0.29.0`".
+
+### Changed
+
+- **The validators carry every description the document publishes**, as `.describe()`. A route
+  parses exactly as before; a consumer serialising these schemas to JSON Schema now publishes the
+  descriptions too.
+- **Spec text outside ASCII is written as `\uXXXX` escapes** in `app.gen.ts`, through the library's
+  `literal`, as every other emitted file now writes it.
+
 ## [0.25.0] - 2026-10-11
 
 Upgrading: [what to check before you take this](docs/guides.md#to-0250).
