@@ -1,14 +1,5 @@
-# **`overrides` lives HERE, not in `package.json`.** pnpm 11 no longer reads `pnpm.overrides` from
-# the manifest and only warns, so a block written there is silently ignored while the install looks
-# correct.
-#
-# typespec-http-zod carries changes this emitter consumes that are not published yet, so it is
-# redirected to its checkout and developed together. The release workflow refuses to publish while
-# the override is here, and it comes out in the release commit.
-overrides:
-  typespec-http-zod: "link:../typespec-http-zod"
-
 minimumReleaseAgeExclude:
+  - typespec-http-zod@0.29.0
   - zod@4.6.5
   - "@typespec/asset-emitter@0.79.3"
   - "@typespec/compiler@1.17.0"

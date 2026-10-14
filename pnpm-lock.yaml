@@ -4,16 +4,13 @@ settings:
   autoInstallPeers: true
   excludeLinksFromLockfile: false
 
-overrides:
-  typespec-http-zod: link:../typespec-http-zod
-
 importers:
 
   .:
     dependencies:
       typespec-http-zod:
-        specifier: link:../typespec-http-zod
-        version: link:../typespec-http-zod
+        specifier: ^0.29.0
+        version: 0.29.0(@typespec/compiler@1.17.0(@types/node@26.2.0))(@typespec/http@1.17.0(@typespec/compiler@1.17.0(@types/node@26.2.0))(@typespec/streams@0.87.0(@typespec/compiler@1.17.0(@types/node@26.2.0))))(@typespec/openapi@1.17.0(@typespec/compiler@1.17.0(@types/node@26.2.0))(@typespec/http@1.17.0(@typespec/compiler@1.17.0(@types/node@26.2.0))(@typespec/streams@0.87.0(@typespec/compiler@1.17.0(@types/node@26.2.0)))))(@typespec/streams@0.87.0(@typespec/compiler@1.17.0(@types/node@26.2.0)))(@typespec/versioning@0.87.0(@typespec/compiler@1.17.0(@types/node@26.2.0)))(zod@4.6.5)
     devDependencies:
       '@hono/zod-openapi':
         specifier: ^1.4.0
@@ -1302,6 +1299,11 @@ packages:
   js-tokens@10.0.0:
     resolution: {integrity: sha512-lM/UBzQmfJRo9ABXbPWemivdCW8V2G8FHaHdypQaIy523snUjog0W71ayWXTjiR+ixeMyVHN2XcpnTd/liPg/Q==}
 
+  jsesc@3.1.0:
+    resolution: {integrity: sha512-/sM3dO2FOzXjKQhJuo0Q173wf2KOo8t4I8vHy6lF9poUp7bKT0/NHE8fPX23PwfhnykfqnC2xRxOnVw5XuGIaA==}
+    engines: {node: '>=6'}
+    hasBin: true
+
   json-schema-traverse@1.0.0:
     resolution: {integrity: sha512-NM8/P9n3XjXhIZn1lLhkFaACTOURQXjWhV4BA/RnOv8xvgqtqpAX9IO4mRQxSx1Rlo4tqzeqb0sOlruaOy3dug==}
 
@@ -1599,6 +1601,15 @@ packages:
     resolution: {integrity: sha512-9u/sniCrY3D5WdsERHzHE4G2YCXqoG5FTHUiCC4SIbr6XcLZBY05ya9EKjYek9O5xOAwjGq+1JdGBAS7Q9ScoA==}
     engines: {node: '>= 6'}
 
+  redos-detector@6.1.4:
+    resolution: {integrity: sha512-lPlka1rEH6kK42gtgokvvxMmpAvyc28DcRjQbGxeP5RJsJWgAduBOdGedVCDPdSyCr4ay/JDxq3nGYsJZyt8tA==}
+    engines: {node: '>=16.0.0'}
+    hasBin: true
+
+  regjsparser@0.13.0:
+    resolution: {integrity: sha512-NZQZdC5wOE/H3UT28fVGL+ikOZcEzfMGk/c3iN9UGxzWHMa1op7274oyiUVrAG4B2EuFhus8SvkaYnhvW92p9Q==}
+    hasBin: true
+
   require-from-string@2.0.2:
     resolution: {integrity: sha512-Xf0nWe6RseziFMu+Ap9biiUbmplq6S9/p+7w7YXP/JBHhrUDDUhwa+vANyubuqfZWTveU//DYVGsDG7RKL/vEw==}
     engines: {node: '>=0.10.0'}
@@ -1773,6 +1784,22 @@ packages:
     resolution: {integrity: sha512-8FYau96o3NKOhbjKi/qNvG/W5jhzxkbdm5sj9AbZ/5T5sWqn3hJgLfGx27sRKZWTvyzCP8dLRBTf5tBTSRVUNA==}
     engines: {node: '>=16.20.0'}
     hasBin: true
+
+  typespec-http-zod@0.29.0:
+    resolution: {integrity: sha512-klT0pJB8bfqfklrsliNKadITgJGqMFBDNEbu+/av4LJUeuN5Yel9yTZGbzmNo6lqZghTjrDFRNWFssmq+YjFBQ==}
+    engines: {node: '>=22.0.0'}
+    peerDependencies:
+      '@typespec/compiler': ^1.15.0
+      '@typespec/http': ^1.15.0
+      '@typespec/openapi': ^1.15.0
+      '@typespec/streams': ^0.85.0 || ^0.86.0 || ^0.87.0
+      '@typespec/versioning': ^0.85.0 || ^0.86.0 || ^0.87.0
+      zod: ^4.5.0
+    peerDependenciesMeta:
+      '@typespec/streams':
+        optional: true
+      '@typespec/versioning':
+        optional: true
 
   undici-types@7.18.2:
     resolution: {integrity: sha512-AsuCzffGHJybSaRrmr5eHr81mwJU3kjw6M+uprWvCXiNeN9SOGwQ3Jn8jb8m3Z6izVgknn1R0FTCEAP2QrLY/w==}
@@ -3011,6 +3038,8 @@ snapshots:
 
   js-tokens@10.0.0: {}
 
+  jsesc@3.1.0: {}
+
   json-schema-traverse@1.0.0: {}
 
   jsonwebtoken@9.0.3:
@@ -3284,6 +3313,14 @@ snapshots:
       string_decoder: 1.3.0
       util-deprecate: 1.0.2
 
+  redos-detector@6.1.4:
+    dependencies:
+      regjsparser: 0.13.0
+
+  regjsparser@0.13.0:
+    dependencies:
+      jsesc: 3.1.0
+
   require-from-string@2.0.2: {}
 
   rolldown@1.2.3:
@@ -3504,6 +3541,17 @@ snapshots:
       '@typescript/typescript-sunos-x64': 7.0.2
       '@typescript/typescript-win32-arm64': 7.0.2
       '@typescript/typescript-win32-x64': 7.0.2
+
+  typespec-http-zod@0.29.0(@typespec/compiler@1.17.0(@types/node@26.2.0))(@typespec/http@1.17.0(@typespec/compiler@1.17.0(@types/node@26.2.0))(@typespec/streams@0.87.0(@typespec/compiler@1.17.0(@types/node@26.2.0))))(@typespec/openapi@1.17.0(@typespec/compiler@1.17.0(@types/node@26.2.0))(@typespec/http@1.17.0(@typespec/compiler@1.17.0(@types/node@26.2.0))(@typespec/streams@0.87.0(@typespec/compiler@1.17.0(@types/node@26.2.0)))))(@typespec/streams@0.87.0(@typespec/compiler@1.17.0(@types/node@26.2.0)))(@typespec/versioning@0.87.0(@typespec/compiler@1.17.0(@types/node@26.2.0)))(zod@4.6.5):
+    dependencies:
+      '@typespec/compiler': 1.17.0(@types/node@26.2.0)
+      '@typespec/http': 1.17.0(@typespec/compiler@1.17.0(@types/node@26.2.0))(@typespec/streams@0.87.0(@typespec/compiler@1.17.0(@types/node@26.2.0)))
+      '@typespec/openapi': 1.17.0(@typespec/compiler@1.17.0(@types/node@26.2.0))(@typespec/http@1.17.0(@typespec/compiler@1.17.0(@types/node@26.2.0))(@typespec/streams@0.87.0(@typespec/compiler@1.17.0(@types/node@26.2.0))))
+      redos-detector: 6.1.4
+      zod: 4.6.5
+    optionalDependencies:
+      '@typespec/streams': 0.87.0(@typespec/compiler@1.17.0(@types/node@26.2.0))
+      '@typespec/versioning': 0.87.0(@typespec/compiler@1.17.0(@types/node@26.2.0))
 
   undici-types@7.18.2: {}
 

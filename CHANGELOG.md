@@ -8,7 +8,7 @@ published types; a patch will not. The **emitted output is part of the API**, a 
 `registerRoutes` returns, to a validator's shape, or to what a handler receives is a change a
 consumer feels, and is treated as such here rather than as an implementation detail.
 
-## [Unreleased]
+## [0.26.0] - 2026-10-15
 
 Upgrading: [what to check before you take this](docs/guides.md#to-0260).
 
