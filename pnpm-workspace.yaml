@@ -1,4 +1,5 @@
 minimumReleaseAgeExclude:
+  - typespec-http-zod@0.30.0
   - typespec-http-zod@0.29.0
   - zod@4.6.5
   - "@typespec/asset-emitter@0.79.3"

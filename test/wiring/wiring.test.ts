@@ -258,15 +258,36 @@ describe("the application answers real requests", () => {
 		});
 		expect(good.status).toBe(200);
 
-		// A body carrying the base's properties but no valid variant must be refused.
+		// A body naming a variant is that variant: a circle carrying a square's property is refused.
 		const bad = await (
+			await app()
+		).request("/shapes", {
+			method: "POST",
+			headers: { "content-type": "application/json" },
+			body: JSON.stringify({ kind: "circle", label: "c", side: 2 }),
+		});
+		expect(bad.status).toBe(400);
+	});
+
+	it("validates a body naming no variant as the base, as the document does", async () => {
+		// The document's `Shape` is an object of its own properties, and its mapping refuses nothing.
+		const hexagon = await (
 			await app()
 		).request("/shapes", {
 			method: "POST",
 			headers: { "content-type": "application/json" },
 			body: JSON.stringify({ kind: "hexagon", label: "h" }),
 		});
-		expect(bad.status).toBe(400);
+		expect(hexagon.status).toBe(200);
+		// The base's own rules still hold: `label` is `@minLength(1)`.
+		const empty = await (
+			await app()
+		).request("/shapes", {
+			method: "POST",
+			headers: { "content-type": "application/json" },
+			body: JSON.stringify({ kind: "hexagon", label: "" }),
+		});
+		expect(empty.status).toBe(400);
 	});
 
 	it("refuses a body that breaks a constraint the document publishes", async () => {

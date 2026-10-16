@@ -125,6 +125,23 @@ const diagnostics = {
 	 * handler is given the text or the bytes that arrived. It used to get a header check and then a
 	 * handler call with the body never read, while this message said the request had been refused.
 	 */
+	/**
+	 * **An operation two of whose inputs would reach the handler under one key is not mounted.**
+	 *
+	 * A handler is called with the path, query, header and cookie groups spread into one input, the
+	 * body merged or named beside them. `@header("x") a: string` beside `@query("x") b: int32` was
+	 * mounted, both validated, and the header's string then replaced the validated number under `x`,
+	 * while the handler's input was typed `number & string` (typespec-http-graphql, 2026-10-16). The
+	 * input cannot carry both values, so serving the operation would hand the handler something its
+	 * contract never states. `typespec-http-zod` reports the pair as `shared-input-key` and names it in
+	 * `EmittedRoute.sharedInputKeys`; this is the server declining to mount it.
+	 */
+	"shared-input-key": {
+		severity: "warning",
+		messages: {
+			default: paramMessage`'${"operationId"}' is not mounted: its ${"first"} '${"key"}' and its ${"second"} '${"key"}' would reach the handler under one input key, which holds one value. Give one of them a different name.`,
+		},
+	},
 	"unvalidatable-media-type": {
 		severity: "warning",
 		messages: {
@@ -207,6 +224,9 @@ const diagnostics = {
  */
 type Diagnostics = {
 	"runtime-module-removed": { readonly default: CallableMessage<["value"]> };
+	"shared-input-key": {
+		readonly default: CallableMessage<["operationId", "first", "key", "second", "key"]>;
+	};
 	"unsupported-path-template": { readonly default: CallableMessage<["template", "name"]> };
 	"unvalidatable-media-type": { readonly default: CallableMessage<["operationId", "types"]> };
 	"unvalidated-request-media-type": { readonly default: CallableMessage<["operationId", "types"]> };

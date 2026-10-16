@@ -265,6 +265,20 @@ documented maximum could not be served at all.
 
 ## Upgrading
 
+### To `0.27.0`
+
+`0.27.0` requires `typespec-http-zod` `0.30.0`. Read its "To `0.30.0`" section; two of its changes
+reach a server here.
+
+- **A discriminated base admits a value naming no subtype, as the base.** A request carrying an
+  unknown `kind` is no longer refused, and a handler returning one is served. Where a handler
+  narrows on `kind`, the base is now an arm of the union its input is typed as, so handle it in the
+  `default`.
+- **An operation two of whose inputs share one key is not mounted**, and answers 404. Look for
+  `shared-input-key` in the compile output: it names the operation, the key and both locations.
+  Rename one of the two - `@header("x-trace") trace` beside `@query("trace")`, say - and the route is
+  mounted again.
+
 ### To `0.26.0`
 
 `0.26.0` requires `typespec-http-zod` `0.29.0`. Read its "To `0.29.0`" section: three of its changes

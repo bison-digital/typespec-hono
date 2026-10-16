@@ -8,6 +8,40 @@ published types; a patch will not. The **emitted output is part of the API**, a 
 `registerRoutes` returns, to a validator's shape, or to what a handler receives is a change a
 consumer feels, and is treated as such here rather than as an implementation detail.
 
+## [0.27.0] - 2026-10-16
+
+Upgrading: [what to check before you take this](docs/guides.md#to-0270).
+
+Requires `typespec-http-zod` `0.30.0`.
+
+### Changed, breaking
+
+- **A handler returning a discriminated base whose discriminator names no subtype is served**, from
+  `typespec-http-zod` 0.30.0. The response arm refused it, so a handler returning the body
+  `@typespec/http-specs` declares for `enum-discriminator`, `single-discriminator` and
+  `nested-discriminator` answered 500, and a request body naming an unknown kind answered 400; the
+  document's base admits both. A value naming a subtype is still validated as that subtype. The base's
+  type in a handler's input gains the base itself as an arm, so narrowing on `kind` no longer excludes
+  it. `test/conformance/discriminators.test.ts` serves the three scenarios: the extensible, single and
+  nested wrong kinds answer 200, and the fixed enum's wrong kind still answers 500.
+- **An operation two of whose inputs would reach the handler under one key is not mounted**, and is
+  reported as `shared-input-key`. The handler is called with the path, query, header and cookie groups
+  spread into one input, so `@header("x")` beside `@query("x")` was served with the header's string
+  replacing the validated number, while the input was typed `number & string`. The same happened for
+  two `@query("x")`, a path and a header parameter of one name, a cookie and a query parameter of one
+  name, and a parameter named as the body is. The library reports the pair too, as its own
+  `shared-input-key`. No `@typespec/http-specs` scenario has one.
+
+### Fixed
+
+- **An `@encode`d list parameter reaches the handler as the value the document describes**, from
+  `typespec-http-zod` 0.30.0. A comma-delimited header or path list and a custom-encoded query list
+  were split before they were validated as the string their encoding makes them, and a pipe-delimited
+  list of numbers was split but not decoded: all four answered 400 to every request.
+  `test/encodedlists` sends each through the generated routes.
+- **A response declared `@body body: void` is served with no media type**, and a request declared
+  that way, which refused the compile, is served without reading a body.
+
 ## [0.26.0] - 2026-10-15
 
 Upgrading: [what to check before you take this](docs/guides.md#to-0260).

@@ -84,6 +84,7 @@ export function serviceWith(
 		authentication: "none",
 		scopes: [],
 		security: [],
+		sharedInputKeys: [],
 		path,
 		...route,
 	} satisfies EmittedRoute;
@@ -131,6 +132,9 @@ export const noRefusals: RenderRefusals = {
 	unvalidatedResponseMediaType: (): void => {
 		throw new Error("unexpected response media-type refusal");
 	},
+	sharedInputKey: (): void => {
+		throw new Error("a hand-built route declares no shared input key");
+	},
 };
 
 /** Refusals that are recorded nowhere, for an arm about something else. */
@@ -138,5 +142,6 @@ export const ignoreRefusals: RenderRefusals = {
 	unsupportedPathTemplate: () => undefined,
 	unvalidatableMediaType: () => undefined,
 	unvalidatedRequestMediaType: () => undefined,
+	sharedInputKey: () => undefined,
 	unvalidatedResponseMediaType: () => undefined,
 };

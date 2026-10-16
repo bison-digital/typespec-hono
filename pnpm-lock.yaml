@@ -9,8 +9,8 @@ importers:
   .:
     dependencies:
       typespec-http-zod:
-        specifier: ^0.29.0
-        version: 0.29.0(@typespec/compiler@1.17.0(@types/node@26.2.0))(@typespec/http@1.17.0(@typespec/compiler@1.17.0(@types/node@26.2.0))(@typespec/streams@0.87.0(@typespec/compiler@1.17.0(@types/node@26.2.0))))(@typespec/openapi@1.17.0(@typespec/compiler@1.17.0(@types/node@26.2.0))(@typespec/http@1.17.0(@typespec/compiler@1.17.0(@types/node@26.2.0))(@typespec/streams@0.87.0(@typespec/compiler@1.17.0(@types/node@26.2.0)))))(@typespec/streams@0.87.0(@typespec/compiler@1.17.0(@types/node@26.2.0)))(@typespec/versioning@0.87.0(@typespec/compiler@1.17.0(@types/node@26.2.0)))(zod@4.6.5)
+        specifier: ^0.30.0
+        version: 0.30.0(@typespec/compiler@1.17.0(@types/node@26.2.0))(@typespec/http@1.17.0(@typespec/compiler@1.17.0(@types/node@26.2.0))(@typespec/streams@0.87.0(@typespec/compiler@1.17.0(@types/node@26.2.0))))(@typespec/openapi@1.17.0(@typespec/compiler@1.17.0(@types/node@26.2.0))(@typespec/http@1.17.0(@typespec/compiler@1.17.0(@types/node@26.2.0))(@typespec/streams@0.87.0(@typespec/compiler@1.17.0(@types/node@26.2.0)))))(@typespec/streams@0.87.0(@typespec/compiler@1.17.0(@types/node@26.2.0)))(@typespec/versioning@0.87.0(@typespec/compiler@1.17.0(@types/node@26.2.0)))(zod@4.6.5)
     devDependencies:
       '@hono/zod-openapi':
         specifier: ^1.4.0
@@ -1785,8 +1785,8 @@ packages:
     engines: {node: '>=16.20.0'}
     hasBin: true
 
-  typespec-http-zod@0.29.0:
-    resolution: {integrity: sha512-klT0pJB8bfqfklrsliNKadITgJGqMFBDNEbu+/av4LJUeuN5Yel9yTZGbzmNo6lqZghTjrDFRNWFssmq+YjFBQ==}
+  typespec-http-zod@0.30.0:
+    resolution: {integrity: sha512-xJ8Ay3g366T6DGtvSOTmNo9+1fpK3gW/FoOPCvnGKuhjQaSbQbtgk0YphUMxm5S4utSl0AU+pmzDpBUOvAfKBQ==}
     engines: {node: '>=22.0.0'}
     peerDependencies:
       '@typespec/compiler': ^1.15.0
@@ -3542,7 +3542,7 @@ snapshots:
       '@typescript/typescript-win32-arm64': 7.0.2
       '@typescript/typescript-win32-x64': 7.0.2
 
-  typespec-http-zod@0.29.0(@typespec/compiler@1.17.0(@types/node@26.2.0))(@typespec/http@1.17.0(@typespec/compiler@1.17.0(@types/node@26.2.0))(@typespec/streams@0.87.0(@typespec/compiler@1.17.0(@types/node@26.2.0))))(@typespec/openapi@1.17.0(@typespec/compiler@1.17.0(@types/node@26.2.0))(@typespec/http@1.17.0(@typespec/compiler@1.17.0(@types/node@26.2.0))(@typespec/streams@0.87.0(@typespec/compiler@1.17.0(@types/node@26.2.0)))))(@typespec/streams@0.87.0(@typespec/compiler@1.17.0(@types/node@26.2.0)))(@typespec/versioning@0.87.0(@typespec/compiler@1.17.0(@types/node@26.2.0)))(zod@4.6.5):
+  typespec-http-zod@0.30.0(@typespec/compiler@1.17.0(@types/node@26.2.0))(@typespec/http@1.17.0(@typespec/compiler@1.17.0(@types/node@26.2.0))(@typespec/streams@0.87.0(@typespec/compiler@1.17.0(@types/node@26.2.0))))(@typespec/openapi@1.17.0(@typespec/compiler@1.17.0(@types/node@26.2.0))(@typespec/http@1.17.0(@typespec/compiler@1.17.0(@types/node@26.2.0))(@typespec/streams@0.87.0(@typespec/compiler@1.17.0(@types/node@26.2.0)))))(@typespec/streams@0.87.0(@typespec/compiler@1.17.0(@types/node@26.2.0)))(@typespec/versioning@0.87.0(@typespec/compiler@1.17.0(@types/node@26.2.0)))(zod@4.6.5):
     dependencies:
       '@typespec/compiler': 1.17.0(@types/node@26.2.0)
       '@typespec/http': 1.17.0(@typespec/compiler@1.17.0(@types/node@26.2.0))(@typespec/streams@0.87.0(@typespec/compiler@1.17.0(@types/node@26.2.0)))

@@ -14,6 +14,7 @@ import {
 	type ResultMember as LibraryResultMember,
 	resultMembersOf,
 	type RouteSchemaNames,
+	type SharedInputKey,
 	STATUS_CODES,
 	type StatusKey,
 	statusCodesOf,
@@ -1115,6 +1116,8 @@ export function routerTableFor(
 export interface RenderRefusals {
 	readonly unsupportedPathTemplate: (route: EmittedRoute, template: string, name: string) => void;
 	readonly unvalidatableMediaType: (route: EmittedRoute, types: readonly string[]) => void;
+	/** Two inputs the handler would be handed under one key: the route is not mounted. */
+	readonly sharedInputKey: (route: EmittedRoute, shared: SharedInputKey) => void;
 	readonly unvalidatedRequestMediaType: (route: EmittedRoute, types: readonly string[]) => void;
 	readonly unvalidatedResponseMediaType: (
 		route: EmittedRoute,
@@ -1186,6 +1189,16 @@ export function renderApp(
 		// The library declares a `Responses` const for every operation, so a missing entry is a bug in
 		// this package's pairing rather than a spec the emitter chose not to serve.
 		if (names === undefined) return [];
+		/**
+		 * **Two inputs under one key are not served.** The handler is called with the groups spread
+		 * into one input, so the later one would replace the earlier after both were validated, and
+		 * the input type says both at once. The library names every such pair; each is reported, and
+		 * the operation is left unmounted rather than handed a value its contract does not state.
+		 */
+		if (route.sharedInputKeys.length > 0) {
+			for (const shared of route.sharedInputKeys) refuse.sharedInputKey(route, shared);
+			return [];
+		}
 		/**
 		 * **A body handed over unchecked is said to be.** The library places a body declared only under
 		 * media types nothing parses as the text or the bytes that arrived, and says its schema goes

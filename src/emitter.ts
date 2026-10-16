@@ -1,5 +1,5 @@
 import { emitFile, NoTarget, resolvePath, type EmitContext, type Type } from "@typespec/compiler";
-import type { EmittedService } from "typespec-http-zod";
+import type { EmittedService, InputLocation } from "typespec-http-zod";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { emitHttpZod } from "typespec-http-zod";
@@ -33,6 +33,15 @@ import { reportDiagnostic } from "./lib.js";
 function targetFor(emitted: EmittedService, operationId: string): Type {
 	return emitted.operations.get(operationId)?.operation ?? emitted.service.namespace;
 }
+
+/** How a `shared-input-key` refusal names where each of the two inputs comes from. */
+const INPUT_LOCATION_NOUNS: Readonly<Record<InputLocation, string>> = {
+	path: "path parameter",
+	query: "query parameter",
+	header: "header",
+	cookie: "cookie",
+	body: "body",
+};
 
 /** The header the emitted runtime carries, matching every other generated file. */
 function generatedRuntimeBanner(hint: string | undefined): string {
@@ -146,6 +155,18 @@ export async function $onEmit(context: EmitContext): Promise<void> {
 						reportDiagnostic(context.program, {
 							code: "unvalidated-request-media-type",
 							format: { operationId: route.operationId, types: types.join(", ") },
+							target: targetFor(emitted, route.operationId),
+						});
+					},
+					sharedInputKey: (route, shared) => {
+						reportDiagnostic(context.program, {
+							code: "shared-input-key",
+							format: {
+								operationId: route.operationId,
+								first: INPUT_LOCATION_NOUNS[shared.first],
+								key: shared.key,
+								second: INPUT_LOCATION_NOUNS[shared.second],
+							},
 							target: targetFor(emitted, route.operationId),
 						});
 					},

@@ -59,6 +59,18 @@ const MULTIPART_FILE_REFINE =
  * the document justifies. That is the property that makes them derivable; it is not a matter of taste.
  */
 
+/**
+ * The second permitted `.refine`, lifted verbatim from `typespec-http-zod`, which owns the rule: a
+ * discriminated base's own arm, refusing every discriminator value a subtype claims.
+ *
+ * The values are exactly the keys of the document's `discriminator.mapping`, and the refusal is
+ * `not: {enum: [...]}` in JSON Schema, which Zod has no keyword for. It keeps a value naming a subtype
+ * from falling through to the base, whose unsealed object would accept and strip what the sealed
+ * subtype refuses; alone it refuses nothing the document assigns to the base.
+ */
+const DISCRIMINATOR_GUARD =
+	/\.refine\(\(value\) => value !== "(?:[^"\\]|\\.)*"(?: && value !== "(?:[^"\\]|\\.)*")*, \{ abort: true, error: "Validated as the subtype this '(?:[^"\\]|\\.)*' names, not as '(?:[^"\\]|\\.)*'\." \}\)/g;
+
 /** A list flattened into one value by OpenAPI's `style`/`explode`, split back apart. */
 const DELIMITER_SPLIT =
 	/z\.preprocess\(\(raw\) => \(typeof raw === "string" \? raw\.split\("(?:[^"\\]|\\.)*"\) : raw\), /g;
@@ -185,7 +197,9 @@ describe("the generated validator says only what the document can say", () => {
 		 */
 		const offenders = files.flatMap((file) => {
 			// The permitted shape is removed first, so anything left is by definition not it.
-			const source = readFileSync(file, "utf8").replaceAll(MULTIPART_FILE_REFINE, "");
+			const source = readFileSync(file, "utf8")
+				.replaceAll(MULTIPART_FILE_REFINE, "")
+				.replaceAll(DISCRIMINATOR_GUARD, "");
 			return [...source.matchAll(NOT_DERIVABLE)].map((match) => `${match[1]} in ${file}`);
 		});
 		expect(offenders).toEqual([]);
@@ -203,6 +217,15 @@ describe("the generated validator says only what the document can say", () => {
 			0,
 		);
 		expect(refinements).toBeGreaterThanOrEqual(4);
+	});
+
+	it("finds the discriminator guards it is meant to permit", () => {
+		// Paired with the exemption, as the multipart one is: the corpus's open bases each carry one.
+		const guards = files.reduce(
+			(total, file) => total + (readFileSync(file, "utf8").match(DISCRIMINATOR_GUARD) ?? []).length,
+			0,
+		);
+		expect(guards).toBeGreaterThanOrEqual(5);
 	});
 
 	it("permits `z.preprocess` only as a wire decode of a known shape", () => {
