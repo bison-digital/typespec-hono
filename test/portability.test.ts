@@ -1,0 +1,150 @@
+import { execFileSync } from "node:child_process";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import { fileURLToPath } from "node:url";
+import { beforeAll, describe, expect, it } from "vitest";
+import { compileEmittedSet } from "./support/emitted-set.js";
+
+/**
+ * **Nothing that ships names a path that exists on one machine.**
+ *
+ * **The emitted output is the half that matters, and it is the half no other arm reads for this.**
+ * A generated file carrying `/Users/somebody/projects/...` compiles perfectly for the person who ran
+ * the emitter and for nobody else, and it would be committed by the consumer, because generated
+ * output is checked in. The `runtime-module` and `contracts-package` options both take a specifier
+ * that lands verbatim in the output, so an absolute one is a single mis-set option away.
+ *
+ * **This is a companion to "every import resolves", not a subset of it.** An absolute specifier
+ * RESOLVES, on the machine that wrote it, which is exactly why a resolution check cannot see it and
+ * why portability needs an assertion of its own. Both properties are real and neither implies the
+ * other.
+ *
+ * Home directories are matched by SHAPE rather than by this machine's own path, so the guard means the
+ * same thing wherever it runs; keying it on `process.env.HOME` would pass on any other machine.
+ */
+
+const packageRoot = fileURLToPath(new URL("..", import.meta.url));
+
+/** An absolute path into somebody's checkout, in the forms the three platforms spell it. */
+const MACHINE_PATHS = [
+	/\/Users\/[^/\s"']+\//,
+	/\/home\/[^/\s"']+\//,
+	/\b[A-Za-z]:\\\\?Users\\\\?/,
+	/\bfile:\/\/\/[A-Za-z]/,
+];
+
+function offendersIn(label: string, text: string): string[] {
+	return MACHINE_PATHS.flatMap((pattern) => {
+		const match = pattern.exec(text);
+		return match === null ? [] : [`${label}: ${match[0]}`];
+	});
+}
+
+let emitted: string[] = [];
+
+beforeAll(async () => {
+	emitted = await compileEmittedSet("portability");
+}, 900_000);
+
+describe("nothing this package ships names one machine's filesystem", () => {
+	const tracked = execFileSync("git", ["ls-files"], { cwd: packageRoot, encoding: "utf8" })
+		.split("\n")
+		.filter((name) => name !== "");
+
+	it("has files to inspect at all", () => {
+		/**
+		 * **The generated floor was 20 against 315 files actually swept, sixteen times under.** This
+		 * arm could have read a twentieth of the emitted output and still reported a clean sweep, which
+		 * is the failure mode a floor exists to prevent rather than exhibit.
+		 */
+		expect(tracked.length).toBeGreaterThanOrEqual(30);
+	});
+
+	it("carries no machine path in any tracked file", () => {
+		const offenders = tracked.flatMap((name) => {
+			// This file spells every forbidden shape by definition.
+			if (name === "test/portability.test.ts") return [];
+			try {
+				return offendersIn(name, readFileSync(`${packageRoot}/${name}`, "utf8"));
+			} catch {
+				return [];
+			}
+		});
+		expect(offenders).toEqual([]);
+	});
+
+	it("carries no machine path in anything the emitter GENERATES", () => {
+		/**
+		 * **The arm with a real way to fail.** Tracked files are reviewed when they change; generated
+		 * files are written fresh on every compile from whatever options a project set, and are then
+		 * committed into that project's repository.
+		 */
+		expect(emitted.length).toBeGreaterThanOrEqual(150);
+		const offenders = emitted.flatMap((file) =>
+			offendersIn(file.slice(packageRoot.length), readFileSync(file, "utf8")),
+		);
+		expect(offenders).toEqual([]);
+	});
+
+	/**
+	 * **Generated files cite no file of this package.** The runtime's docblocks named the tests that
+	 * grade it, `test/...test.ts`, and the runtime is copied into the generated tree, where those
+	 * paths do not exist, so a guard that checks every cited file exists fails on them. A suite is
+	 * named in prose instead.
+	 */
+	it("cites no path of this package's own in anything the emitter GENERATES", () => {
+		expect(emitted.length).toBeGreaterThanOrEqual(1);
+		const cited = emitted.flatMap((file) =>
+			[...readFileSync(file, "utf8").matchAll(/\btest\/[\w./-]+\.ts\b/g)].map(
+				(match) => `${file.slice(packageRoot.length)}: ${match[0]}`,
+			),
+		);
+		expect(cited).toEqual([]);
+	});
+
+	/**
+	 * **ASCII, and this package had no such arm while `typespec-http-zod` did.**
+	 *
+	 * The cost of the gap was not hypothetical. `src/runtime.ts` carried a zero-width space, U+200B,
+	 * inside a docblock - put there so that a media range written in prose would not close the
+	 * comment. That file is copied verbatim beside every generated server, so the character was in
+	 * every generated `runtime.gen.ts`, invisible in a diff and impossible to grep for. A second
+	 * copy sat in `test/negotiation.test.ts`.
+	 *
+	 * Both files and both halves are checked, because the emitted half is the one that ships.
+	 */
+	it("carries no non-ASCII character in anything it ships or generates", () => {
+		const nonAscii = (label: string, text: string): string[] =>
+			text
+				.split("\n")
+				.flatMap((line, index) =>
+					[...line]
+						.filter((character) => (character.codePointAt(0) ?? 0) > 126)
+						.map(
+							(character) =>
+								`${label}:${index + 1} U+${(character.codePointAt(0) ?? 0)
+									.toString(16)
+									.toUpperCase()
+									.padStart(4, "0")}`,
+						),
+				);
+
+		const tracked = execFileSync("git", ["ls-files"], { cwd: packageRoot, encoding: "utf8" })
+			.split("\n")
+			.filter(Boolean);
+		expect(tracked.length).toBeGreaterThanOrEqual(20);
+		const inTracked = tracked.flatMap((name) => {
+			try {
+				return nonAscii(name, readFileSync(join(packageRoot, name), "utf8"));
+			} catch {
+				return [];
+			}
+		});
+		expect(inTracked, inTracked.join("\n")).toEqual([]);
+
+		const inEmitted = emitted.flatMap((file) =>
+			nonAscii(file.slice(packageRoot.length), readFileSync(file, "utf8")),
+		);
+		expect(inEmitted, inEmitted.join("\n")).toEqual([]);
+	});
+});

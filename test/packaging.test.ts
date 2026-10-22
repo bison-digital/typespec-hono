@@ -1,0 +1,485 @@
+import { execFileSync } from "node:child_process";
+import {
+	existsSync,
+	mkdirSync,
+	mkdtempSync,
+	readFileSync,
+	readdirSync,
+	rmSync,
+	statSync,
+	writeFileSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
+import { compileEmittedSet } from "./support/emitted-set.js";
+import { DEFAULT_RUNTIME_MODULE } from "../src/emitter.js";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
+
+/**
+ * **What a stranger gets when they install this package.**
+ *
+ * **Every other test here runs inside the checkout, where that question cannot be asked.** A
+ * package resolves its own devDependencies, so a source file importing something it never declared
+ * works perfectly, right up until somebody installs it on its own and gets `Cannot find package`.
+ * Measured before an arm like this existed: the emitter imported `resolveOperationId` from
+ * `@typespec/openapi`, which appeared in `devDependencies` and in no `peerDependencies` at all. The
+ * published package would not have run.
+ *
+ * The generated OUTPUT has the same problem one level out: it imports `zod` into the consumer's
+ * project, so that is the consumer's requirement too, and saying so is this manifest's job.
+ *
+ * **Asserted as a CLASS** (every specifier the source and the output reference) rather than as a
+ * list somebody remembers to extend.
+ */
+
+const packageRoot = fileURLToPath(new URL("..", import.meta.url));
+const manifest = JSON.parse(readFileSync(join(packageRoot, "package.json"), "utf8")) as {
+	name: string;
+	license?: string;
+	repository?: unknown;
+	files?: readonly string[];
+	publishConfig?: { access?: string; provenance?: boolean };
+	exports?: Record<string, string | Record<string, string>>;
+	peerDependencies?: Record<string, string>;
+	peerDependenciesMeta?: Record<string, { optional?: boolean }>;
+	dependencies?: Record<string, string>;
+	devDependencies?: Record<string, string>;
+};
+
+/** `@scope/name/sub` -> `@scope/name`; `node:fs` and relative paths are not packages. */
+function packageOf(specifier: string): string | undefined {
+	if (specifier.startsWith(".") || specifier.startsWith("node:")) return undefined;
+	// An emitted import line is itself a template literal, so its specifier can be a placeholder,
+	// `${contractsPackage}` is decided by the consumer's option, not by this manifest.
+	if (specifier.includes("${")) return undefined;
+	const parts = specifier.split("/");
+	return specifier.startsWith("@") ? `${parts[0]}/${parts[1]}` : parts[0];
+}
+
+function sourceFiles(dir: string): string[] {
+	return readdirSync(dir)
+		.filter((entry) => entry.endsWith(".ts"))
+		.map((entry) => join(dir, entry));
+}
+
+/** Static `from "x"` and guarded `import("x")` alike, both resolve at run time. */
+function specifiersIn(source: string): string[] {
+	return [
+		...[...source.matchAll(/^import\s[^"']*from\s*"([^"]+)"/gm)].map((match) => match[1] ?? ""),
+		...[...source.matchAll(/\bimport\("([^"]+)"\)/g)].map((match) => match[1] ?? ""),
+	];
+}
+
+describe("the package declares what it needs to run outside this checkout", () => {
+	const declared = new Set([
+		...Object.keys(manifest.peerDependencies ?? {}),
+		...Object.keys(manifest.dependencies ?? {}),
+	]);
+	let emitted: string[] = [];
+
+	beforeAll(async () => {
+		emitted = await compileEmittedSet("packaging");
+	}, 600_000);
+
+	it("declares every package `src/` imports", () => {
+		const used = new Set<string>();
+		for (const file of sourceFiles(join(packageRoot, "src"))) {
+			for (const specifier of specifiersIn(readFileSync(file, "utf8"))) {
+				const owner = packageOf(specifier);
+				if (owner !== undefined && owner !== manifest.name) used.add(owner);
+			}
+		}
+		// Non-vacuity: a regex that stops matching would report perfect agreement.
+		expect(used.size).toBeGreaterThanOrEqual(3);
+		expect([...used].filter((name) => !declared.has(name)).toSorted()).toEqual([]);
+	});
+
+	it("declares every package the GENERATED output imports", () => {
+		/**
+		 * **The output's imports are the consumer's problem, and the consumer learns about them from
+		 * this manifest.** Generated validators importing `zod` into a project that does not have it
+		 * fail at their build, naming a package they never chose.
+		 */
+		/**
+		 * **Compiled by this suite, into a directory only this suite writes.** It used to walk
+		 * `test/` for whatever other suites had emitted, which made it grade the previous run's build
+		 * on a populated tree and nothing at all on a fresh clone. See `support/emitted-set.ts`.
+		 */
+		expect(emitted.length).toBeGreaterThanOrEqual(150);
+
+		const used = new Set<string>();
+		for (const file of emitted) {
+			for (const specifier of specifiersIn(readFileSync(file, "utf8"))) {
+				const owner = packageOf(specifier);
+				// Whatever the consumer pointed `runtime-module` and `contracts-package` at is theirs.
+				if (owner === undefined || owner === manifest.name) continue;
+				used.add(owner);
+			}
+		}
+		// hono, zod and @hono/zod-validator all reach the consumer's project through the emitted server.
+		expect(used.size).toBeGreaterThanOrEqual(3);
+		expect([...used].filter((name) => !declared.has(name)).toSorted()).toEqual([]);
+	});
+
+	it("marks as optional exactly the peers behind a guarded import", () => {
+		/**
+		 * **A guarded `import()` that is a REQUIRED peer forces every consumer to install it.**
+		 * `@typespec/versioning` and `@typespec/streams` are resolved inside `try`/`catch` precisely so a
+		 * spec declaring neither needs neither. The same treatment `@typespec/openapi3` gives them.
+		 * Marking one and not the other is how that promise quietly stops being true.
+		 */
+		const guarded = new Set<string>();
+		for (const file of sourceFiles(join(packageRoot, "src"))) {
+			for (const match of readFileSync(file, "utf8").matchAll(/\bimport\("([^"]+)"\)/g)) {
+				const owner = packageOf(match[1] ?? "");
+				if (owner !== undefined) guarded.add(owner);
+			}
+		}
+		const optional = Object.entries(manifest.peerDependenciesMeta ?? {})
+			.filter(([, meta]) => meta.optional === true)
+			.map(([name]) => name);
+		/**
+		 * **This package has no guarded imports, and the assertion is that BOTH sets are empty.**
+		 * The optional peers belong to `typespec-http-zod`, which is where the guarded `import()` calls
+		 * are. Declaring an optional peer here that nothing resolves lazily would be a promise about
+		 * behaviour this package does not have.
+		 */
+		expect(optional.toSorted()).toEqual([...guarded].toSorted());
+	});
+
+	it("leaves no compiled file in dist whose source has gone", () => {
+		/**
+		 * **A stale `dist/` masks a deletion.** `tsc` writes into the output directory and never prunes
+		 * it, so a module deleted from `src/` keeps its compiled copy, and a build that should fail
+		 * because something still imports it passes locally instead. Measured: `src/security.ts` was
+		 * deleted from `src/` and `dist/src/security.js` survived every build after it.
+		 *
+		 * Nothing shipped - CI builds from a fresh checkout and the published 0.23.0 tarball carries no
+		 * such file - which is exactly why it needs an arm rather than a note: the failure is invisible
+		 * on the machine where the mistake is made and invisible in the artefact it produces.
+		 */
+		const compiled = readdirSync(join(packageRoot, "dist", "src")).filter((name) =>
+			name.endsWith(".js"),
+		);
+		// Non-vacuity: an empty dist would satisfy the check below without proving anything.
+		expect(compiled.length).toBeGreaterThanOrEqual(5);
+		const orphans = compiled.filter(
+			(name) => !existsSync(join(packageRoot, "src", `${name.slice(0, -3)}.ts`)),
+		);
+		expect(orphans.toSorted(), `dist/src has files src/ does not: ${orphans.join(", ")}`).toEqual(
+			[],
+		);
+	});
+
+	it("resolves its own runtime source from the layout it publishes", () => {
+		/**
+		 * `emitter.ts` copies `src/runtime.ts` beside the generated code by reading it off disk, at
+		 * `../../src/runtime.ts` relative to `dist/src/emitter.js`. That is a file-layout dependency
+		 * between two entries of the `files` list, and nothing checked that the list keeps them in the
+		 * right relation - a build that emitted to a different directory would break every consumer
+		 * and no test here.
+		 */
+		const files = manifest.files ?? [];
+		expect(files).toContain("src/runtime.ts");
+		expect(files.some((entry) => entry.startsWith("dist/"))).toBe(true);
+		const from = pathToFileURL(join(packageRoot, "dist", "src", "emitter.js"));
+		expect(existsSync(fileURLToPath(new URL("../../src/runtime.ts", from)))).toBe(true);
+	});
+
+	it("keeps the runtime free of every build-time import", () => {
+		/**
+		 * **`./runtime` is what a running SERVER imports.** The main entry is an emitter and pulls in
+		 * `@typespec/compiler`; a Worker serving the generated routes must not drag a compiler into its
+		 * bundle for the sake of a few declarations.
+		 */
+		const runtime = readFileSync(join(packageRoot, "src", "runtime.ts"), "utf8");
+		const specifiers = specifiersIn(runtime)
+			.map(packageOf)
+			.filter((name) => name !== undefined);
+		expect(specifiers.length).toBeGreaterThanOrEqual(2);
+		expect(specifiers.filter((name) => name.startsWith("@typespec/"))).toEqual([]);
+	});
+
+	it("depends on the library by a real semver range, never by path", () => {
+		/**
+		 * **This is the trap the development arrangement invites.** The two packages are developed as
+		 * sibling checkouts and resolved locally through a `link:` override, which lives in
+		 * `pnpm-workspace.yaml`, precisely so the manifest that gets PUBLISHED never carries it. A
+		 * `link:` range in `dependencies` would install as a missing package for every consumer.
+		 *
+		 * Asserted here rather than trusted, because the failure is silent at development time: the
+		 * link is exactly what makes everything work locally.
+		 */
+		const range = (manifest.dependencies ?? {})["typespec-http-zod"];
+		expect(range, "the library must be a declared dependency").toBeDefined();
+		expect(range).toMatch(/^[\^~]?\d+\.\d+\.\d+/);
+	});
+});
+
+describe("the package is configured to publish the way it claims", () => {
+	it("declares public access and provenance", () => {
+		/**
+		 * **Provenance is what lets a stranger verify the tarball came from this commit**, via a
+		 * signed attestation npm produces at publish time. It is off by default, its absence is
+		 * invisible on the published page, and nobody notices until somebody wants to check, which is
+		 * the shape of thing worth asserting rather than remembering.
+		 *
+		 * **`access: "public"` matters even for an unscoped name.** It is the default today; stating
+		 * it means a later rename to a scoped package cannot publish privately by accident.
+		 */
+		expect(manifest.publishConfig?.access).toBe("public");
+		expect(manifest.publishConfig?.provenance).toBe(true);
+	});
+
+	it("has a release workflow that can only publish deliberately", () => {
+		/**
+		 * **`id-token: write` is not optional.** Provenance is an OIDC exchange, so a workflow
+		 * without that permission fails the publish outright rather than quietly publishing unsigned,
+		 * which is the better failure, but only if the permission is there to begin with.
+		 *
+		 * The trigger is asserted too: publishing must follow a tag or a deliberate dispatch, never a
+		 * merge to the default branch.
+		 */
+		const workflow = readFileSync(join(packageRoot, ".github/workflows/release.yml"), "utf8");
+		expect(workflow).toMatch(/id-token:\s*write/);
+		expect(workflow).toMatch(/--provenance/);
+		expect(workflow).toMatch(/tags:\s*\["v\*"\]/);
+		expect(workflow).not.toMatch(/branches:\s*\[\s*["']?main/);
+	});
+});
+
+describe("the package is publishable", () => {
+	let extracted = "";
+
+	beforeAll(() => {
+		/**
+		 * **`pnpm pack` is the only thing that answers "what actually ships".** `files` is a set of
+		 * globs, and a glob that stops matching is indistinguishable from one that matches nothing,
+		 * an entry point outside it installs as a missing module. Reading the real tarball is the
+		 * difference between checking the manifest and checking the package.
+		 */
+		const workspace = mkdtempSync(join(tmpdir(), "tsh-pack-"));
+		const output = execFileSync("pnpm", ["pack", "--pack-destination", workspace], {
+			cwd: packageRoot,
+			encoding: "utf8",
+		});
+		const tarball = output
+			.split("\n")
+			.map((line) => line.trim())
+			.filter((line) => line.endsWith(".tgz"))
+			.at(-1);
+		expect(tarball, output).toBeDefined();
+		execFileSync("tar", ["-xzf", tarball ?? "", "-C", workspace]);
+		extracted = join(workspace, "package");
+	}, 300_000);
+
+	afterAll(() => {
+		if (extracted !== "") rmSync(join(extracted, ".."), { recursive: true, force: true });
+	});
+
+	it("ships every path its own entry points resolve to", () => {
+		// A target is a path, `"./package.json": "./package.json"`, or a path per condition.
+		const targets = Object.values(manifest.exports ?? {}).flatMap((entry) =>
+			typeof entry === "string" ? [entry] : Object.values(entry),
+		);
+		expect(targets.length).toBeGreaterThanOrEqual(4);
+		const missing = targets.filter((path) => !existsSync(join(extracted, path)));
+		expect(missing.toSorted(), `missing from the tarball`).toEqual([]);
+	});
+
+	it("ships no test material", () => {
+		/**
+		 * **Test material in a published package becomes de-facto public API, delivered to every
+		 * installer forever.** `@typespec/openapi3` excludes `dist/test/**` explicitly; so does this.
+		 * It is also why the shared reference fixture is vendored into the other repository rather than
+		 * shipped from here, see `test/reference/PROVENANCE.md`.
+		 */
+		const shipped: string[] = [];
+		const walk = (dir: string, prefix: string): void => {
+			for (const entry of readdirSync(dir)) {
+				const full = join(dir, entry);
+				if (statSync(full).isDirectory()) walk(full, `${prefix}${entry}/`);
+				else shipped.push(`${prefix}${entry}`);
+			}
+		};
+		walk(extracted, "");
+		expect(shipped.length).toBeGreaterThanOrEqual(10);
+		expect(
+			shipped.filter((path) => /(^|\/)test\//.test(path) || path.endsWith(".test.js")),
+		).toEqual([]);
+		expect(shipped.filter((path) => path.endsWith(".tsp") && !path.startsWith("lib/"))).toEqual([]);
+	});
+
+	it("carries a licence, a readme, and points at its source", () => {
+		expect(manifest.license).toBe("MIT");
+		expect(manifest.repository).toBeDefined();
+		expect(existsSync(join(extracted, "LICENSE"))).toBe(true);
+		expect(existsSync(join(extracted, "README.md"))).toBe(true);
+	});
+
+	it("declares no dependency by path", () => {
+		/**
+		 * **A `link:` or `file:` range is a local checkout, and publishing one breaks every
+		 * installer.** This package has no runtime dependencies today; the arm exists because the
+		 * arrangement that develops it (two sibling repositories linked together) is exactly the one
+		 * that invites the mistake, and it costs nothing to hold the line before there is something to
+		 * hold it on.
+		 */
+		for (const [name, range] of Object.entries(manifest.dependencies ?? {})) {
+			expect(range, `${name} is declared by path`).not.toMatch(/^(link|file|workspace):/);
+		}
+	});
+});
+
+describe("the install instruction matches what actually ships", () => {
+	it("tells adopters to install it as a devDependency, because nothing it emits imports it", () => {
+		/**
+		 * **Derived from where the generated code points, not asserted as prose.** The rule is: if the
+		 * default runtime module is RELATIVE, the generated code resolves it beside itself and never
+		 * reaches for this package at run time, so a devDependency is correct. If it ever becomes a
+		 * bare specifier again, the package ships code into the consumer's bundle and the instruction
+		 * has to change with it. Neither can quietly contradict the other.
+		 *
+		 * This package used to instruct `npm install typespec-hono`, because `./runtime` exported
+		 * values that both the generated server and the consumer's `deps` imported. Under a dev install
+		 * everything passed (install, typecheck, `wrangler dev`) and the production install then failed
+		 * at the bundle with `Could not resolve "typespec-hono/runtime"`. The runtime is emitted beside
+		 * the generated code now, so the failure mode and the warning it needed are both gone.
+		 */
+		const readme = readFileSync(join(packageRoot, "README.md"), "utf8");
+		const relative = DEFAULT_RUNTIME_MODULE.startsWith(".");
+		expect(relative, `default runtime module is ${DEFAULT_RUNTIME_MODULE}`).toBe(true);
+		expect(readme).toMatch(/pnpm add -D typespec-hono/);
+		// The instruction that used to be here, and that a stale copy would reintroduce.
+		expect(readme).not.toMatch(/(?:npm install|pnpm add) typespec-hono\b/);
+	});
+
+	it("emits that runtime, so the relative specifier resolves to something", () => {
+		/**
+		 * Non-vacuity for the arm above. A relative specifier pointing at a file the emitter never
+		 * writes would satisfy it while leaving every generated file unable to compile.
+		 */
+		const emitter = readFileSync(join(packageRoot, "src", "emitter.ts"), "utf8");
+		expect(emitter).toContain("runtime.gen.ts");
+		expect(DEFAULT_RUNTIME_MODULE).toBe("./runtime.gen.js");
+	});
+
+	/**
+	 * **The resolved `typespec-http-zod` has to carry the API this package's `src/` consumes, and a
+	 * version range cannot say so on its own.**
+	 *
+	 * Both packages sit at a version that has already been published, and features land in the
+	 * library before the server emitter that reads them. A clean checkout of this repository resolved
+	 * the PUBLISHED 0.26.0, which has neither cookie parameters nor a response-header schema, and
+	 * `pnpm test` failed at `tsc` with four errors about `RouteSchemaNames` and `headers` that name
+	 * nothing a reader could act on. The working tree passed the whole time, because the dependency
+	 * there was a hand-made symlink to the sibling checkout that nothing in the repository records.
+	 *
+	 * This arm turns that into one sentence. It does not replace the release ordering it implies:
+	 * `typespec-http-zod` has to be bumped and released first, and this package's floor has to name
+	 * that version rather than a range that also admits the version without the feature.
+	 */
+	it("resolves a typespec-http-zod that carries the API this package compiles against", () => {
+		/**
+		 * **Compiled, not matched.** It read the declarations for four members by pattern, all of which
+		 * 0.27.0 already carried, while `src/` had come to need a dozen more: against 0.27.0 the arm
+		 * passed and `tsc` failed with TS2305. Every name `src/` imports from the library is read off
+		 * the import statements themselves, the newest members `src/` reads are listed with their
+		 * readers, and a probe naming all of them is compiled against whatever resolved.
+		 */
+		const sources = readdirSync(join(packageRoot, "src")).filter((name) => name.endsWith(".ts"));
+		const imported = new Set<string>();
+		for (const name of sources) {
+			const text = readFileSync(join(packageRoot, "src", name), "utf8");
+			for (const clause of text.matchAll(
+				/import\s+(?:type\s+)?\{([^}]*)\}\s+from\s+"typespec-http-zod"/g,
+			)) {
+				for (const part of (clause[1] ?? "").split(",")) {
+					const symbol = part
+						.trim()
+						.replace(/^type\s+/, "")
+						.split(/\s+as\s+/)[0];
+					if (symbol !== undefined && symbol !== "") imported.add(symbol);
+				}
+			}
+		}
+		// Non-vacuity: a pattern that stopped matching would compile an empty probe.
+		expect(imported.size).toBeGreaterThanOrEqual(15);
+		expect(imported).toContain("resultMembersOf");
+		const members = [
+			// app.ts, the accept a negotiated member's handler is given
+			'RouteSchemaNames["selectedAccept"]',
+			// app.ts, the cookie validator group
+			'RouteSchemaNames["cookie"]',
+			// app.ts, how a raw body is read
+			'EmittedRoute["rawBodyBinary"]',
+			// emitter.ts, where a diagnostic points
+			'EmittedService["operations"]',
+		];
+		const probeDir = join(packageRoot, "test", ".out-packaging-api");
+		mkdirSync(probeDir, { recursive: true });
+		writeFileSync(
+			join(probeDir, "probe.ts"),
+			`import type { ${[...imported, "EmittedRoute", "EmittedService", "RouteSchemaNames"]
+				.filter((symbol, index, all) => all.indexOf(symbol) === index)
+				.toSorted()
+				.join(", ")} } from "typespec-http-zod";
+
+export type Members = [${members.join(", ")}];
+`,
+		);
+		const config = join(probeDir, "tsconfig.json");
+		writeFileSync(
+			config,
+			JSON.stringify({
+				compilerOptions: {
+					target: "es2023",
+					module: "nodenext",
+					moduleResolution: "nodenext",
+					strict: true,
+					noEmit: true,
+					skipLibCheck: true,
+					types: [],
+				},
+				include: ["./probe.ts"],
+			}),
+		);
+		let output = "";
+		try {
+			execFileSync(join(packageRoot, "node_modules", ".bin", "tsc"), ["-p", config], {
+				encoding: "utf8",
+				stdio: ["ignore", "pipe", "pipe"],
+			});
+		} catch (error) {
+			const asExec = error as { stdout?: string; stderr?: string };
+			output = `${asExec.stdout ?? ""}${asExec.stderr ?? ""}`.trim();
+		}
+		const range = manifest.dependencies?.["typespec-http-zod"];
+		expect(
+			output,
+			`the resolved typespec-http-zod lacks API src/ uses; the declared range is ${range}. Release typespec-http-zod first and raise this floor.`,
+		).toBe("");
+	});
+});
+
+describe("the manifest is exported", () => {
+	/**
+	 * A tool that finds a package's root or version through its `package.json`, such as a check that
+	 * two emitters resolve one copy of typespec-http-zod, resolves it by name. Asked of Node itself,
+	 * through the package's own self-reference, so the `exports` map is the one a consumer's Node reads.
+	 */
+	it("resolves typespec-hono/package.json by name, as Node reads the exports map", () => {
+		const resolved = execFileSync(
+			process.execPath,
+			[
+				"--input-type=module",
+				"--eval",
+				'console.log(import.meta.resolve("typespec-hono/package.json"))',
+			],
+			{ cwd: packageRoot, encoding: "utf8" },
+		).trim();
+		const found = JSON.parse(readFileSync(fileURLToPath(resolved), "utf8")) as { name: string };
+		expect(found.name).toBe("typespec-hono");
+	});
+});

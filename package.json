@@ -1,0 +1,96 @@
+{
+	"name": "typespec-hono",
+	"version": "0.31.0",
+	"description": "TypeSpec emitter: generate a Hono server, and the Zod validators it enforces, from an HTTP service definition, agreeing with the OpenAPI document @typespec/openapi3 publishes from the same source.",
+	"keywords": [
+		"cloudflare-workers",
+		"codegen",
+		"hono",
+		"openapi",
+		"typespec",
+		"typespec-emitter",
+		"zod"
+	],
+	"homepage": "https://github.com/bison-digital/typespec-hono#readme",
+	"bugs": {
+		"url": "https://github.com/bison-digital/typespec-hono/issues"
+	},
+	"license": "MIT",
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/bison-digital/typespec-hono.git"
+	},
+	"files": [
+		"!dist/test/**",
+		"dist/**",
+		"lib/*.tsp",
+		"src/runtime.ts"
+	],
+	"type": "module",
+	"main": "dist/src/index.js",
+	"exports": {
+		".": {
+			"typespec": "./lib/main.tsp",
+			"types": "./dist/src/index.d.ts",
+			"default": "./dist/src/index.js"
+		},
+		"./runtime": {
+			"types": "./dist/src/runtime.d.ts",
+			"default": "./dist/src/runtime.js"
+		},
+		"./package.json": "./package.json"
+	},
+	"publishConfig": {
+		"access": "public",
+		"provenance": true
+	},
+	"scripts": {
+		"build": "node --eval \"require('node:fs').rmSync('dist', { recursive: true, force: true })\" && tsc -p tsconfig.build.json",
+		"test": "tsc -p tsconfig.build.json && vitest run",
+		"typecheck": "tsc -p tsconfig.json",
+		"lint": "oxlint src/ test/",
+		"format": "oxfmt",
+		"format:check": "oxfmt --check"
+	},
+	"dependencies": {
+		"typespec-http-zod": "^0.34.0"
+	},
+	"devDependencies": {
+		"@hono/zod-openapi": "^1.4.0",
+		"@hono/zod-validator": "^0.9.0",
+		"@types/node": "^26.0.0",
+		"@typespec/compiler": "1.17.0",
+		"@typespec/events": "0.87.0",
+		"@typespec/http": "1.17.0",
+		"@typespec/http-specs": "0.1.0-alpha.44",
+		"@typespec/openapi": "1.17.0",
+		"@typespec/openapi3": "1.17.0",
+		"@typespec/rest": "0.87.0",
+		"@typespec/sse": "0.87.0",
+		"@typespec/streams": "0.87.0",
+		"@typespec/versioning": "0.87.0",
+		"@typespec/xml": "0.87.0",
+		"hono": "^4.13.8",
+		"oxfmt": "^0.63.0",
+		"oxlint": "^1.78.0",
+		"secure-json-parse": "4.1.1",
+		"typescript": "~7.0.2",
+		"typespec-hono": "link:.",
+		"vitest": "^4.1.9",
+		"zod": "^4.6.5"
+	},
+	"peerDependencies": {
+		"@hono/zod-validator": "^0.8.0 || ^0.9.0",
+		"@typespec/compiler": "^1.15.0",
+		"@typespec/http": "^1.15.0",
+		"@typespec/openapi": "^1.15.0",
+		"hono": "^4.13.5",
+		"secure-json-parse": "^4.1.1",
+		"zod": "^4.5.0"
+	},
+	"engines": {
+		"node": ">=22.0.0"
+	},
+	"packageManager": "pnpm@11.21.0",
+	"tspMain": "lib/main.tsp"
+}

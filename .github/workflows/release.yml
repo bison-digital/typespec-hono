@@ -1,0 +1,89 @@
+name: Release
+
+# **Publishing is deliberate and cannot happen by accident.** This runs only when a `v*` tag is
+# pushed, or when somebody dispatches it by hand. A merge to `main` publishes nothing.
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      # `write`, not `read`: the last step creates the GitHub release.
+      contents: write
+      # Required for npm provenance: npm exchanges this for a signed attestation linking the
+      # published tarball to the commit and workflow that produced it. Without it, `provenance: true`
+      # in package.json fails the publish rather than silently skipping.
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          registry-url: https://registry.npmjs.org
+
+      # **`--frozen-lockfile` exits 0 on a dangling link.** While `typespec-http-zod` was
+      # unpublished, `pnpm-workspace.yaml` redirected it to `link:../typespec-http-zod` so the two
+      # could be developed together. A release checkout has no sibling on disk: pnpm installs the
+      # dangling symlink, reports success, and the failure surfaces four steps later as a wall of
+      # TS2307 that names the module but not the cause. Measured, not assumed.
+      - name: Refuse to publish against a locally-linked dependency
+        run: |
+          if grep -qE '^\s+typespec-[a-z-]+:\s*"?(link|file):' pnpm-workspace.yaml; then
+            echo "::error::pnpm-workspace.yaml still overrides a first-party package to a local path."
+            echo "::error::Remove the 'overrides' block and re-run 'pnpm install' so the lockfile"
+            echo "::error::resolves it from the registry, then re-tag."
+            exit 1
+          fi
+
+      - run: pnpm install --frozen-lockfile
+
+      # The install above can succeed while the dependency is not actually present, so say so here
+      # rather than letting `tsc` be the one to notice.
+      #
+      # **Resolve the package, not `./package.json`.** The first version of this step asked for the
+      # manifest subpath, which the library does not list in `exports`, matching `@typespec/openapi3`
+      # rather than `@typespec/compiler`. So it threw `ERR_PACKAGE_PATH_NOT_EXPORTED` on a dependency
+      # that was present and correct, and failed the release of a package that was fine. A guard that
+      # fires when nothing is wrong is worse than no guard.
+      #
+      # `import.meta.resolve` rather than `require.resolve`: both packages are ESM, and the actual
+      # question is whether the emitter can load it.
+      - name: Verify the dependency resolved
+        run: node --input-type=module -e "await import('typespec-http-zod')"
+
+      - run: pnpm build
+
+      # The full gate runs again here, against the exact commit being published. CI passing on the
+      # branch is not the same claim: a tag can point anywhere.
+      - run: pnpm test
+      - run: pnpm typecheck
+      - run: pnpm lint
+      - run: pnpm format:check
+
+      # `--provenance` is redundant with publishConfig and stated anyway, because the flag is what a
+      # reader looks for and a silent default is how provenance quietly stops being generated.
+      - run: pnpm publish --access public --provenance --no-git-checks
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      # **A tag is not a release.** Every version so far was published to npm and left no trace on
+      # GitHub: the workflow was named Release and only ever did half of one, so a reader browsing
+      # the repository saw tags and no notes. The notes ARE the changelog section, extracted rather
+      # than rewritten - two accounts of one release is one account too many, and the second drifts.
+      - name: Publish the GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          awk -v v="## [$version]" 'index($0,v)==1{f=1;next} f&&/^## \[/{exit} f' CHANGELOG.md > /tmp/notes.md
+          # Fails rather than publishing an empty release: a version with no changelog section is a
+          # release nobody can read, and the tag is already pushed by the time anyone would notice.
+          test -s /tmp/notes.md
+          # Idempotent, because a publish that failed on auth is rerun against a tag that already exists.
+          gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1 \
+            || gh release create "$GITHUB_REF_NAME" --title "$GITHUB_REF_NAME" --notes-file /tmp/notes.md

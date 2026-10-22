@@ -1,0 +1,131 @@
+# Releasing
+
+Two packages, one of which depends on the other **through the registry**. That is the whole reason
+this page exists.
+
+## The problem
+
+`typespec-hono` declares `typespec-http-zod` as an ordinary dependency, resolved by version range.
+So a change spanning both cannot be verified the way either one alone can:
+
+- CI cannot verify it. `typespec-hono`'s workflow runs `pnpm install --frozen-lockfile`, which
+  resolves the library from npm. A version that is not published yet cannot install, so a commit
+  bumping the range fails at the install step rather than at a test.
+- Committing the bump early therefore reddens `main` until the library publishes.
+- And the pair a user actually gets - `npm install typespec-hono` pulling the library
+  transitively - is a resolution neither repository's suite performs.
+
+It reads like a chicken-and-egg: you cannot prove the pair works until it is published, and you do
+not want to publish until it is proven.
+
+## It is not one. Rehearse against a local registry.
+
+Publish both packages to a registry running on your machine, then install from it exactly as a
+stranger would. This is the same evidence a real publish gives, minus the irreversibility.
+
+```bash
+# 1. A registry that accepts anonymous publishes for these two names and proxies everything else.
+mkdir -p /tmp/rehearsal/storage && cd /tmp/rehearsal
+cat > config.yaml <<'YAML'
+storage: ./storage
+uplinks: { npmjs: { url: https://registry.npmjs.org/ } }
+packages:
+  'typespec-hono':     { access: $all, publish: $anonymous }
+  'typespec-http-zod': { access: $all, publish: $anonymous }
+  '@*/*':              { access: $all, proxy: npmjs }
+  '**':                { access: $all, proxy: npmjs }
+log: { type: stdout, format: pretty, level: warn }
+YAML
+printf 'registry=http://localhost:4873/\n//localhost:4873/:_authToken=rehearsal\n' > npmrc
+npx --yes verdaccio@6 --config ./config.yaml --listen 4873 &
+
+# 2. Publish the library, then the server AT ITS RELEASE VERSION with the real dependency range.
+#    `--provenance=false` because provenance needs a CI OIDC identity; the real publish keeps it on.
+cd <typespec-http-zod> && NPM_CONFIG_USERCONFIG=/tmp/rehearsal/npmrc \
+  npm publish --registry http://localhost:4873 --provenance=false
+cd <typespec-hono>     && NPM_CONFIG_USERCONFIG=/tmp/rehearsal/npmrc \
+  npm publish --registry http://localhost:4873 --provenance=false
+
+# 3. Install into an EMPTY directory and use it as a consumer does.
+mkdir -p /tmp/cleanroom && cd /tmp/cleanroom
+printf 'registry=http://localhost:4873/\n' > .npmrc
+npm install --save-dev typespec-hono zod hono @hono/zod-validator \
+  @typespec/compiler @typespec/http @typespec/openapi typescript
+```
+
+Then, in that directory: write a spec, `tsp compile .`, `tsc --noEmit` a consumer file against the
+emitted types, and serve real requests through the generated app.
+
+**Check what the registry resolved, not what you asked for.** The point of the exercise is the
+transitive edge:
+
+```bash
+node -e "for (const p of ['typespec-hono','typespec-http-zod','zod'])
+  console.log(p, require('./node_modules/'+p+'/package.json').version)"
+```
+
+### What this catches that a tarball does not
+
+`pnpm pack` plus a `file:` override is quicker and is **not** the same test. It skips version-range
+resolution entirely, so it cannot tell you that `^0.26.0` reaches the library, that a peer range is
+satisfiable, or that the transitive install lands at all. It also writes a machine-local path into
+`pnpm-lock.yaml`, which `portability.test.ts` will refuse if it is ever committed - correctly.
+
+Use a tarball while iterating. Use the registry before releasing.
+
+## The audit, before anything is published
+
+The library's `docs/releasing.md` carries the audit, and it applies here unchanged: every changed
+path has a test shown to fail, every sentence of the CHANGELOG and guides is backed by a test or a
+measurement, every option touched was exercised, nothing new goes under Known limits, and no pin is
+raised or carve-out added to a check without a stated reason. It is done before the rehearsal.
+
+## Order
+
+The library publishes first, always, because the server resolves it by range.
+
+1. The audit above. Then rehearse, as above, with both packages at their release versions.
+2. Release the library. **The first publish is also the pipeline's canary** - it is the one that
+   proves the token, OIDC and provenance still work. If it fails, nothing else has gone out.
+3. Confirm against the registry itself, `curl -s https://registry.npmjs.org/typespec-http-zod`, and
+   by the release workflow's conclusion for the tagged commit, not by its colour. `npm view` can
+   answer the previous version for minutes after a release; the registry lags the workflow by one
+   to three minutes, and that is not a failure.
+4. Only then bump `typespec-hono`'s dependency range, run its gates against the published library,
+   and release it.
+
+   **Do not raise the range before the library is out.** `pnpm` resolves a dependency range against
+   the registry before it runs any script, so a range naming an unpublished version fails every gate
+   with `ERR_PNPM_NO_MATCHING_VERSION` rather than with anything about this package. Leaving the
+   range where it is until step 2 has landed keeps the tree installable, and
+   `packaging.test.ts` then gives the actionable failure instead: it names the API the resolved
+   library is missing and says to release it first.
+
+5. **Prove the release against the reference consumer.**
+
+   ```bash
+   gh workflow run CI --repo bison-digital/typespec-hono-example
+   ```
+
+   [`typespec-hono-example`](https://github.com/bison-digital/typespec-hono-example) has a `latest`
+   job that installs whatever is newest on npm rather than what it has pinned, so it fails when a
+   release breaks a real consumer. It also runs daily, which catches a bad release nobody thought to
+   check - but a release is exactly when you want the answer immediately rather than tomorrow.
+
+   It is the last thing that can tell you the release is wrong, and the first thing to go stale if
+   nobody moves it. Its `latest` job sets the minimum release age to 0, or it would test the release
+   before this one.
+
+6. **Name the exact version wherever the release is announced.** pnpm 11 holds back a version newer
+   than its minimum release age, so on the day of a release `pnpm add -D typespec-hono` quietly
+   installs the one before it. `pnpm add -D typespec-hono@X.Y.Z` installs the release and lists it
+   in `minimumReleaseAgeExclude`, with the `typespec-http-zod` it needs.
+
+## On prereleases
+
+A `-rc` publish is worth it only when it proves something the rehearsal cannot, and the rehearsal
+covers everything except the npm publish path itself. Step 2 already covers that, on a version you
+were releasing anyway - so an `rc` usually just burns a version number that can never be reused.
+
+Reach for one when the release is genuinely hard to reverse in a way the rehearsal cannot model: a
+change whose blast radius is the ecosystem rather than this repository.

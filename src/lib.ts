@@ -1,0 +1,258 @@
+import {
+	type CallableMessage,
+	createTypeSpecLibrary,
+	type DiagnosticReport,
+	type JSONSchemaType,
+	paramMessage,
+	type Program,
+	type TypeSpecLibrary,
+} from "@typespec/compiler";
+import {
+	EmitterOptionsSchema as httpZodOptions,
+	type EmitterOptions as HttpZodOptions,
+} from "typespec-http-zod";
+
+/**
+ * The library definition, kept in its own module so `tsp-index.ts` and the emitter can both reach it
+ * without importing each other.
+ */
+
+/**
+ * Everything `typespec-http-zod` accepts, plus what a Hono server needs on top.
+ *
+ * **DERIVED, never restated, and the distinction is load-bearing.** This emitter runs the whole of
+ * `typespec-http-zod` and adds one file; every option that package accepts has to reach it. Written
+ * as a second literal list, an option added there would be rejected here as unknown, or worse,
+ * accepted and silently dropped, which produces output that is wrong in a way no test of either
+ * package would see. `test/options.test.ts` asserts the forwarding as a CLASS.
+ *
+ * **`runtime-module` is declared here only to be REFUSED** (`runtime-module-removed`). The library no
+ * longer has the option, and a schema without the key would report only "must NOT have additional
+ * properties", which tells a consumer upgrading from a version that documented the option neither why
+ * nor what to do instead.
+ */
+export type EmitterOptions = HttpZodOptions & {
+	/** Refused. See `runtime-module-removed`. */
+	"runtime-module"?: string;
+	/**
+	 * Per-service overrides this emitter adds on top of the library's.
+	 *
+	 * **The library's own `services` map is preserved**, because the type is an intersection: an
+	 * option added there still arrives here, and this only widens what each entry may carry.
+	 */
+	services?: Record<string, { "emit-server"?: boolean; "runtime-module"?: string }>;
+};
+
+/**
+ * **A spread of the published schema, so a new key arrives for free.**
+ *
+ * `properties` is spread rather than re-listed for the same reason the type is aliased rather than
+ * re-declared. If this ever needs a Hono-only key, it is added to a spread of
+ * `httpZodOptions.properties`, never by copying the list.
+ */
+const EmitterOptionsSchema: JSONSchemaType<EmitterOptions> = {
+	type: "object",
+	additionalProperties: false,
+	required: [],
+	properties: {
+		...httpZodOptions.properties,
+		// Accepted by the schema so that setting it reaches `runtime-module-removed`.
+		"runtime-module": { type: "string", nullable: true },
+		/**
+		 * **Spread from the library's own entry rather than restated**, so a per-service option added
+		 * there still validates here. Only `emit-server` is added.
+		 */
+		services: {
+			...(httpZodOptions.properties as { services: Record<string, unknown> }).services,
+			additionalProperties: {
+				type: "object",
+				additionalProperties: false,
+				properties: {
+					...(
+						httpZodOptions.properties as {
+							services: { additionalProperties: { properties: Record<string, unknown> } };
+						}
+					).services.additionalProperties.properties,
+					"emit-server": { type: "boolean", nullable: true },
+					"runtime-module": { type: "string", nullable: true },
+				},
+				required: [],
+			},
+		},
+	},
+};
+
+/**
+ * What this emitter refuses that the library does not.
+ *
+ * The library refuses what no OpenAPI document can state. Everything here is narrower: what no *Hono
+ * router* can mount. Two different questions, and keeping them in separate libraries is what stops a
+ * project that wants validators without a server inheriting a refusal about routing.
+ */
+const diagnostics = {
+	/**
+	 * A path template this emitter will not translate into a route.
+	 *
+	 * **Refused rather than approximated, because the failure mode is a route that WORKS and is
+	 * wrong.** Hono reads `:name` up to the next `/`, so an RFC 6570 modifier survives into the
+	 * parameter name, `{id*}` becomes `:id*`, where `*` is Hono's own wildcard. That mounts a route
+	 * which matches, answers, and binds the wrong thing, which is strictly worse than one that 404s.
+	 *
+	 * **The refusal lands HERE and not in the library, which is the whole point of the split.** The
+	 * validators for such an operation are correct and are still emitted: what a request body must
+	 * look like does not depend on whether some particular router can express the path. Only the
+	 * server is impossible.
+	 *
+	 * Plain names are translated, including the hyphens and dots that `\w` used to drop on the floor,
+	 * a parameter carrying a hyphen was left alone entirely, so `@path("thing-id")` produced the
+	 * literal route `/things/{thing-id}`: mounted, counted by every arm that counted routes, and
+	 * reachable by nobody.
+	 */
+	/**
+	 * The document declares a request media type no `zValidator` target can parse.
+	 *
+	 * Reported rather than silently mis-parsed. This emitter used to hand every unrecognised media type
+	 * to `zValidator("json", ...)`, which reads `c.req.json()`, so an `application/xml` body was
+	 * rejected with a 400 and nothing said why. Naming it is what stops anyone believing a route is
+	 * validated when it is not.
+	 *
+	 * There is no Hono parser and no Zod representation for XML, and adding an XML dependency to a Zod
+	 * emitter is not a trade this package should make. Where the same route also declares a media type
+	 * that CAN be parsed, that one is still validated, chosen from the request's `Content-Type`.
+	 *
+	 * **Raised only for such a mixed route.** A body declared ONLY under types nothing parses is placed
+	 * by the library as a raw body (`rawBodyProperty`), so it has no validator to warn about and the
+	 * handler is given the text or the bytes that arrived. It used to get a header check and then a
+	 * handler call with the body never read, while this message said the request had been refused.
+	 */
+	/**
+	 * **An operation two of whose inputs would reach the handler under one key is not mounted.**
+	 *
+	 * A handler is called with the path, query, header and cookie groups spread into one input, the
+	 * body merged or named beside them. `@header("x") a: string` beside `@query("x") b: int32` was
+	 * mounted, both validated, and the header's string then replaced the validated number under `x`,
+	 * while the handler's input was typed `number & string`. The input cannot carry both values, so
+	 * serving the operation would hand the handler something its contract never states. `typespec-http-zod` reports the pair as `shared-input-key` and names it in
+	 * `EmittedRoute.sharedInputKeys`; this is the server declining to mount it.
+	 */
+	"shared-input-key": {
+		severity: "warning",
+		messages: {
+			default: paramMessage`'${"operationId"}' is not mounted: its ${"first"} '${"key"}' and its ${"second"} '${"key"}' would reach the handler under one input key, which holds one value. Give one of them a different name.`,
+		},
+	},
+	"unvalidatable-media-type": {
+		severity: "warning",
+		messages: {
+			default: paramMessage`'${"operationId"}' declares request media types this emitter cannot validate (${"types"}). Requests carrying them are refused rather than validated. Declare a media type with a parser -- JSON, multipart or urlencoded -- or handle the body yourself with '@body body: bytes'.`,
+		},
+	},
+	/**
+	 * `runtime-module` is set, and this emitter no longer substitutes its runtime.
+	 *
+	 * **The option made an application OWN a copy of generated logic**, because the generated server
+	 * imported the application's types from the same module as content negotiation, the HEAD guard and
+	 * arm selection. So an application that needed its own caller context or result shape copied those
+	 * too, and a copy ages behind the emitter, keeping every defect fixed after it was taken.
+	 *
+	 * Nothing the option was for needs it now. The caller context is inferred from `deps.context`, the
+	 * Hono environment is an interface an application augments, and what a handler returns is the union
+	 * of the responses the document declares. **An error rather than a warning**, because the option's
+	 * value is ignored, and an emitter that silently ignores a setting produces output its author did
+	 * not ask for.
+	 */
+	"runtime-module-removed": {
+		severity: "error",
+		messages: {
+			default: paramMessage`'runtime-module' is set to '${"value"}', and typespec-hono no longer substitutes its runtime: 'runtime.gen.ts' is always emitted. Nothing is written while the option is set. Remove the option and delete the module it pointed at. The caller context is inferred from 'deps.context', the Hono environment is augmented with 'declare module "./runtime.gen.js" { interface AppEnv { ... } }', and a handler returns '{ status, body, headers }' for any response the document declares. See the Upgrading section of docs/guides.md.`,
+		},
+	},
+	/**
+	 * A response the handler supplies raw, served without being checked against its schema.
+	 *
+	 * A model declared under a media type that is not JSON - a `Pet` as `application/xml` - has no
+	 * serialisation this emitter can derive from the document, so the handler returns the text, or the
+	 * bytes under a media type that is not text, and the route serves it as is. Reported for the same reason as its request-side twin: a route should not
+	 * look validated when it is not.
+	 */
+	/**
+	 * A request body the handler receives raw, never checked against its schema.
+	 *
+	 * The request-side twin of `unvalidated-response-media-type`. A model declared only under a media
+	 * type nothing parses - a `Pet` as `application/xml`, a `string | int32` as `text/plain` - has no
+	 * reading this emitter can derive, so the library hands the handler the text that arrived, or the
+	 * unread stream under a media type that is not text, such as `application/octet-stream`. That is
+	 * right, and was silent: once the body reached the handler, nothing said it was unchecked.
+	 */
+	"unvalidated-request-media-type": {
+		severity: "warning",
+		messages: {
+			default: paramMessage`'${"operationId"}' takes its body as ${"types"}, which this emitter cannot parse into the schema. The handler receives the body as it arrived, as text under a textual media type and as the unread stream otherwise, without its being validated. Parse and check it in the handler, or declare a JSON, form or multipart body to have it checked.`,
+		},
+	},
+	"unvalidated-response-media-type": {
+		severity: "warning",
+		messages: {
+			default: paramMessage`'${"operationId"}' answers ${"status"} as ${"types"}, which this emitter cannot serialise from the schema. The handler returns that body as text, or as bytes under a media type that is not text, and it is served without being validated. Declare a JSON media type, or a string body, to have it checked.`,
+		},
+	},
+	"unsupported-path-template": {
+		severity: "warning",
+		messages: {
+			default: paramMessage`'${"template"}' is not a path template this emitter can mount: the parameter '${"name"}' is not a plain name. Hono reads a parameter up to the next '/', so an RFC 6570 operator or modifier would become part of the name (or, for '*', a wildcard) and the route would match the wrong requests rather than fail. Name the parameter with letters, digits, '_', '-', '.' or '~'.`,
+		},
+	},
+} as const;
+
+/**
+ * **Spelled out rather than inferred, and every type in it imported through THIS package's own
+ * specifier.** Both this package and `typespec-http-zod` declare `@typespec/compiler` as a peer, so a
+ * build with the two packages side by side can resolve two physically distinct copies of the identical
+ * version, two `.pnpm` paths. TypeScript then has a choice of which copy to name in the emitted
+ * declarations, and naming the other package's produces `TS2883`, whose message is exactly the
+ * problem: *"this is likely not portable"*.
+ *
+ * A published `.d.ts` naming a `node_modules/.pnpm/...` path is broken for everyone who installed
+ * differently. Naming these through the direct import pins them to the specifier a consumer resolves,
+ * whatever their tree looks like.
+ *
+ * **A consumer never hits this**, because a peer dependency is installed once and both packages
+ * share it. That is precisely why it is worth guarding against here rather than trusting: the failure
+ * exists only in the arrangement that BUILDS the package, and would ship silently.
+ */
+type Diagnostics = {
+	"runtime-module-removed": { readonly default: CallableMessage<["value"]> };
+	"shared-input-key": {
+		readonly default: CallableMessage<["operationId", "first", "key", "second", "key"]>;
+	};
+	"unsupported-path-template": { readonly default: CallableMessage<["template", "name"]> };
+	"unvalidatable-media-type": { readonly default: CallableMessage<["operationId", "types"]> };
+	"unvalidated-request-media-type": { readonly default: CallableMessage<["operationId", "types"]> };
+	"unvalidated-response-media-type": {
+		readonly default: CallableMessage<["operationId", "status", "types"]>;
+	};
+};
+
+/**
+ * **Annotated rather than inferred, and the reason is a packaging fact rather than a style
+ * preference.** This package and `typespec-http-zod` each resolve their own `@typespec/compiler`,
+ * that is what a peer dependency does, and a project installing both gets one copy while a
+ * side-by-side build can get two. Inferring the type here makes the emitted `.d.ts` name a compiler
+ * through a path that exists only in the tree it was built in: `TS2883`, and the message says it
+ * outright, *"this is likely not portable"*.
+ *
+ * A published declaration file that names a `node_modules/.pnpm/...` path is broken for everyone who
+ * installed differently. Naming the type explicitly is what makes the declaration stand on its own,
+ * and this is exactly the class of defect a package built inside one workspace never has to face.
+ */
+export const $lib: TypeSpecLibrary<Diagnostics, EmitterOptions> = createTypeSpecLibrary({
+	name: "typespec-hono",
+	diagnostics,
+	emitter: { options: EmitterOptionsSchema },
+});
+
+export const reportDiagnostic: <C extends keyof Diagnostics, M extends keyof Diagnostics[C]>(
+	program: Program,
+	diagnostic: DiagnosticReport<Diagnostics, C, M>,
+) => void = $lib.reportDiagnostic;
+export { EmitterOptionsSchema };

@@ -1,0 +1,414 @@
+import { readdirSync, rmSync, statSync } from "node:fs";
+import { join } from "node:path";
+import { fileURLToPath } from "node:url";
+import { NodeHost, compile, listServices } from "@typespec/compiler";
+import { getVersions } from "@typespec/versioning";
+import { $lib } from "../../src/lib.js";
+
+/**
+ * The independent conformance corpus: `@typespec/http-specs`.
+ *
+ * **Why a first-party corpus rather than more local fixtures.** A fixture written here tests what
+ * its author already thought of; `@typespec/http-specs` is Microsoft's own scenario set for validating
+ * emitters, organised by the axes that actually break them, encoding, body-root and spread
+ * parameters, multipart, content negotiation, encoded names, special words, streaming, versioning,
+ * visibility, inheritance. It is the oracle precisely because nobody here chose its contents.
+ *
+ * **Pinned exactly, and it must stay that way.** Every package here is `0.x` or `alpha`. A
+ * floating range turns the committed baseline into a number that changes for reasons unrelated to
+ * this emitter, which is the fastest way to make a gate meaningless.
+ */
+
+const here = fileURLToPath(new URL(".", import.meta.url));
+export const packageRoot = join(here, "..", "..");
+const specsRoot = join(packageRoot, "node_modules", "@typespec", "http-specs", "specs");
+
+/** Where compiled scenario output lands. Gitignored; each scenario's directory emptied per compile. */
+export const corpusOutDir = join(here, ".out");
+
+export interface Scenario {
+	/** `serialization/encoded-name/json`, stable, and what the baseline is keyed on. */
+	readonly name: string;
+	readonly mainFile: string;
+}
+
+/**
+ * Every scenario in the corpus, in a stable order.
+ *
+ * Discovered rather than listed: a hand-maintained list silently stops covering what a corpus bump
+ * adds, and the whole point of this harness is that its contents are not this project's to choose. The count
+ * is asserted by the suite so a discovery that finds nothing cannot pass as "all green".
+ */
+export function discoverScenarios(): readonly Scenario[] {
+	const found: Scenario[] = [];
+	const walk = (dir: string, segments: readonly string[]): void => {
+		for (const entry of readdirSync(dir).toSorted()) {
+			const full = join(dir, entry);
+			if (entry === "main.tsp") {
+				found.push({ name: segments.join("/"), mainFile: full });
+				continue;
+			}
+			if (statSync(full).isDirectory()) walk(full, [...segments, entry]);
+		}
+	};
+	walk(specsRoot, []);
+	return found;
+}
+
+/**
+ * The depth source: the shared reference service.
+ *
+ * **Breadth from a corpus nobody here chose, depth from a fixture written for what it misses.**
+ * `@typespec/http-specs` is Microsoft's own scenario set and is the oracle precisely because its
+ * contents are not chosen here. It does not, however, contain a route whose parameter carries a hyphen, a
+ * `HEAD` operation, or two operations negotiating on one path. The three constructs that produced
+ * routes which counted as present and answered nothing.
+ *
+ * `constraints.tsp` is deliberately absent: constraints are the library's surface and are graded
+ * there. This package's depth is about what can be MOUNTED.
+ */
+export function depthSources(): readonly Scenario[] {
+	return [
+		{
+			name: "reference/service",
+			mainFile: join(packageRoot, "test", "reference", "service.tsp"),
+		},
+	];
+}
+
+/**
+ * Who failed, which is a different question from whether the scenario passed.
+ *
+ * **`oracle` is not this emitter's defect and must never be counted as one.** Measured on
+ * `http-specs@0.1.0-alpha.40`: `routes` is refused by openapi3 itself
+ * (`@typespec/openapi3/path-query`. OpenAPI cannot express a path containing a query string), and
+ * `special-words` **crashes** openapi3 (`Cannot read properties of undefined (reading '0')`). For
+ * those two there is no document to differentiate against, so the scenario is undifferentiable
+ * rather than failing. Folding them into one number is how a corpus starts lying: the count would
+ * move when Microsoft fix their emitter, and nobody would know whether this one had regressed.
+ */
+export type FailureOwner = "ours" | "oracle";
+
+export interface CompiledScenario {
+	readonly scenario: Scenario;
+	/** `undefined` when both emitters produced output. */
+	readonly failure?: {
+		readonly owner: FailureOwner;
+		readonly code: string;
+		readonly detail: string;
+	};
+	/** Directory holding this emitter's artefacts, `app.gen.ts` and the validators it imports. */
+	readonly serverDir: string;
+	/** Directory holding the OpenAPI document openapi3 produced from the same program. */
+	readonly openapiDir: string;
+	/** Warnings THIS emitter raised. Each one is a compromise it is shipping; there should be none. */
+	readonly emitterWarnings?: readonly string[];
+	/**
+	 * Refusals THIS emitter raised. One per operation it will not serve, by diagnostic code.
+	 *
+	 * A refusal is a statement, not a failure: the scenario still emitted everything else, and the
+	 * route arithmetic accounts for the exclusion rather than letting it look like a dropped operation.
+	 */
+	readonly refusals?: readonly string[];
+	/** Operations mounted with at least one declared media type this emitter cannot validate. */
+	readonly partiallyValidated?: number;
+	/** Responses served as text the handler supplies, because no serialisation derives from the schema. */
+	readonly unvalidatedResponses?: number;
+	/** Request bodies handed to the handler as the text that arrived, unvalidated. */
+	readonly unvalidatedRequests?: number;
+	/**
+	 * Whether this scenario's composed route set is one a bare `RegExpRouter` refuses to compile.
+	 *
+	 * Nothing is refused and every operation is served; this counts specs whose host application must
+	 * keep Hono's default router. See `regexp-router-unsupported`.
+	 */
+	readonly routerUnsupported?: number;
+	/**
+	 * The LAST version the service declares, when it is versioned.
+	 *
+	 * **Not the last document by filename, which is what this used to mean.** `versioning/removed`
+	 * declares `v1, v2preview, v2`, so v2 is current, but the files sort as `openapi.v1.json`,
+	 * `openapi.v2.json`, `openapi.v2preview.json`, and taking the last one compared this emitter
+	 * against a PREVIEW. The emitter had it right and the oracle was reading the wrong document, which is worth
+	 * more than the one divergence it produced: seven sources are versioned, and any of them could as
+	 * easily have been masked by an older version agreeing.
+	 */
+	readonly latestVersion?: string;
+}
+
+/** `@typespec/openapi3/path-query` -> `@typespec/openapi3`; this package's codes have no prefix. */
+function ownerOfCode(code: string): FailureOwner {
+	return code.startsWith("@typespec/") ? "oracle" : "ours";
+}
+
+/**
+ * An emitter that throws aborts the whole compile, so the thrown message is the only place the
+ * culprit is named. Emitters run in declared order, which is why this one is declared first: if it
+ * throws, openapi3 never runs and the scenario is unambiguously this emitter's.
+ */
+function ownerOfCrash(message: string): FailureOwner {
+	return message.includes('"typespec-hono"') ? "ours" : "oracle";
+}
+
+/**
+ * Compile one scenario with BOTH emitters, from one program.
+ *
+ * **One program, not two compiles.** The differential is only meaningful if both artefacts
+ * describe the same types, recompiling would compare this output against a document built from a
+ * separately-resolved program, and any disagreement would be ambiguous between "the emitter is
+ * wrong" and "the two compiles differed".
+ *
+ * openapi3 is configured exactly as a consuming project's `tspconfig.yaml` configures it. An oracle
+ * running with different options is not the oracle this package ships against.
+ */
+export async function compileScenario(
+	scenario: Scenario,
+	/**
+	 * Where this caller's corpus output lands.
+	 *
+	 * **A parameter, because a suite must never read output another suite wrote.** Vitest runs test
+	 * files in parallel with nothing ordering them, so a sweep that read `corpusOutDir` would be
+	 * grading whichever build happened to be on disk, which is precisely the defect that let a control
+	 * pass green with the fix deleted from `src/`. Every caller owns a directory nobody else writes,
+	 * and `isolation.test.ts` asserts it.
+	 */
+	outRoot: string = corpusOutDir,
+): Promise<CompiledScenario> {
+	const outputDir = join(outRoot, scenario.name.replaceAll("/", "__"));
+	const dirs = { serverDir: join(outputDir, "server"), openapiDir: join(outputDir, "openapi") };
+	/**
+	 * **Emptied first.** See `compile-fixture.ts` for the whole argument; it applies with more force
+	 * here, because a scenario that CRASHES an emitter writes nothing at all, and the differential
+	 * would then read the last successful run's artefacts and report the scenario as agreeing.
+	 */
+	rmSync(outputDir, { recursive: true, force: true });
+	let program;
+	try {
+		program = await compile(NodeHost, scenario.mainFile, {
+			outputDir,
+			/**
+			 * **The router rule, enabled, because the router oracle grades it.** It is a linter rule,
+			 * so a compile names it only when asked, and `router.test.ts` mounts every generated server
+			 * under a bare `RegExpRouter` to check the rule's verdict in both directions. Only that rule:
+			 * the corpus is graded on what the oracle checks, not on every piece of advice there is.
+			 */
+			linterRuleSet: { enable: { "typespec-hono/regexp-router-unsupported": true } },
+			// This emitter FIRST, deliberately, see `ownerOfCrash`.
+			emit: ["typespec-hono", "@typespec/openapi3"],
+			options: {
+				"typespec-hono": {
+					"emitter-output-dir": dirs.serverDir,
+					/**
+					 * **The emitted module must be self-contained, or the differential cannot load it.**
+					 *
+					 * A scenario declaring an enum emits `z.enum(SPEC_VOCABULARIES.Colors)`, which resolves
+					 * only where the named contracts package exports `Colors`. Writing the vocabularies
+					 * beside the schemas and importing them relatively is what makes the output stand
+					 * alone. Measured, 7 of 61 scenarios need it.
+					 *
+					 * **`contracts-package` has no default for exactly this reason.** Any default package
+					 * name would leave a project that configured nothing with validators importing from a
+					 * package it had never heard of.
+					 */
+					"contracts-output-dir": dirs.serverDir,
+					"contracts-package": "./vocabularies.gen.js",
+					// Must match what openapi3 is given below. The two emitters answer the same question
+					// about the same models and neither can read the other's options; setting one and not
+					// the other is a contradiction, and this differential is precisely what reports it.
+					"seal-object-schemas": true,
+				},
+				"@typespec/openapi3": {
+					"emitter-output-dir": dirs.openapiDir,
+					"openapi-versions": ["3.1.0"],
+					"seal-object-schemas": true,
+					// JSON rather than the default YAML: the document is read back structurally, and a
+					// YAML parser is a dependency this suite would otherwise take on purely to undo a
+					// serialisation choice.
+					"file-type": "json",
+				},
+			},
+		});
+	} catch (thrown) {
+		const message = thrown instanceof Error ? thrown.message : String(thrown);
+		// The useful line is the wrapped cause, not the "crashed! This is a bug." banner.
+		const cause = /Error: (.*)/.exec(message)?.[1] ?? message.split("\n")[0] ?? message;
+		return {
+			scenario,
+			...dirs,
+			failure: {
+				owner: ownerOfCrash(message),
+				code: "emitter-crashed",
+				detail: cause.slice(0, 200),
+			},
+		};
+	}
+	/**
+	 * **This emitter's own warnings are collected, not ignored, and there should be none.**
+	 *
+	 * The corpus raises warnings this package neither owns nor can fix, deprecations, and `metadata-ignored` on
+	 * the very models that prove the metadata-position defect, so those are filtered out below. A
+	 * warning THIS emitter raises is a different thing entirely: it means "the output is knowingly not
+	 * what the document says, and it ships anyway". There was one such warning for exactly
+	 * one commit, marking an injected discriminator, and it was the wrong answer, a custom track with
+	 * a label on it. Counting them keeps the next one from arriving quietly.
+	 */
+	/**
+	 * Which version the emitter actually emitted, asked of the compiler rather than inferred.
+	 *
+	 * `getVersions` returns the versions in DECLARED order, which is the order that means anything,
+	 * a version name sorts however its author spelled it.
+	 */
+	const latestVersion = ((): string | undefined => {
+		for (const service of listServices(program)) {
+			const [, versions] = getVersions(program, service.type);
+			const declared = versions?.getVersions();
+			const last = declared?.at(-1);
+			if (last !== undefined) return last.value;
+		}
+		return undefined;
+	})();
+
+	/**
+	 * **A refusal is not a failed scenario, and treating it as one costs coverage for no reason.**
+	 * `reportDiagnostic` does not unwind, so a service containing one operation this emitter refuses
+	 * still emits every other operation correctly. Classifying the whole scenario as failed would blind
+	 * the differential to twenty unrelated operations because one of them is `@head`, measured:
+	 * `type/model/visibility` has a single HEAD operation and nineteen others.
+	 *
+	 * So a refusal is recorded by NAME and the scenario stays gradable, with the arithmetic adjusted:
+	 * `mounted + refused === declared` is a stronger property than `mounted === declared` ever was,
+	 * because it makes the exclusions explicit instead of letting them cancel out.
+	 */
+	/**
+	 * **A refusal is identified by its CODE, never by its severity.**
+	 *
+	 * It used to key on `severity === "error"`, which worked only while every refusal happened to be
+	 * one. The moment they became warnings, so that a refusal stops suppressing `@typespec/openapi3`'s
+	 * entire document, `refused` silently fell to **zero** and `mounted + refused === declared` broke
+	 * at 564 + 0, which is not 577. Nothing had stopped being refused; the counter had stopped recognising it.
+	 *
+	 * Severity answers "how loudly should the compiler complain", which is a consumer's choice via
+	 * `warn-as-error`. Which diagnostics are refusals is a fact about this package, and `$lib` is where
+	 * that fact lives, so it is read from there rather than restated, and a refusal added later is
+	 * counted without anyone remembering to update this.
+	 */
+	/**
+	 * **`unvalidatable-media-type` is NOT a refusal, and counting it as one broke the arithmetic.**
+	 * A refusal EXCLUDES an operation, so it has to be added to `mounted` to reach `declared`. This
+	 * one excludes nothing: the route is registered and serves every media type it can parse, and the
+	 * warning names the ones it cannot. Counted as a refusal it made `mounted + refused` overshoot
+	 * `declared` by 27 while every one of those 27 operations was mounted and working.
+	 */
+	const PARTIAL = "typespec-hono/unvalidatable-media-type";
+	/**
+	 * **Its response-side twin is not a refusal either.** The operation is mounted and served; the
+	 * warning names a response whose body the handler supplies as text, unvalidated, because nothing
+	 * derives a serialisation for a model under `application/xml`. Counted separately from requests,
+	 * because the two may move independently.
+	 */
+	const PARTIAL_RESPONSE = "typespec-hono/unvalidated-response-media-type";
+	/**
+	 * **And its request-side twin**: a body declared only under media types nothing parses, handed to
+	 * the handler as the text that arrived. Mounted and served; the body is not checked.
+	 */
+	const UNVALIDATED_REQUEST = "typespec-hono/unvalidated-request-media-type";
+	/**
+	 * **Not a refusal and not a partial validation: a caveat about the HOST application's choice**,
+	 * raised by a linter rule rather than by emission, and enabled for the corpus above.
+	 *
+	 * Every operation is mounted, validated and served. What the warning says is that the route set is
+	 * one Hono's `RegExpRouter` cannot compile, so an application that constructs its app with a bare
+	 * `RegExpRouter` would not start. Counted as a refusal it would make `mounted + refused` overshoot
+	 * `declared` while nothing was refused; folded into either partial it would claim something about
+	 * validation, which it says nothing about. So it is its own count.
+	 */
+	const ROUTER_ADVISORY = "typespec-hono/regexp-router-unsupported";
+	const ADVISORY_CODES = new Set([PARTIAL, PARTIAL_RESPONSE, UNVALIDATED_REQUEST, ROUTER_ADVISORY]);
+	const refusalCodes = new Set(
+		Object.keys($lib.diagnostics)
+			.map((code) => `typespec-hono/${code}`)
+			.filter((code) => !ADVISORY_CODES.has(code)),
+	);
+	/** Scenarios whose composed route set a bare `RegExpRouter` would refuse to compile. */
+	const routerUnsupported = program.diagnostics.filter((d) => d.code === ROUTER_ADVISORY).length;
+	/** Operations mounted but with at least one declared media type left unvalidated. */
+	const partiallyValidated = program.diagnostics.filter((d) => d.code === PARTIAL).length;
+	/** Responses served as text the handler supplies, unvalidated. */
+	const unvalidatedResponses = program.diagnostics.filter(
+		(d) => d.code === PARTIAL_RESPONSE,
+	).length;
+	/** Request bodies handed to the handler as the text that arrived, unvalidated. */
+	const unvalidatedRequests = program.diagnostics.filter(
+		(d) => d.code === UNVALIDATED_REQUEST,
+	).length;
+	const refusals = program.diagnostics
+		.filter((diagnostic) => refusalCodes.has(diagnostic.code))
+		.map((diagnostic) => diagnostic.code);
+
+	/**
+	 * **A warning that is NOT a named refusal**, which is the distinction this arm always wanted.
+	 *
+	 * The rule is "a warning THIS emitter raises means the output is knowingly not what the document
+	 * says, and it ships anyway". A compromise, and there should be none. A refusal is the
+	 * opposite: the operation is EXCLUDED, named, with a remedy. Both are now `warning` severity,
+	 * because severity is what decides whether the whole compile is poisoned, so severity can no longer
+	 * stand in for the distinction. The code does.
+	 */
+	const emitterWarnings = program.diagnostics
+		.filter(
+			(diagnostic) =>
+				diagnostic.code.startsWith("typespec-hono/") &&
+				diagnostic.severity === "warning" &&
+				!ADVISORY_CODES.has(diagnostic.code) &&
+				!refusalCodes.has(diagnostic.code),
+		)
+		.map((diagnostic) => `${scenario.name} :: ${diagnostic.code}`);
+	/**
+	 * This emitter's own refusals are excluded from the failure test: they name an operation this emitter will not
+	 * serve, and the file for everything else was still written.
+	 */
+	const error = program.diagnostics.find(
+		(diagnostic) =>
+			diagnostic.severity === "error" && !diagnostic.code.startsWith("typespec-hono/"),
+	);
+	if (error === undefined) {
+		return latestVersion === undefined
+			? {
+					scenario,
+					...dirs,
+					emitterWarnings,
+					refusals,
+					partiallyValidated,
+					unvalidatedResponses,
+					unvalidatedRequests,
+					routerUnsupported,
+				}
+			: {
+					scenario,
+					...dirs,
+					emitterWarnings,
+					latestVersion,
+					refusals,
+					partiallyValidated,
+					unvalidatedResponses,
+					unvalidatedRequests,
+					routerUnsupported,
+				};
+	}
+	return {
+		scenario,
+		...dirs,
+		/**
+		 * **Carried even here, because the router verdict does not depend on the document.**
+		 * `routes` is refused by openapi3 itself, and it is also the one corpus scenario whose route
+		 * set `RegExpRouter` cannot compile. Dropping the count on this branch hid it from the arm
+		 * built to check it, which then passed by comparing nothing.
+		 */
+		routerUnsupported,
+		failure: {
+			owner: ownerOfCode(error.code),
+			code: error.code,
+			detail: String(error.message).split("\n")[0]?.slice(0, 200) ?? "",
+		},
+	};
+}

@@ -1,0 +1,47 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  gate:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # Every Node major `engines` admits, which is `>=22`. Re-read Node's release schedule when
+        # that range moves.
+        node: [22, 24]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: pnpm
+
+      # **The library is resolved from the registry, exactly as a consumer resolves it.** While it was
+      # unpublished, `pnpm-workspace.yaml` overrode it to `link:../typespec-http-zod` and this job
+      # checked the sibling out beside this one to give the link a target. Both went with the release
+      # that published it, so a change spanning the two packages is again verifiable only by releasing
+      # the library first - which `docs/releasing.md` is about.
+
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build
+      - run: pnpm test
+      # LAST, always, see the library's workflow for why.
+      - run: pnpm typecheck
+      - run: pnpm lint
+
+      # A repository that calls itself idiomatic should not depend on whoever opens it next
+      # having the same editor settings. `.oxfmtrc.json` matches the style the code is already
+      # written in (tabs) rather than imposing the tool's defaults on it.
+      - run: pnpm format:check

@@ -1,0 +1,1263 @@
+# Changelog
+
+All notable changes to `typespec-hono` are recorded here. This project follows
+[Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+**At `0.x` the public API is not frozen.** A minor bump may change the emitted output or the
+published types; a patch will not. The **emitted output is part of the API**, a change to what
+`registerRoutes` returns, to a validator's shape, or to what a handler receives is a change a
+consumer feels, and is treated as such here rather than as an implementation detail.
+
+## [0.31.0] - 2026-10-21
+
+Requires `typespec-http-zod` `0.34.0`, which writes every file in the order the spec declares it.
+
+### Changed
+
+- **Requires `typespec-http-zod` `^0.34.0`**, so the routes `registerRoutes` mounts, and the
+  validators and handler contracts beside them, are written in the order the spec declares its
+  operations rather than the order the compiler happened to check them in. An augment decorator in
+  another file naming an operation, as a GraphQL surface's `@link` does, reordered every route of
+  the generated `app.gen.ts`. Output moves once on upgrade where a type is declared after its first
+  use; see the library's changelog for 0.34.0.
+
+### Added
+
+- `typespec-hono/package.json` is exported, for a tool that finds the installed version or root by
+  name, such as a check that two emitters resolve one copy of the library.
+
+## [0.30.0] - 2026-10-20
+
+Upgrading: [what to check before you take this](docs/guides.md#to-0300).
+
+Requires `typespec-http-zod` `0.33.0`. The generated server is as 0.29.0 writes it.
+
+### Changed
+
+- **Requires `typespec-http-zod` `^0.33.0`**, which adds `EmittedService.typeSchemaNames`, each
+  declared type's validator identifier. `^0.32.0` does not admit 0.33.0, so a project running this
+  emitter beside one built on 0.33.0 installed two copies of the library, and each reported the
+  library's diagnostics: `typespec-http-zod/shared-input-key` twice for one operation.
+
+## [0.29.0] - 2026-10-19
+
+Upgrading: [what to check before you take this](docs/guides.md#to-0290).
+
+Requires `typespec-http-zod` `0.32.0`, which corrects 0.31.0.
+
+### Changed, breaking
+
+- **From the library: a route reads a request as the OpenAPI version openapi3 publishes, and 3.0 is
+  its default.** At 3.0 a create or update body may leave out a required read-only property, as OAS
+  3.0.4 says such a `required` "will take effect on the response only": a POST without its
+  server-assigned `id` is created again, where 0.28.0 answered it with 400 (`test/readonly`). The
+  handler's input types the `id` as optional, the request's own reading, `WidgetCreate`. At 3.1 the
+  `id` is required in the request, as `readOnly` is an annotation there, and the route refuses a body
+  without it.
+- **From the library: three refusals can stop a 3.0 compile**, each naming the fix:
+  `unpublishable-null` for a `null` the 3.0 document cannot say (`Inner | null`, `Color | null`,
+  `"a" | "b" | null`), `unpublishable-record` for a sealed model extending a record, and
+  `ambiguous-read-only` where 3.0 and 3.1 are published together. For the first two, set
+  `openapi-versions: ["3.1.0"]` under `@typespec/openapi3` in `tspconfig.yaml`.
+
+## [0.28.0] - 2026-10-19
+
+Upgrading: [what to check before you take this](docs/guides.md#to-0280).
+
+Requires `typespec-http-zod` `0.31.0`, which corrects 0.30.0.
+
+### Changed, breaking
+
+- **A JSON body naming the object prototype is refused with 400, and `secure-json-parse` `^4.1.1` is
+  a new peer dependency.** Zod strips a `__proto__` key unread (colinhacks/zod#6386), so a
+  `Record<boolean>` body accepted `{"__proto__": 1}`, which the document refuses, and the handler got
+  `{}`. JSON is now parsed as Fastify (`onProtoPoisoning`) and hapi (`payload.protoAction`) parse it
+  by default: a `__proto__` key, or `constructor.prototype`, anywhere in the body makes it unreadable,
+  answered through `deps.invalid` like a malformed one. `{"__proto__": true}`, which the document
+  accepts, is refused with it, as those servers refuse it. `4.1.1` is the floor because `4.0.0`
+  threw on `{"constructor": null}`, which would refuse a valid body. A body is now read with
+  `c.req.text()` and that parser where it was read with `c.req.json()`; Hono's `json()` is
+  `JSON.parse` of the same text, and the one other difference is a leading byte order mark, which RFC
+  8259 section 8.1 lets a parser ignore and which is now ignored rather than refused.
+- **A multipart JSON part naming the object prototype is refused with 400**, as a JSON body is. Its
+  JSON is parsed by the part's schema, which `secure-json-parse` never saw, so `{"__proto__": 1}`
+  reached a `Record<boolean>` part with the key dropped. A part that may be text or JSON keeps that
+  text as text.
+- **From the library: a discriminated base is validated as the document's base, whatever its
+  discriminator names** (OAS 3.1.1 section 4.8.25: the discriminator "MUST NOT change the validation
+  outcome"). A body naming a subtype but missing that subtype's own fields used to be refused with 400;
+  it is now served as the base, as the document allows. A valid instance of the subtype its
+  discriminator names still reaches the handler as that subtype, with its own properties.
+- **From the library: a model is validated as `allOf` its base**, so a property a subtype redeclares
+  still meets what its base declares for it, and a discriminator is required however it is declared.
+  A route refuses a body the document refuses that it used to accept. A redeclaration neither
+  declaration narrows is merged with the one above key by key, as the document holds it, and one
+  declared `never`, or invisible where the model is used, no longer removes a key the base requires.
+- **From the library: a request body and a response are read at openapi3's visibility, under its
+  names.** A model with a create-only property used to have every response validated as its create
+  view, so a handler returning the read view was answered 500; it is served now. A model whose only
+  request-side difference is a read-only property is the canonical schema in the request too, under
+  OAS 3.1.1's reading of `readOnly`: a create or update request must send a required read-only
+  property, and the handler should ignore its value. The `XCreate`-style input types that differed
+  only by read-only properties are gone; the handler's input is `X`, and a body whose read-only
+  property shares a parameter's name is named beside it, as any such body is - `@path shelfId`
+  beside a body requiring `shelfId` hands the handler both. A metadata property inside an explicit
+  `@body` is a body property, constraints and all.
+- **From the library: a property or parameter under `@encode` validates what the document publishes
+  for it**, the declared type kept beside the encoded scalar, so a route refuses `"green"` for an
+  encoded `Color` it used to accept, and admits the `null` a nullable one allows. An `@encode` no value
+  can satisfy is refused at compile time as `unsatisfiable-encoding`, and a body declared `never` as
+  `never-body`; a constraint an encoding moves onto a type it does not apply to is dropped and
+  reported as `unenforceable-encoded-constraint`, where it used to stop the generated module loading,
+  and a default no value of the position as `invalid-default`.
+- **From the library: list elements, chains and `@oneOf` read as openapi3 publishes them.** A list
+  literal's elements are at `Item` visibility, so a PATCH route requires each item's properties and an
+  element's `@header` is data, and such an element's input type is the document's `XItem`; a base is
+  read at its own visibility, so a subtype's create body requires the base's read-only property; the
+  topmost indexer in a chain holds a subtype's keys; and a `@oneOf` union refuses a value two members
+  accept. A parameter's text is a number only in JSON's grammar, so `?limit=0x10` is refused.
+- **From the library: a subtype no dispatch can hold is refused** as `invalid-subtype-discriminator`,
+  a template instance adding a required property to a base openapi3 seals as
+  `sealed-base-extended`, a redeclared property whose merge with the one above refers back to itself
+  as `unrepresentable-override`, one model used both inside an explicit `@body` and outside one
+  as `duplicate-declaration`, and a model openapi3 first reaches from a request and publishes with
+  its properties read at the request's visibility and its `required` at `Read` - a read-only property
+  required and not declared, or left out - as `split-visibility`. Send the request's own view as its
+  body, `@body body: Create<Outer>`, which openapi3 publishes apart.
+- **From the library: every model, enum and union the service declares has a validator and a
+  contract type**, reached by an operation or not, as the document publishes a component for each; a
+  construct the library refuses in a type nothing uses now stops the compile too. A tuple validates
+  as the document's `prefixItems`, so a service using `OAuth2Auth` with a flow model in its namespace
+  still compiles; a tuple-typed parameter or header is refused as `unsupported-type`.
+- **From the library: requests read from the wire as the document reads them.** A form-exploded
+  query typed as a union of models, a value that may be one or a list, a discriminated header, a
+  repeated multipart part sent once and a part that is text or JSON are each served where they were
+  answered 400; two headers whose names differ only in case are refused as `header-case-collision`.
+- **From the library: a component carries a visibility suffix only where its type is used at more
+  than one visibility**, as the document names it: a model only ever sent in a create body is
+  `Holder` in the handler's input types and the exported validators, where it was `HolderCreate`, and
+  a named list model sent and returned is `TagsCreate` beside `Tags`.
+
+- **From the library: a shared route's parameter is optional where openapi3 publishes it so**, and
+  a parameter declared `never` is gone from the input, as the document leaves it out. `sa(@query q)`
+  beside `sb(@query other?)` on one `@sharedRoute` hands `sa` a `q?: string`, which was required or
+  optional depending on whether `@typespec/openapi3` ran first in the same compile.
+
+### Fixed
+
+- **A multipart part read from text is read from its text when it comes with a filename.**
+  `parseBody` hands such a part over as a file - `curl -F 'r=@data.json;type=application/json'` -
+  and its schema, reading text, refused it with 400, though the part's media type says what it is. A
+  JSON, text or number part is now its text, each of a repeated part's; a file part and raw bytes stay
+  the files they arrive as. The library names the parts in `EmittedRoute.textParts`.
+- **From the library: a multipart JSON part published as a list reads one text as the list's JSON
+  or as its one element**, and a text part of a union holding a list reads several parts as the list,
+  where each was refused with 400 for a request the document accepts.
+- **From the library: a union that reaches itself through unions alone is refused** as
+  `unsupported-type`, where the compile crashed, and a `@oneOf` sent as a URL-encoded form whose
+  members read one key two ways as `ambiguous-form-reading`.
+- **From the library: a URL-encoded body holding any union is read from its fields** - an
+  envelope-less `@discriminated` union by its discriminator, an enveloped one as `{ kind, value }`,
+  a union nested in a union - and a multipart text part published as a list is that many parts, a
+  lone one the one-element list. Each was refused with 400, every number a string.
+- **From the library: a model, merge or `@oneOf` is held to the schema openapi3 publishes for it**,
+  where a read-only declaration, a merge under a PATCH, a refused member or a type published at two
+  visibilities under one name made the validator answer otherwise - see `typespec-http-zod`'s
+  changelog for each.
+- **A URL-encoded form body is served as the document reads it.** Each field is read from the text a
+  form carries - `n=5` is the `int32` 5, a key sent more than once the list it stands for - with the
+  library's `formBody`, chosen by the request's `Content-Type` where the route also takes JSON, which
+  is still validated as JSON. Validated as JSON, every numeric or boolean field of a form was refused
+  with 400. `test/formbody/` sends both through the generated app.
+- **From the library: header, cookie, path and query objects are read as their validators hold
+  them** - a subtype's own declaration, the topmost indexer, the subtype a discriminator names - and a
+  lone value is a list only where a key repeats; two form-exploded objects declaring one key each
+  read it. Each was refused with 400, or served a value the document refuses.
+- **From the library: a discriminated base with a subtype that declares no discriminator is served.**
+  Its validator threw on every parse, so every route carrying it answered 500, measured through
+  `test/encodedtypes`.
+- **An operation id that is not an identifier generates a module that parses.**
+  `@operationId("get.widget")` named its types `Get.widgetResult` and `Get.widgetHandler` and called
+  `handlersFor(c).get.widget(...)`. Each type name is the id with every character no identifier
+  holds made `_`, as the library names the same operation's validators, and unique; the handler is
+  called by its key.
+- **From the library: a parameter's text is read as its schema says**, so a route serves a numeric
+  enum, `int32 | boolean`, `int32 | "all"`, a union of a scalar and a list or a model, a record or
+  model in a header or a cookie - a key named `constructor` included, which answered 500 - a list
+  inside an exploded model, and an exploded header list, each of which it answered 400.
+- **The vocabulary test admits no `.refine` but the multipart file's again**, as in 0.26.0: the
+  library emits none for a discriminated base.
+
+## [0.27.0] - 2026-10-16
+
+Upgrading: [what to check before you take this](docs/guides.md#to-0270).
+
+Requires `typespec-http-zod` `0.30.0`.
+
+### Changed, breaking
+
+- **A handler returning a discriminated base whose discriminator names no subtype is served**, from
+  `typespec-http-zod` 0.30.0. The response arm refused it, so a handler returning the body
+  `@typespec/http-specs` declares for `enum-discriminator`, `single-discriminator` and
+  `nested-discriminator` answered 500, and a request body naming an unknown kind answered 400; the
+  document's base admits both. A value naming a subtype is still validated as that subtype. The base's
+  type in a handler's input gains the base itself as an arm, so narrowing on `kind` no longer excludes
+  it. `test/conformance/discriminators.test.ts` serves the three scenarios: the extensible, single and
+  nested wrong kinds answer 200, and the fixed enum's wrong kind still answers 500.
+- **An operation two of whose inputs would reach the handler under one key is not mounted**, and is
+  reported as `shared-input-key`. The handler is called with the path, query, header and cookie groups
+  spread into one input, so `@header("x")` beside `@query("x")` was served with the header's string
+  replacing the validated number, while the input was typed `number & string`. The same happened for
+  two `@query("x")`, a path and a header parameter of one name, a cookie and a query parameter of one
+  name, and a parameter named as the body is. The library reports the pair too, as its own
+  `shared-input-key`. No `@typespec/http-specs` scenario has one.
+
+### Fixed
+
+- **An `@encode`d list parameter reaches the handler as the value the document describes**, from
+  `typespec-http-zod` 0.30.0. A comma-delimited header or path list and a custom-encoded query list
+  were split before they were validated as the string their encoding makes them, and a pipe-delimited
+  list of numbers was split but not decoded: all four answered 400 to every request.
+  `test/encodedlists` sends each through the generated routes.
+- **A response declared `@body body: void` is served with no media type**, and a request declared
+  that way, which refused the compile, is served without reading a body.
+
+## [0.26.0] - 2026-10-15
+
+Upgrading: [what to check before you take this](docs/guides.md#to-0260).
+
+Requires `typespec-http-zod` `0.29.0`.
+
+### Changed, breaking
+
+- **A date-time header with no `@encode` is served as an RFC 7231 HTTP-date**, from
+  `typespec-http-zod` 0.29.0 (its #4). That is TypeSpec's wire form for one and what the published
+  document states, `format: http-date`; the validators checked it as RFC 3339, so the corpus's own
+  requests answered 400 and a handler setting the header as an HTTP-date answered 500 through its
+  response contract. `test/conformance/datetimeheaders.test.ts` sends `encode/datetime`'s and
+  `special-headers/repeatability`'s requests through the generated routes: all three scenarios that
+  failed now pass. A client sending RFC 3339 in such a header is refused; to keep that form, declare
+  `@encode(DateTimeKnownEncoding.rfc3339)`, and the document says so too.
+- **Two more of the library's changes refuse values the document already refused**: a scalar
+  extending a constrained scalar is constrained by both, and `@encode(rfc3339)` on a date-time checks
+  the date-time. See the library's "To `0.29.0`".
+
+### Changed
+
+- **The validators carry every description the document publishes**, as `.describe()`. A route
+  parses exactly as before; code serialising these schemas to JSON Schema now publishes the
+  descriptions too.
+- **Spec text outside ASCII is written as `\uXXXX` escapes** in `app.gen.ts`, through the library's
+  `literal`, as every other emitted file now writes it.
+
+## [0.25.0] - 2026-10-11
+
+Upgrading: [what to check before you take this](docs/guides.md#to-0250).
+
+Requires `typespec-http-zod` `0.28.0`, whose contract types now state each operation's input and
+result exactly as a handler here receives and returns them. A backend typed by them is forwarded to
+with no code between, which `test/wiring/backend.fixture.ts` compiles for every operation of the
+reference service.
+
+### Changed, breaking
+
+- **A binary or streamed result is a `ByteStream`, which a stream of anything but `Uint8Array` chunks
+  is not.** A `ReadableStream<string>` compiled against the old `ReadableStream` arm; Node refused it
+  when it was served and only workerd sent it. Encode it with `.pipeThrough(new TextEncoderStream())`.
+- **A body that sends a key a parameter also has is under its own name in the input**, beside the
+  parameter, rather than merged. Merged, the body's value replaced the parameter's with nothing
+  reported: `POST /shelves/1/books` with `{ "shelfId": 2 }` in the body handed the handler
+  `shelfId: 2`, so the book landed on the shelf the body chose while a check on the path saw
+  shelf 1. A read-only body property is not sent, so it collides with nothing and still merges.
+  The body is under its `@body` parameter's name: for `@body body: Entry`, read `input.body.x` where a
+  handler read `input.x`. Typecheck before deploying: a bundler that does not, such as wrangler's,
+  ships a handler still reading `input.x`, which is then `undefined`.
+- **An optional body that was not sent is absent from the input**, rather than present holding
+  `undefined`. Typed `body?: T`, which is what `WireInputs` says, so the input can be forwarded to a
+  backend typed by the contract.
+- **A result body is typed from the schema's input (`z.input`)**, which is what `servedBody` checks.
+  A defaulted response property may be left out, and is served with its default; it was required,
+  and so was it in a value typed by the contract (`TS2741`, `TS2322`).
+- **An input made only of an empty model is `{}`**, not `unknown`.
+- **A model answered under a media type that is neither JSON nor text is bytes.** A handler returns
+  `ByteStream | Uint8Array<ArrayBuffer> | ArrayBuffer` for it, served as is, where it returned a
+  `string`: served as UTF-8, a string cannot carry an `application/octet-stream` or
+  `application/x-protobuf` body. Under a textual media type, `text/*` or XML, it is text as before.
+
+### Added
+
+- **`unvalidated-request-media-type`, a warning**: a body declared only under media types nothing
+  parses, such as a model as `application/xml`, reaches its handler raw and is not checked against
+  its schema. The request-side twin of `unvalidated-response-media-type`; the
+  route is mounted and served. The corpus counts these: 25.
+
+### Fixed
+
+- **The emitted runtime cites no file of this package.** Its docblocks named the tests that grade it
+  by path, and the runtime is copied into the generated tree, where those paths do not exist, so a
+  guard that checks every cited file fails on them.
+- **A response header named after a type the server file imports no longer imports it.** The status
+  types and `ByteStream` were chosen by scanning the rendered result types for their names, so a
+  header keyed `StatusCode` or `ByteStream` imported a type nothing used, and `app.gen.ts` failed
+  `noUnusedLocals`. They are recorded as the result types are written.
+- **The emitted runtime compiles under `erasableSyntaxOnly` and `noPropertyAccessFromIndexSignature`.**
+  Its error classes declared their fields as constructor parameter properties, which are not erasable
+  syntax, and negotiation read a regex group with a dot, an index-signature read, so a project
+  building with either flag had to turn it off. The corpus is typechecked with both now.
+- **A media type declared with a parameter is matched by its essence, everywhere a server compares
+  one.** A route declaring `application/json; charset=utf-8` refused every request: the body's
+  branches kept the parameter while a request's media type is reduced to its essence. Negotiation
+  between operations compared offered types the same way, so an `Accept: application/json` caller
+  was refused one offering the parametered type. The response is sent under the type as declared.
+- **A file declared as JSON is served with its `Content-Type`.** The serving rule left the header to
+  `c.json` wherever the type was `application/json`, but a file is bytes served with `c.body`, which
+  sets none, so an `Http.File<"application/json">` download went out with no media type.
+- **A diagnostic about an operation on a shared route points at that operation.** Operations were
+  looked up by verb and path, which `@sharedRoute` gives every member, so a warning about the second
+  member of a route was raised against the first. They are read by operation id from the library's
+  `EmittedService.operations`.
+- **An `Http.File` body reaches the handler and is served.** An upload is the unread stream under its
+  parameter's name with its `"Content-Type"`; a download is served as its bytes under its media type.
+  Both were dropped: the handler was given `{}` and the download was empty.
+- **A body declared only under a media type nothing parses is handed over as it arrived**: the text
+  under a textual media type such as `application/xml`, and the unread stream under any other, such
+  as `application/octet-stream`, whose bytes text cannot carry. An `application/xml` PUT used to get
+  a header check and a handler call with the body never read, while `unvalidatable-media-type` said
+  it had been refused. That warning now fires only for a route
+  declaring XML beside a parseable type, where the XML request is refused (400) as it says.
+- **A binary or streamed result accepts any `ByteStream`**, the reader every stream has, so a
+  backend's contract-typed value fits. The new runtime helper `servedBytes` passes a platform stream
+  through and pulls anything else through a `ReadableStream`. Before, a non-platform value was served
+  as `[object Object]` with a 200. Measured streaming on node and on workerd. A read that reports no
+  chunk is read past rather than ending the pulls, which on node held the response open, and a caller
+  that goes away cancels the producer through the reader's `cancel` where it has one.
+- **A response header declared with `@encode` takes its encoded type**, from the library. Before, the
+  arm could not be returned without a cast: `@encode(seconds, int32) retryAfter: duration` was typed
+  `string` and checked as an integer.
+
+### Changed
+
+- **`@typespec/openapi` is a declared peer, and the README installs it.** `typespec-http-zod` requires
+  it, and this package did not say so: following the README on TypeSpec 1.15 or 1.16, a package
+  manager installed `@typespec/openapi` at its newest, whose peers are the newest compiler, so a
+  strict-peer install failed, and with `@typespec/http` also left out of the README, `tsp compile`
+  did too. The install line names the three `@typespec` packages, to be installed at one version.
+- **A compile that refuses `runtime-module` writes nothing**, as one whose options the compiler's own
+  schema refuses does. It used to write `app.gen.ts`, `schemas.gen.ts` and `runtime.gen.ts` anyway,
+  replacing a project's generated files with ones importing a runtime it had not moved to, from a
+  compile that failed.
+- **The result-member rules and the status-code table come from `typespec-http-zod`.** This package
+  held a copy of each. `HONO_STATUS_TYPES` keeps the class names a rendered result type spells.
+- **Built and graded against TypeSpec 1.17**, with the corpus at `@typespec/http-specs` `0.1.0-alpha.44`.
+
+### Graded
+
+- **`test/conformance/contracts.test.ts`, new**: the contract types and the handler types agree over
+  every corpus scenario and fixture - the same operations; each handler input assignable to
+  `WireInputs[op]` with the same keys; each `WireResults[op]` assignable to the handler's result, with
+  every member paired by status and media type both ways; and one `ByteStream`. Its first run found a
+  delimited query typed as a string in the contract, and the empty-model `unknown`. A range that stops
+  excluding the exact codes declared beside it is caught only here.
+- **The gold-standard oracle reads opaque content as not JSON** (deviation 5), from the document.
+
+## [0.24.0] - 2026-09-20
+
+Upgrading: [what to check before you take this](docs/guides.md#to-0240).
+
+Requires `typespec-http-zod` 0.27.0, `hono` 4.13.5, `zod` 4.5.0.
+
+A minor carrying seven things, four of them breaking: **the request media type is enforced**, **a body
+too deep to parse is refused rather than crashed**, **a declared response header is checked before it
+is served**, **cookie parameters are mounted**, **a route set `RegExpRouter` cannot compile is named
+at build time**, and **the `hono` peer floor moves to 4.13.5**.
+
+**Breaking: the `hono` peer floor is now `^4.13.5`.** Everything below it carries three advisories
+published against 4.13.5, two of which sit on a generated server's own request surface: the query
+parser read parameters after the URL fragment, and `parseBody()` allowed unbounded dot-notation
+nesting. A peer range is how a library says which versions it is willing to be correct on, and
+`^4.12.0` said all of them.
+
+**Breaking: the request media type is enforced.** A route publishing `application/json` alone
+answered 200 to the same body sent as `text/plain`, as `multipart/form-data`, and with no
+`Content-Type` at all, because an unmatched type fell through to the first declared branch and
+`c.req.json()` reads the bytes whatever the header says. A media type the operation does not declare
+is now refused through `deps.invalid`, which is what `@typespec/http-server-js` does with the
+identical case. Two shapes a caller will meet: `fetch` with a string body sends `text/plain`, and a
+hand-written client may send nothing at all.
+
+A declared media RANGE admits the types inside it, rather than only its own text. `@typespec/http`
+reports a bare `string`-typed `contentType` as the wildcard range, so comparing the range text would
+have refused every real request to such a route.
+
+**Breaking: a declared response header is checked before it is served.** `servedBody` parsed every
+response body against the schema the document publishes and threw `ResponseContractError` when it did
+not match; declared headers went through `String(value)` and nothing else, so a value the document's
+own `@pattern` forbids was served with 200. Headers are now checked the way bodies already were, and
+the error carries `part: "headers"`. An `onError` will start seeing it.
+
+**Breaking: cookie parameters are mounted.** A `@cookie` reached no validator, no handler input and
+no diagnostic, while the document published it as required. It is now mounted as Hono's own `cookie`
+validation target, so a request missing a required cookie is refused where it used to pass.
+
+**A body too deep to parse is refused rather than crashed.** A recursive model emits the getter form
+and Zod recurses once per level, so a 40 KB payload the published document calls valid answered 500
+with a bare `RangeError`, indistinguishable from a bug in the application's own code. The parse is
+guarded and the failure is reported through `deps.invalid` like any other bad request, naming the
+limit. The guard's own frames cost roughly 200 levels of accepted nesting.
+
+**A zero-width space no longer ships in the runtime.** `src/runtime.ts` carried U+200B inside a
+docblock, put there so a media range written in prose would not close the comment. That file is
+copied verbatim beside every generated server, so the character was in every generated
+`runtime.gen.ts`, invisible in a diff and impossible to grep for. `typespec-http-zod` had an arm
+forbidding non-ASCII in tracked files and this package had none; it does now, and it reads emitted
+output as well as source, because the emitted half is the half that ships.
+
+**A route set `RegExpRouter` cannot compile is named at build time.** A static segment beside a path
+parameter at the same position, `/items/plain` beside `/items/{id}`, is a shape this emitter
+deliberately supports and `RegExpRouter` refuses. It throws inside `registerRoutes` at module scope,
+so the Worker does not start and every route answers nothing, and the compile was clean.
+The `regexp-router-unsupported` rule now names the route that conflicts.
+
+**It is a linter rule, off until a project enables it**, with
+`linter: { extends: ["typespec-hono/recommended"] }` in `tspconfig.yaml`. The route set is valid and
+the default `new Hono()` serves it, so what the rule reports is a caveat about a router the
+application may choose - which TypeSpec's own docs put in a linter, "optional validation" of a program
+that "could be correct". Raised as an automatic warning it would fail the build of a project that
+sets `warn-as-error: true` and uses the default router, over a problem it does not have. The same
+ruleset enables `redos-prone-pattern` from `typespec-http-zod`, which a project using this package
+never loads as a library and so could not otherwise name.
+
+`docs/cloudflare-workers.md` recommended `RegExpRouter` on the strength of a router table whose
+register and first-request columns turned out to measure the benchmark rather than the router: all
+four were timed in one process, so whichever ran first paid the JIT cost of the whole request path.
+Re-measured in isolated processes on 4.13.8, the table now carries only what survives isolation, and
+the default `new Hono()` is named first for a route set `RegExpRouter` refuses. It mounts the same
+routes and is about 4.6x faster in steady state than `PatternRouter` at 360 operations.
+
+## [0.23.0] - 2026-09-16
+
+Requires `typespec-http-zod` 0.26.0.
+
+A minor carrying four things, the first of them breaking for every handler: **a handler returns any
+response its operation declares, served the way Hono serves one**, **every URI `@typespec/http-specs`
+declares now reaches its operation**, **`context` is told whether a caller is optional**, and **a
+`text/plain` request body reaches the handler**, which it never did.
+
+### Changed, breaking
+
+**A handler returns any response its operation declares, and the generated route serves it the way
+Hono serves a response.** A handler's return type was the success body alone, so every declared
+failure could only be thrown past the generated code into `onError`, where no declared status or body
+was checked. An application that wanted its own caller context or result shape had to replace the
+whole runtime with `runtime-module`, and so owned a copy of the negotiation, HEAD guard and arm
+selection logic, which aged behind the emitter.
+
+- **A handler returns `{ status, body, headers }`**, typed per operation as the union of the declared
+  responses: one member per status, a range excluding the statuses declared more precisely, `default`
+  excluding every declared status. A status or body the document does not declare does not compile.
+  A media range such as `image/*` is typed as the types inside it, `` `image/${string}` ``, and the
+  route checks the named type against the range, so `image/png` is served and `text/html` or the
+  range's own spelling throws `UndeclaredStatusError`.
+- **The generated route serves each response with its own Hono call** - `c.json(body, 404)`,
+  `c.body(stream, 200)` - after parsing the body against the schema the document publishes for that
+  status, failures included. What is served is the parse result. Hono's RPC client narrows a body by
+  its status, which it could not do before for any route: `respond` returned a plain `Response`.
+- **`deps.respond` is removed.** A body the schema refuses throws `ResponseContractError` and a status
+  outside the declared set throws `UndeclaredStatusError`, both for `app.onError`.
+- **`runtime-module` is refused** with the error `runtime-module-removed`, and `runtime.gen.ts` is
+  always written. `Ctx` is inferred from `deps.context`; `AppEnv` is an interface an application
+  augments; `Result<T>` is gone. `Operations<C>` and every `XHandler<C>` take the caller context.
+- **The caller context and content negotiation are established in middleware**, because a plain
+  `Response` returned from a route's final handler erases every typed response on the route. The
+  context reaches the handler through a per-request map: `c.set` on a generated environment makes
+  every `deps` hook unassignable, because Hono's `Context` is invariant in its environment.
+- **Handler signatures are property signatures**, so a handler asking for a richer caller context than
+  `deps.context` establishes is refused. As a method signature it compiled.
+
+`docs/guides.md` carries the upgrade, including an adapter over a backend reached through a service
+binding.
+
+**Graded:**
+
+- `test/envelope/` serves every kind of response by request: a chosen status, a header, a range, the
+  catch-all, a problem document, text, XML, bytes, a status offering two media types, no body, the
+  parsed projection, and both errors.
+- `test/envelope/refusals.test.ts` compiles eight handler sets that must not compile, beside a
+  control that must.
+- `test/wiring/` builds a typed application with no casts, an augmented environment and returned
+  failures, and `rpc.fixture.ts` narrows a body by status.
+- `test/conformance/typecheck.test.ts` compiles every corpus server.
+- `test/conformance/goldstandard.test.ts` compares what `hc` infers for 619 corpus routes with what
+  `@hono/zod-openapi`'s `RouteConfigToTypedResponse` derives from the published document.
+
+Each guard was broken and watched go red: status 999 (261 errors across the corpus), 200 for every
+JSON response (the oracle), a plain `Response` (`hc` bodies become `unknown`), method signatures (a
+richer context compiles), no range exclusion in `default` (the switch stops compiling), and
+`runtime-module` passed through (both refusal arms).
+
+### Fixed
+
+- **A `text/plain` request body reaches the handler.** It has no JSON, form or multipart reader, so no
+  body middleware was emitted at all: the server accepted the request, read nothing, and called the
+  handler with an empty input. There is a text reader now, used where the library says the body IS
+  text (`requestTextual`) - a model framed as `text/plain` is still reported as unvalidatable rather
+  than guessed at.
+- **Every scenario in the conformance corpus now compiles.** Six were pinned in
+  `test/conformance/typecheck.test.ts` on two library defects, both fixed in `typespec-http-zod`
+  0.26.0: a non-model request body was spread into the handler's input, and a recursive model's schema
+  inferred `unknown` in anything wrapping it. The known-failures list is empty, and it is asserted
+  exactly, so a new failure cannot be absorbed.
+- **Every URI `@typespec/http-specs` declares for `routes` and `parameters/path` now reaches its
+  operation, with the value the scenario documents.** Routes were mounted from `path`, which
+  `@typespec/http` strips of every RFC 6570 operator, so `array{.param*}`, `array{;param}` and
+  `optional{/name}` were mounted as `array:param` and `optional:name`, and a literal query string sat
+  inside the router path. Measured by request with the mock server's own URIs: 33 of 47 `routes`
+  URIs and `/parameters/path/optional/foo` answered 404 or 400. Routes are now mounted from the
+  library's `pathSegments` as pattern parameters matching their whole segment, a literal query string
+  is checked by the new `literalQuery` runtime middleware, and the library decodes the captured text.
+  `test/conformance/uris.test.ts` sends every mock URI, red first.
+- **`context` is told `"optional"` where anonymous access is one alternative.** It was told `"none"`
+  for `NoAuth | BearerAuth` as for `@useAuth(NoAuth)`, so a caller presenting a valid token on an
+  optional route was never established as one. **Breaking for a `context` that switches exhaustively
+  on the argument.** `test/authz/` asks by request.
+- **The auth gate reads the library's `security` and `authentication`**, and `src/security.ts`, this
+  package's second copy of that rule, is deleted.
+- **A concrete path is served before a templated one.** `GET /items/plain` was answered by the handler
+  for `/items/{id}` whenever the templated operation was declared first, because Hono runs the first
+  registered match. Measured by request, with the wrong handler's body. Routes are now registered
+  concrete-first, which is OpenAPI's rule.
+- **`unvalidated-response-media-type`** names a response served as text the handler supplies, because
+  no serialisation derives from its schema: a model under `application/xml`. 29 across the corpus,
+  counted in the route baseline, and served before this by whatever an application's `respond` did.
+
+- **An operation that allows anonymous access as one alternative no longer demands a credential.**
+  `@useAuth(NoAuth | BearerAuth)` publishes `security: [{}, { "BearerAuth": [] }]`, where `{}` is the
+  requirement every caller satisfies, because it names no scheme. The generated gate dropped it and called
+  `deps.authorize([{ "BearerAuth": [] }])`, so an `authorize` applying the documented rule refused every
+  anonymous caller the document accepts. Measured by request on `@typespec/http-specs`'
+  `authentication/noauth/union`: the document's anonymous request answered 401. The gate now passes
+  `[{}, { "BearerAuth": [] }]`, and an operation whose every alternative is anonymous still carries no
+  gate. `test/authz/` holds the source arm and a request arm, both proven red first.
+
+  **Felt by an `authorize` that assumed every requirement names a scheme.** One written to the rule in
+  `docs/guides.md` (any one requirement, every scheme within it) admits `{}` with no change.
+
+### Recorded, not fixed
+
+- **A scalar JSON request body emits a server that does not compile.** `@body body: string`, an enum
+  or a union is spread into the handler's input, `TS2698`, in five corpus scenarios; a recursive
+  dictionary body reads as `unknown`, `TS2322`, in a sixth. Both are request-side and older than this
+  release; they were found when the corpus was compiled for the first time, and
+  `test/conformance/typecheck.test.ts` lists them exactly.
+
+## [0.22.0] - 2026-09-12
+
+Requires `typespec-http-zod@^0.25.0`.
+
+### Fixed
+
+- **An operation summary can now contain anything a spec can write.** The emitted `Operations`
+  interface renders each summary as a JSDoc comment, and that comment was built by interpolation with
+  no escaping, so `@summary("Returns a */ b")` closed the comment early and the rest of the sentence
+  became code. Measured on emitted output: `TS1131`, `TS1434`, `TS1161`. One operation costing the
+  whole file, the same shape as a model named `as`.
+
+  The rule is `jsDocComment`, exported by `typespec-http-zod` beside `objectKey` because two server
+  emitters built on it had the same defect and there should be one answer. Emitted output is held
+  to what a person would have written, not merely to what parses: a terminator is escaped as `*\/`,
+  and a multi-line description is now a real block with aligned continuation lines instead of one
+  line with newlines in it. `test/summarytext/` grades this package's own output, with the raw
+  interpolation restored as its control.
+
+- **An optional `@multipartBody` now emits a server that compiles**, closing the known limit recorded
+  under `0.21.0`. The handler receives such a body NAMED rather than merged:
+
+  ```ts
+  // before, and it did not compile
+  upload(ctx: Ctx, input: Fields<z.infer<typeof uploadHeader>> & Fields<z.infer<typeof uploadPartsSchema>>): ...
+  // after
+  upload(ctx: Ctx, input: Fields<z.infer<typeof uploadHeader>> & { body?: z.infer<typeof uploadPartsSchema> | undefined }): ...
+  ```
+
+  **No source in this package changed.** The decision is `EmittedRoute.bodyProperty`, which the
+  library publishes and which this emitter already rendered correctly in all three places that read
+  it: the intersection, the signature, and the generated call site. It was faithfully rendering a
+  wrong input. That is worth recording, because the reverse has bitten here before - `test/openmodel/`
+  exists because a library fix once did NOT reach the boundary an application types against, and the
+  check is the same either way: put the arm where an application writes code.
+
+  Source-breaking for a handler on such an operation, which reads `input.body?.file` where it read
+  `input.file`. Nothing can break by construction: no such server has ever compiled. A REQUIRED
+  multipart body is unchanged and still merged.
+
+  `test/optionalmultipart/` compiles a hand-written application against emitted output and holds both
+  halves in one arm. `test/malformed/` regains the operation it had been unable to carry: an optional
+  multipart body is the only spec shape that reaches the body reader's form branch through the
+  optional mounting, and the fixture had been carrying a docblock explaining the omission instead. An
+  oracle narrowed around a defect outlives the defect unless closing it is part of the fix.
+
+## [0.21.0] - 2026-08-29
+
+Requires `typespec-http-zod@^0.24.0` and **`zod@^4.5.0`**.
+
+**The `zod` peer range was `^4.0.0` and had to move.** The emitted validators now use
+`.exactOptional()`, which needs 4.3, and their agreement with the published document depends on 4.5
+counting a length bound in code points rather than UTF-16 units - under `^4.0.0` there are resolvable
+versions where a payload the document forbids reaches a handler. Verified end to end on `workerd`:
+eight emoji against `@maxLength(8)` are accepted and two against `@minLength(3)` are refused, both
+through a running generated server.
+
+A minor: **every request body is now mounted by one middleware emitted into `app.gen.ts`**, so a body
+that cannot be read is refused through the app's own error envelope in every position. This closes
+the known limit recorded in `0.19.0`, and the runtime contract gets **smaller** rather than larger.
+
+### Fixed
+
+- **A malformed body on a required, single-media-type operation escaped the app's error envelope.**
+  It was mounted with `zValidator`, which raises `HTTPException` on a body it cannot read - a
+  `text/plain` 400 raised before `deps.invalid` is called. So an API whose document declares a JSON
+  error envelope answered a shape its own contract forbids, and the application had no way to
+  intervene, because the throw happened before its code ran. Recorded in `0.19.0` as a known limit.
+
+  Measured on a fresh install of the published pair against the new one, byte-identical spec,
+  application and runner:
+
+  | pair                                                | well-formed body | malformed body                                      |
+  | --------------------------------------------------- | ---------------- | --------------------------------------------------- |
+  | `typespec-hono@0.20.0` + `typespec-http-zod@0.22.0` | 204              | `400 text/plain` - `Malformed JSON in request body` |
+  | the new pair                                        | 204              | `400 application/json` - the app's envelope         |
+
+  The well-formed row is the control, so neither row is vacuous.
+
+- **An unreadable FORM body answered 500 where the JSON case answered 400**, from the same missing
+  `try`: the old `readBody` wrapped only its JSON branch. Both readers can fail, and both are guarded
+  now.
+
+### Changed
+
+- **Request bodies parse SYNCHRONOUSLY, and so do parameter validators.** Nothing this emitter writes
+  is asynchronous - `vocabulary.test.ts` refuses `.transform(`, `.pipe(`, `.superRefine(` and
+  `.catch(`, and the one permitted `.refine(` is a synchronous predicate - so `safeParseAsync` was
+  buying nothing and costing on every request.
+
+  Measured on an emitted five-property model, zod 4.5.2, 200k iterations: `safeParseAsync` 958 ns,
+  `safeParse` 371 ns. **2.6x per parse, and there are up to four per request.**
+
+  Parameter validators go through `validationFunction`, `@hono/zod-validator`'s own published option,
+  rather than around it. `test/sync.test.ts` grades the claim by RUNNING every schema the emitter
+  produces across the whole corpus, because `safeParse` throws rather than fails on a schema that
+  cannot take the synchronous path - and an argument about emitted text is not an argument about
+  emitted behaviour.
+
+- **The runtime contract SHRANK by two names.** `byContentType` and `optionalBody` are gone from
+  `typespec-hono/runtime`. Everything the generated server imports from there is something a project
+  substituting `runtime-module` has to supply, so closing the envelope gap by routing bodies through
+  the runtime would have made those exports mandatory for every such application - measured, 15 arms
+  red, each one an app whose module has no such export. Emitting the middleware removes the choice
+  instead: the mechanism lives in the file that uses it. Imported names went from 11 to 9, and
+  `test/adopter.test.ts` asserts the set as a closed list.
+
+- **A required form body is published under `"json"`.** `ValidationTargets` is a closed union in Hono,
+  so there is no name to coin for "the body"; using one slot is what makes every route the same shape
+  downstream. Three mounting paths - `zValidator`, `optionalBody` and `byContentType` - became one
+  call, which is what let a rejection stop depending on which path a route happened to take.
+
+## [0.20.0] - 2026-08-15
+
+Requires `typespec-http-zod@^0.22.0`.
+
+### Fixed
+
+- **A handler can now say which success status it means, and set a declared response header.** Both
+  are published in the emitted arms and neither could be reached: `@statusCode` and `@header` are
+  stripped from the body schema - correctly, they are not body - so a return type derived from that
+  schema alone could not carry them, while the arms named them anyway. Measured on `payload__head`:
+
+      contentTypeHeaderInResponse(ctx, input): Awaitable<Result<void>>
+      ...Responses = [{ status: 200, schema: undefined,
+                        headers: [{ name: "Content-Type", property: "contentType" }, ...] }]
+
+  `respond` was instructed to read `contentType` off a value typed `void`. The return type is now the
+  body view intersected with the envelope the arms ask for - the `@statusCode` union where the spec
+  declares one, and each declared response header with its own type rather than a guessed `string`.
+
+  `test/envelope/` sends real requests: a handler returning `statusCode: 201` gets a **201**, one
+  returning `200` gets a **200**, and a header the arm names reaches the response. Asserting the
+  signature mentions `statusCode` would have passed for a server that still answers 200 to
+  everything.
+
+### Changed
+
+- `test/path-template.test.ts`'s fixture no longer omits fields behind `as unknown as`. It did, and a
+  field added to `EmittedRoute` turned eight path arms red with
+  `Cannot read properties of undefined` - a failure about nothing to do with paths.
+
+## [0.19.1] - 2026-08-15
+
+Requires `typespec-http-zod@^0.21.0`, which stops writing an unused `Simplify<T>` into the contract
+types of a service that has nothing to flatten - `TS6196` under `noUnusedLocals`, on the two
+parameterless `GET`s every new project starts with.
+
+**A dependency bump on its own, because a caret on a `0.x` version pins the minor**: without this
+release the library fix cannot reach anyone using this package.
+
+## [0.19.0] - 2026-08-15
+
+Requires `typespec-http-zod@^0.20.0`. None of the three fixes below was covered by either suite.
+
+### Fixed
+
+- **An EMPTY request model made the generated server fail to compile.** Zod 4 infers
+  `Record<string, never>` for `z.object({})`, so `{ id: string } & Record<string, never>` turned `id`
+  into `string & never` - `TS2345`, inside `app.gen.ts` itself. Each intersected member now passes
+  through `Fields<>`, which maps an empty validator to `unknown`, the identity of `&`. A dictionary
+  body is untouched: it has a value type, so it is not empty.
+
+- **A streamed upload is handed over unread.** A binary body was read with `await c.req.arrayBuffer()`
+  before the handler ran. A Worker isolate is 128 MB against a request-body limit of 100 MB, so an
+  upload at the documented maximum could not be served at all - and the document publishes only
+  `contentMediaType` for such a body, so **nothing about it was validated either**: the whole cost of
+  reading it bought a value nothing checked. The handler now receives `c.req.raw.body` as
+  `ReadableStream<Uint8Array> | null` and pipes it wherever it likes.
+
+  **This costs no ambient dependency**, which was assumed to be a trade and then measured: the
+  generated server has named `Response` since it was first emitted, so whatever a project already
+  supplies to satisfy that declares `ReadableStream` too. `test/streambody/` asserts both halves.
+
+  A raw JSON body is still read with `text()`, which a signature check needs verbatim.
+
+- **An OPTIONAL body no longer refuses a request that carries none.** `@body body?:` mounted
+  `zValidator` unconditionally, so a bodyless `POST` naming `content-type: application/json` answered
+  400 `Malformed JSON in request body` as `text/plain` - outside the app's error envelope, because
+  `zValidator` raises before `deps.invalid` runs. Such a body is now named `body?:` on the input and
+  mounted by a new `optionalBody` middleware, so an absent body reads `undefined` and the handler is
+  told the truth rather than handed an invented empty object.
+
+- **A malformed body now reports through `deps.invalid`** for optional and multi-media-type bodies,
+  so the app's envelope holds. See the known limit below for the case that remains.
+
+### Known limit
+
+A **required, single-media-type** body still rejects malformed JSON through `zValidator`'s
+`HTTPException`, which is `text/plain` and escapes `deps.invalid`. Routing it through the same
+middleware was implemented and reverted: it is a breaking change to the RUNTIME CONTRACT rather than
+to emitted output, because an app substituting `runtime-module` would have to export `byContentType`,
+which today it needs only for the rare multi-media-type case. Measured, 15 arms red. Closing it wants
+a form that adds no export - most likely emitting the middleware into `app.gen.ts` itself.
+
+## [0.18.1] - 2026-08-15
+
+### Fixed
+
+- **A property whose declared type is a dictionary was flattened in a handler's return type.**
+  `Produced<>` strips index signatures so an open model's `.loose()` catchall does not become an
+  obligation on the handler; it recursed into every object, so a property declared `Record<unknown>`
+  - where the index signature IS the type - lost it and became `{}`. Same defect as
+    `typespec-http-zod@0.19.1`, at this package's boundary, and fixed the same way: the index signature
+    is dropped only from a shape with declared keys beside it.
+
+Requires `typespec-http-zod@^0.19.1`.
+
+## [0.18.0] - 2026-08-15
+
+Requires `typespec-http-zod@^0.19.0`. Two changes to the signature a handler is written against.
+
+### Changed
+
+- **Every operation now takes `(ctx, input)`, including one that declares no input**, which gets
+  `Record<string, never>`. A surface written once against `Operations` - an RPC entrypoint, a proxy,
+  any uniform dispatch - is typed `(ctx, input)`, and TypeScript refuses a function with MORE
+  parameters than the signature it is assigned to, so a single parameterless operation made the whole
+  surface unassignable: `TS2322: Target signature provides too few arguments. Expected 2 or more, but
+got 1.`
+
+  **This breaks nothing.** Fewer parameters is always assignable, so a handler already written
+  `(ctx) => ...` keeps compiling untouched, and `test/openmodel/signature.test.ts` holds both halves so
+  that stays true.
+
+- **A handler can return an immutable view.** The return type is now the producer's view: `readonly`
+  as well as index-signature-free, at every depth. `readonly T[]` and `T[]` serialise to identical
+  bytes, so mutability is a TypeScript variance property rather than a wire property - which
+  `Produced<>` in the contract types had said all along while the handler signature did not honour
+  it. A contract method returning `readonly T[]` could not be wired at all.
+
+  **An explicit `undefined` on an optional property is deliberately still accepted.** Removing it was
+  implemented and reverted: it looks like the same class and is the opposite. Dropping an index
+  signature or adding `readonly` makes MORE values assignable; removing `| undefined` makes fewer,
+  and it broke `(ctx, input) => ok(input)` - return what you were given - because what a handler
+  receives carries it.
+
+## [0.17.0] - 2026-08-15
+
+Requires `typespec-http-zod@^0.18.0`, which types a `HttpPart<File>` as a file instead of `unknown`.
+
+### Changed
+
+- **A handler reads a multipart file part without a cast.** `input.file.name`, `input.file.type` and
+  `input.file.arrayBuffer()` are all reachable, for a required part, an optional one and a repeated
+  one. No source change was needed here - the narrowing survives the walk that builds a handler's
+  input type - but `test/filepart/` asserts it at the boundary rather than inferring it from the
+  library being correct. The open-model fix in `0.15.0` did NOT survive that walk, which is why the
+  claim is made here and not assumed.
+
+  The part type is spelled structurally, so the handler arm compiles under `types: []`: reading a
+  file part pulls in no `lib.dom` and no `@types/node`.
+
+- **`test/vocabulary.test.ts` admits that one `.refine` as a SHAPE**, with its own non-vacuity floor.
+  Duplicated from the library's copy deliberately: that package emits the schema, this one embeds it
+  in a server, and each grades the output it produces. A rule enforced in one place only is a rule
+  the other can drift away from.
+
+## [0.16.0] - 2026-08-15
+
+**`selectContentType` was wrong in four ways and had no behavioural test at all** -
+`compiles.test.ts` asserted that the string `selectContentType(` appears in emitted output, which is
+a claim that negotiation is wired, not that it is correct. It ships in the runtime every generated
+server imports, so all four were live.
+
+### Fixed
+
+- **A media type the caller explicitly refused could be served.** `Accept: */*, application/json;q=0`
+  chose `application/json`. `q=0` is a refusal, and it must never lose to a wildcard that accepts.
+- **A type's quality was read from the best-scoring matching range rather than the most specific
+  one.** RFC 9110 section 12.5.1 says specificity SELECTS which rule applies, before quality is
+  compared; it was implemented as a tie-break. So `Accept: */*;q=1.0, application/json;q=0.1` served
+  JSON, when the caller had pinned JSON to 0.1 and everything else to 1.0.
+- **An exact type lost to a subtype wildcard** for the same reason:
+  `Accept: text/*;q=0.9, text/plain;q=0.1` served `text/plain`.
+- **A malformed `q` made the type unacceptable**, so `q=1.2.3` answered 406. It is now ignored, as an
+  unstated `q` is: a typo in a request header should not fail negotiation.
+
+  The docblock stated all of these rules correctly the whole time. Nothing compared it to the code,
+  which is what `test/negotiation.test.ts` now does - 11 arms, every one of the four proven red first.
+
+### Changed
+
+- **`byContentType`'s `branches` parameter is a non-empty tuple.** The fallback reads `branches[0]`,
+  which on a plain array is `T | undefined` and was silenced with a cast. The type now states what
+  the emitter already guarantees, and the cast is gone rather than typed around.
+- A stale docblock in `byContentType` described an implementation using Hono's `validator` that had
+  already been replaced, including behaviour the current code does not have.
+
+## [0.15.0] - 2026-08-15
+
+Requires `typespec-http-zod@^0.17.0`, which takes the index signature off an open model's contract
+type. **That fix did not reach this package on its own**, as the arm below shows.
+
+### Fixed
+
+- **A handler could not return a value the application already held.** The generated signature is
+  `Awaitable<Result<z.infer<typeof xSchema>>>` - derived from the validator, not from the contract
+  types - so for an open model it carried `[key: string]: unknown` at every level of the tree.
+  TypeScript gives an `interface` no implicit index signature, so returning one meant spreading every
+  level, a structural deep copy per response. The return type now drops
+  index signatures at every depth.
+
+  **The input type deliberately still carries them.** A handler RECEIVES whatever the validator let
+  through, and a loose model really does pass unknown keys along, so saying so describes the value in
+  hand. Producing and receiving are different directions and the two types now say different things,
+  which is the point.
+
+### Added
+
+- `test/openmodel/` compiles a hand-written handler against the generated `Operations` interface and
+  requires a plain nested `interface` to be returnable **with no spread at any level**, plus its
+  mirror: that an open input is still typed as carrying unknown keys. Nothing here previously asked
+  whether a handler could satisfy the signature it is written against, which is how a library-side
+  fix could have been reported as complete while this boundary was still broken.
+
+## [0.14.0] - 2026-08-14
+
+Requires `typespec-http-zod@^0.16.0`, where two constructs made the emitter's own assertion fail on
+its own output: a `@multipartBody` never reached the request type, and an open model's type lacked
+the catchall its `.loose()` schema infers. Both emitted a `wire-contract.gen.ts` that does not
+compile.
+
+## [0.13.1] - 2026-08-14
+
+`0.13.0` fixed the `Record` body for a JSON body only. **A form body validates under the `"form"`
+target, not `"json"`**, and the fix keyed on the JSON target, so
+`@header contentType: "application/x-www-form-urlencoded"` with a `Record` body still emitted the
+intersection and still failed with `TS2345`.
+
+The body validator is identified by its SCHEMA now, which is the same fact whichever parser reads it.
+
+The suite's fixture declared a JSON body only, so the form path was ungraded. It is covered now.
+
+## [0.13.0] - 2026-08-14
+
+Requires `typespec-http-zod@^0.15.0`.
+
+A minor: a request body with an indexer is named in the handler's input rather than spread into it.
+
+**A `Record` body beside any other parameter emitted a server that does not compile.** Intersected,
+the body's index signature is imposed on every sibling, so
+`op x(@query q?: string, @body body: Record<string>)` failed with
+`TS2345: 'q' is incompatible with index signature`. The handler now receives
+`{ q?: string } & { body: Record<string, string> }`, and the call site assigns the body rather than
+spreading it.
+
+**It was wrong before it failed to compile.** The document states the parameters and the body as
+separate things; merged, a body key named `q` silently overwrote the query parameter of that name.
+An ordinary model body is spread exactly as before.
+
+## [0.12.0] - 2026-08-14
+
+Requires `typespec-http-zod@^0.14.0`, where every response arm now carries its media types including
+where a status offers only one. A `text/plain` arm and a JSON arm were previously indistinguishable
+to a generic `deps.respond`.
+
+## [0.11.0] - 2026-08-14
+
+Requires `typespec-http-zod@^0.13.0`.
+
+A minor, from the library: a scalar the spec declares is now checked rather than validated as a bare
+string. `utcDateTime` emits `z.iso.datetime({ offset: true })`, `url` emits `z.url()`, and the
+`plainDate`, `plainTime` and `duration` scalars likewise.
+
+A service promising a timestamp accepted `banana` before this. `@format("...")` on a plain string
+stays unenforced, because a type is a claim about the value and an annotation is a hint about it.
+
+## [0.10.1] - 2026-08-14
+
+A patch: `regenerate-hint` reached three generated files out of five.
+
+The option is the library's and its files honoured it, while `app.gen.ts` and `runtime.gen.ts` are
+written here and carried their own banner. Setting the option reached only the files a reader opens
+last, which is worse than not offering it.
+
+Also carries `typespec-http-zod@0.12.1`, where a redirect emitted a duplicate response arm.
+
+Both were found by compiling a spec from a clean install of the published packages, not by either
+suite. Both suites were green over them.
+
+## [0.10.0] - 2026-08-14
+
+Requires `typespec-http-zod@^0.12.0`.
+
+A minor: the emitted type of every optional property changes, from the library.
+
+### Added
+
+- **`services.<name>.emit-server: false`**, so a service a project compiles but does not serve gets
+  its types and validators without a server. An internal surface and a public one belong in one
+  compile, which is what makes a shared vocabulary shared; a project not yet serving one of them got
+  an `app.gen.ts` that nothing mounted. Only that file is withheld.
+- `regenerate-hint`, forwarded from the library, writes your own regeneration command into every
+  banner. Worth setting on day one: a reader who opens a generated file is then told what to run
+  rather than only what not to edit.
+
+### Fixed
+
+- **The compile arm had never seen multi-service output.** It included `./*.gen.ts`, and a program
+  declaring several services writes one directory per service, so `tsc` answered `TS18003` on the
+  first such fixture rather than compiling anything. Recursive now, and the construct sweep beside it
+  walks for `app.gen.ts` at any depth instead of reading only the top level.
+
+### From the library
+
+- An optional property is no longer typed as admitting an explicit `undefined`. JSON cannot carry
+  one, and the document says so by leaving the property out of `required`.
+
+## [0.9.1] - 2026-08-14
+
+`0.9.0` was tagged and never published: a test fixture constructing an `EmittedRoute` by hand had not
+been given the library's two new fields, so `typecheck` failed and the release workflow stopped. The
+mistake that let it be tagged was piping `pnpm typecheck` into `tail`, which reports the exit status
+of `tail` rather than of the compiler, so the gate chain continued past a failure.
+
+Nothing else differs from `0.9.0`.
+
+## [0.9.0] - 2026-08-14
+
+Requires `typespec-http-zod@^0.11.0`.
+
+A minor, and everything in it comes from the library: a response arm now carries the headers and the
+media types the document declares for it, and an operation whose only response is a redirect is
+emitted rather than silently dropped.
+
+`ResponseArm` in the emitted runtime gains `headers` and `contentTypes` to match, so `deps.respond`
+can set a `Location` on a 302 and can tell which media type it is answering with. Both are absent
+where the document declares nothing, so "none declared" and "none carried" are one state rather than
+two.
+
+**If you have copied `runtime.gen.ts` to substitute your own types, take the new one.** The
+declaration is structural and `test/runtime-parity.test.ts` compares this copy against the library's,
+so a stale copy is a silent disagreement about what an arm carries.
+
+## [0.8.0] - 2026-08-14
+
+Requires `typespec-http-zod@^0.10.0`.
+
+A minor: a spec declaring reserved path expansion mounts a different route than it did.
+
+### A path parameter can carry slashes
+
+A hierarchical identifier is one value, not several segments. Declare it with RFC 6570 reserved
+expansion in the route template and the whole remainder reaches the handler:
+
+```tsp
+@route("/files/{+path}")
+@get
+op readFile(@path path: string): StoredFile;
+```
+
+mounts `/files/:path{.+}`, so `GET /files/reports/summary.pdf` delivers `reports/summary.pdf` rather
+than `reports`. A parameter without the marker is unchanged and still matches a single segment.
+
+**The document says `/files/{path}` and that divergence is deliberate.** OpenAPI cannot express
+reserved expansion at any version including 3.2, so `@typespec/openapi3` strips the operator and warns.
+It is a superset rather than a contradiction, which is what makes it safe: a client generated from the
+document percent-encodes the parameter and sends `/files/reports%2Fsummary.pdf`, and the greedy route
+answers that too with the same value. Both are asserted by request in `test/wire/`, which is the only
+oracle available where the document deliberately disagrees.
+
+The refusal on a parameter NAME is unchanged and still comes first: a name carrying a space, `+` or
+`!` is refused whether or not it is reserved.
+
+### Fixed
+
+- **A comparator rejected a legal route.** The arm asserting no route is mounted at an unconverted
+  template matched any registered path containing `{`, and Hono's greedy form `:name{.+}` contains one.
+  It had never fired only because the corpus scenario that would reach it is skipped for an unrelated
+  reason. It is about unconverted templates now rather than about braces, with its own control proving
+  it still catches a real `/things/{thing-id}`.
+- **The security comparator passed over zero comparisons.** It collects divergences and asserts the
+  list is empty, and finding none is what happens when it reads nothing at all. Floored on both sides
+  of the read, documents found and operations compared.
+
+## [0.7.0] - 2026-08-14
+
+Requires `typespec-http-zod@^0.9.0`.
+
+A minor because emitted output changes: a file that needs no validator no longer imports one.
+
+Every fix here was found by compiling generated output or by reading every generated file for a name
+declared twice. None was visible to a comparison against the document, because in each case the
+document was right and the emitted file was what did not build.
+
+### Fixed
+
+- **A service declaring no parameters emitted an import nothing used.**
+  `import { zValidator } from "@hono/zod-validator"` was written unconditionally while the three
+  imports beside it were already conditional, and the comment above them stated the rule this one
+  broke. Two bare `GET`s, which is where a health check starts and therefore where a new project
+  starts, failed with `TS6133: 'zValidator' is declared but its value is never read`.
+- **A service whose every operation returns `void` did the same with `import { z } from "zod"`.**
+- **Operations resolving to one operation id no longer collide.** Two interfaces of the same name in
+  different namespaces both resolved to `Standard_primitive`, and every declaration keyed on the id
+  was emitted twice: 36 `TS2300`s on one conformance scenario. The library now deduplicates exactly as
+  `@typespec/openapi3` does, so this emitter receives distinct ids.
+
+### Added
+
+- **`compiles.test.ts` compiles every fixture's generated output**, discovered rather than listed,
+  with `noUnusedLocals` and `noUnusedParameters` on. Only one shape of `app.gen.ts` had ever been
+  through a compiler, so an emitter that succeeds and emits something unbuildable was invisible.
+- **`uniqueness.test.ts` reads every generated file** across every fixture and the whole conformance
+  corpus for a name declared twice. It found a second collision class on its first run.
+- Fixtures for the shapes those arms needed: a dispatched request body, a `HEAD` alone on its path,
+  identifiers containing `$`, a service with no parameters, and one returning only `void`.
+
+## [0.6.0] - 2026-08-14
+
+Requires `typespec-http-zod@^0.6.0`.
+
+A minor because the library gains a wire decoder a parameter did not have, so a
+project regenerating gets different output.
+
+### A name containing `$` no longer emits a file that cannot compile
+
+TypeSpec permits `$` in a model or operation name. The check deciding which
+validator identifiers to import built a regular expression per name, and `$`
+anchors the end of a pattern, so `\blist$ItemsQuery\b` never matched. Escaping
+alone would not have fixed it either: `\b` is a word boundary and `$` is not a
+word character.
+
+Measured on `op list$Items(@query $select?: string): Item$Ref[]`, the whole
+`./schemas.gen.js` import was dropped and the emitted file failed with four
+`TS2304: Cannot find name`, while `tsp compile` reported success. The rendered
+text is tokenised and compared by equality now.
+
+### From the library, via `^0.6.0`
+
+A query or path parameter typed as a union of literals, such as
+`@query size: 10 | 25 | 50`, now decodes the value the wire carries. It
+previously answered 400 to every conformant caller. `test/wire/` asserts it
+through a real request as well, because a correct validator can still be reached
+by nothing.
+
+### Internal
+
+The `headOnly` import is decided from the registration rather than by matching
+generated text, the same latent failure as the `byContentType` one fixed in
+0.5.0. Emitted output is unchanged by that.
+
+## [0.5.0] - 2026-08-14
+
+Requires `typespec-http-zod@^0.5.0`.
+
+A minor because it changes emitted output, and because `byContentType`'s
+signature in the emitted runtime has changed. If you have copied
+`runtime.gen.ts` to substitute your own types, take the new one: regenerated
+output calls the new signature.
+
+### An operation accepting several request media types now emits a server that compiles
+
+Declaring both a JSON and a form-encoded body on one operation emitted an
+`app.gen.ts` that `tsc` rejected:
+
+```
+app.gen.ts(202,22): error TS2345: Argument of type '"json"' is not assignable
+to parameter of type '"header"'.
+```
+
+`byContentType` was a plain middleware wrapping pre-built validators, so it
+contributed nothing to Hono's chain and the handler's `c.req.valid("json")`
+named a target the types did not carry. The same cause left the request body out
+of the handler's declared input type on those routes, so the body arrived at run
+time and was invisible to the compiler.
+
+It now takes the body's schema, chooses the reader from the request's
+`Content-Type`, and publishes what it validated under the body target whichever
+reader ran. The emitted registration is the ordinary shape: one body middleware,
+one `c.req.valid` spread, the body in the input type. The readers are Hono's
+own, and a malformed JSON body raises the exception `zValidator` raises.
+
+Only operations declaring request media types that need different parsers are
+affected. Everything else emits exactly as before.
+
+### A `HEAD` alone on its path
+
+No behaviour change; the guard was correct and is now exercised by a fixture that
+is compiled and requested, rather than only by corpus output that was neither.
+
+## [0.4.0] - 2026-08-14
+
+Requires `typespec-http-zod@^0.4.0`.
+
+A minor because the library changes the shape of an emitted query validator: one
+occurrence of an exploded list is boxed into the list the document describes.
+`zValidator` delivers a bare string for a single occurrence and an array for
+several, so `?topics=a` was refused while `?topics=a&topics=b` was accepted, the
+same list decided by its length.
+
+`style: form, explode: true` is OpenAPI's default for query parameters, so a
+single occurrence IS a one-element array and the document said so all along. The
+vocabulary guard admits the boxing on the same terms as the delimiter split: it
+reshapes the wire into what the document already describes and runs every
+constraint afterwards.
+
+## [0.3.2] - 2026-08-13
+
+A patch: nothing emitted changes. Closes the last of the pairs this package
+produced or consumed that nothing compared.
+
+The status arms the server hands `deps.respond` are compared to the responses the
+document declares, over every operation in the corpus. Both sides are produced by
+dependencies, so the comparison logic carries its own non-vacuity arm rather than
+a control that perturbs this emitter, which could not move either side.
+
+## [0.3.1] - 2026-08-13
+
+A patch: nothing emitted changes. Two properties this package claimed were now
+compared rather than asserted against expectations written by hand.
+
+The gate the document publishes is compared to the gate the server applies, over
+every operation in the 62-scenario corpus. The prefix the document publishes is
+compared to the prefix the server mounts under. Both artefacts are derived
+independently, this emitter from `@typespec/http` and the document from
+`@typespec/openapi3` walking the program itself, so nothing but a comparison can
+show that they agree. They do.
+
+`compileFixture` can emit an OpenAPI document, which is what the base-path
+comparison needed and no fixture previously had.
+
+## [0.3.0] - 2026-08-13
+
+Requires `typespec-http-zod@^0.3.0`.
+
+Nothing this package emits has changed. The bump is a minor rather than a patch
+because the library's `requests.gen.ts` changes shape, and a project regenerating
+gets different contract types. A patch would have installed itself on anyone
+holding `^0.2.0` and altered their generated types without an opt-in, which is
+what this project's versioning policy exists to prevent.
+
+### What the library fixed
+
+A renamed parameter was keyed by its TypeSpec property name in the contracts and
+by its wire name in the validator, so the two artefacts generated from one
+document disagreed about the same request. `@header("x-thing")`, `@path("thing-id")`
+and `@query("$select")` are all keyed by wire name now, matching what the
+validator has always used and what the document publishes.
+
+A raw binary request body was typed `string` in the contracts while the server
+read `arrayBuffer()` and typed `ArrayBuffer`. Both say `ArrayBuffer` now. A `bytes`
+value inside a JSON payload is still `string`.
+
+Anyone using `contracts-output-dir` should regenerate. Without it, a handler
+satisfying the contract types could not satisfy the generated `Operations`.
+
+## [0.2.0] - 2026-08-13
+
+A minor bump rather than a patch, because the emitted output changed. A project regenerating against
+this release gets a different server: an extra file, routes that did not exist before, and a different
+validator on some request bodies.
+
+### The emitter is now a devDependency
+
+The runtime is written beside the generated code as `runtime.gen.ts`, so nothing emitted imports this
+package at run time. Install it with `pnpm add -D`. Previously it had to be a production dependency,
+and `--save-dev` passed every local check and then failed at deploy with
+`Could not resolve "typespec-hono/runtime"`.
+
+`ResponseArm` and `armFor` are declared in this package rather than re-exported from
+`typespec-http-zod`, so that a project's production dependencies stay clear of both emitters.
+
+### `@head` operations are served
+
+They were refused. Hono rewrites HEAD to GET before route matching, so a route registered under HEAD
+is never reached, and the previous release excluded those operations with an `unroutable-verb` warning.
+They are registered under GET now and told apart by `c.req.method`, which still reads `HEAD` after the
+rewrite. Where a path declares only `@head`, a real GET gets the 404 it got before. Where a path
+declares both, one registration serves both and each operation keeps its own handler.
+
+Twelve operations across `@typespec/http-specs` moved from refused to served.
+
+### Every declared `@server` is mounted
+
+A service declaring several base paths was previously mounted at the root with an
+`ambiguous-server-path` warning. There is nothing ambiguous about it: the document says the service
+answers at all of them, and Hono mounts one sub-app under as many prefixes as it is given. Routes are
+mounted under each.
+
+### The request validator is chosen from `Content-Type`
+
+An operation declaring several request media types got one `zValidator` fixed at generation time, so a
+form-encoded body sent to a route that also accepts JSON was parsed as JSON and answered 400 with no
+diagnostic. The validator is now selected from the request's `Content-Type`, which is the only point
+at which the answer exists.
+
+Media types no parser can handle, `application/xml` being the common one, are named by the new
+`unvalidatable-media-type` warning rather than mis-parsed silently.
+
+### Diagnostics
+
+Added `unvalidatable-media-type`. Removed `unroutable-verb` and `ambiguous-server-path`, both of which
+described things this release does rather than refuses.
+
+### Requires `typespec-http-zod@^0.2.0`
+
+That release stopped refusing unknown scalars and `never` properties and started emitting what the
+document describes for both, so the validators this package pairs with a server are different. Coverage
+over `@typespec/http-specs` moved with it: a scenario that previously failed to compile at all now
+does, taking the graded corpus from 61 scenarios and 577 operations to 62 and 635, with refusals still
+at zero.
+
+### Documentation
+
+The README is a README again rather than a manual, with the reference material in `docs/`.
+
+## [0.1.0] - 2026-08-13
+
+First release.

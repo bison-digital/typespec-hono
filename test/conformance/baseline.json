@@ -1,0 +1,12 @@
+{
+	"scenarios": 63,
+	"declared": 644,
+	"mounted": 644,
+	"slots": 642,
+	"served": 647,
+	"registrations": 642,
+	"refused": 0,
+	"partiallyValidated": 0,
+	"unvalidatedResponses": 29,
+	"unvalidatedRequests": 25
+}
