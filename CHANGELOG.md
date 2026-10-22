@@ -8,6 +8,16 @@ published types; a patch will not. The **emitted output is part of the API**, a 
 `registerRoutes` returns, to a validator's shape, or to what a handler receives is a change a
 consumer feels, and is treated as such here rather than as an implementation detail.
 
+## [0.31.1] - 2026-10-22
+
+A patch: no route, validator, type or emitted code changes.
+
+### Changed
+
+- **Comments, documentation and test fixtures are rewritten in neutral terms.** The comments in
+  `runtime.gen.ts`, this package's runtime copied beside the generated code, and one doc comment in
+  `app.gen.ts` are reworded, so regenerated output differs in those comments and nowhere else.
+
 ## [0.31.0] - 2026-10-21
 
 Requires `typespec-http-zod` `0.34.0`, which writes every file in the order the spec declares it.
