@@ -20,6 +20,8 @@ A patch: no route, validator, type or emitted code changes.
 
 ## [0.31.0] - 2026-10-21
 
+Upgrading: [what to check before you take this](docs/guides.md#to-0310).
+
 Requires `typespec-http-zod` `0.34.0`, which writes every file in the order the spec declares it.
 
 ### Changed

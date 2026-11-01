@@ -281,6 +281,22 @@ documented maximum could not be served at all.
 
 ## Upgrading
 
+### To `0.31.0`
+
+`0.31.0` requires `typespec-http-zod` `0.34.0`, which writes every file in the order the spec declares
+what it holds. Nothing a route, validator or handler contract says changes; regenerate and expect one
+diff of moved declarations:
+
+- **Where nothing is named before it is declared**, every file is what `0.30.0` wrote.
+- **Routes, validators and handler contracts follow declaration order.** `registerRoutes` mounts, and
+  `app.gen.ts` and `schemas.gen.ts` declare, in the order the spec declares its operations and types,
+  not the order the compiler checked them in. An augment decorator in a second file naming an
+  operation, as a GraphQL surface's `@link` does, used to reorder every route; it no longer does.
+- Whole declarations move and none changes, so review the diff as a move. The library's "To
+  `0.34.0`" section lists what moves.
+
+`0.31.1` changes only comments, in `runtime.gen.ts` and one doc comment in `app.gen.ts`.
+
 ### To `0.30.0`
 
 `0.30.0` requires `typespec-http-zod` `0.33.0`, which only adds to its API, and the generated
